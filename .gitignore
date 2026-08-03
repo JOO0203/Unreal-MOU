@@ -1,0 +1,78 @@
+# Unreal Engine generated folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Unreal Engine generated folders inside nested project folders
+*/Binaries/
+*/Build/
+*/DerivedDataCache/
+*/Intermediate/
+*/Saved/
+
+# Visual Studio / Rider / IDE files
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.user
+*.userosscache
+*.sln.docstates
+
+# Unreal generated project files
+*.xcodeproj
+*.xcworkspace
+*.xcuserdata/
+*.code-workspace
+
+# Build outputs and debug symbols
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.app
+*.dSYM/
+
+# Unreal logs, crash dumps, and profiling data
+*.log
+*.dmp
+*.tmp
+*.temp
+*.udebugsymbols
+*.uprojectdirs
+
+# Claude Code
+.claude/
+CLAUDE.md
+Claude.md
+
+
+
+# Automation / local machine files
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Keep Unreal source assets tracked:
+# - *.uproject
+# - Config/
+# - Content/
+# - Source/
+# - Plugins/
+# - *.uasset
+# - *.umap
+
+!*.md
+CLAUDE.md
