@@ -3,6 +3,7 @@
 #include "Base/CharacterBase.h"
 
 #include "Base/BaseAttributeSet.h"
+#include "Components/StatusComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -11,12 +12,18 @@ ACharacterBase::ACharacterBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// GAS ì–´ë¹Œë¦¬í‹° ì‹œìŠ¤í…œ ì»´í¬ë„ŒíŠ¸ ìƒì„± ë° ë„¤íŠ¸ì›Œí¬ ë¦¬í”Œë¦¬ì¼€ì´ì…˜ ì„¤ì •
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(AscReplicationMode);
 
+	// í”Œë ˆì´ì–´ ë° ë°©í•´ NPC ê³µí†µ ìƒíƒœ ê´€ë¦¬ ì»´í¬ë„ŒíŠ¸ ìƒì„±
+	StatusComponent = CreateDefaultSubobject<UStatusComponent>(TEXT("StatusComponent"));
+
+	// ìº¡ìŠ ì½œë¦¬ì „ ê¸°ë³¸ í¬ê¸° ì„¤ì •
 	GetCapsuleComponent()->InitCapsuleSize(35.0f, 90.0f);
 
+	// ì»¨íŠ¸ë¡¤ëŸ¬ íšŒì „ ì‚¬ìš© ì•ˆ í•¨ (ìºë¦­í„° ì´ë™ ë°©í–¥ìœ¼ë¡œ ìë™ íšŒì „)
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
@@ -24,6 +31,7 @@ ACharacterBase::ACharacterBase()
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
 
+	// ì´ë™ ë¬¼ë¦¬ ë° ì í”„ ê´€ë ¨ ê¸°ë³¸ê°’ ì„¤ì •
 	GetCharacterMovement()->JumpZVelocity = 500.0f;
 	GetCharacterMovement()->AirControl = 0.35f;
 	GetCharacterMovement()->MaxWalkSpeed = 500.0f;
@@ -31,6 +39,7 @@ ACharacterBase::ACharacterBase()
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.0f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 
+	// ê¸°ë³¸ AttributeSet ìƒì„± ë° ë“±ë¡
 	BaseAttribute = CreateDefaultSubobject<UBaseAttributeSet>(TEXT("AttributeSet"));
 	BaseAttributeSet.Add(BaseAttribute);
 }
@@ -39,7 +48,7 @@ void ACharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ¹ÙÀÎµù È£Ãâ
+	// Attribute ë³€ê²½ ê°ì§€ ë¸ë¦¬ê²Œì´íŠ¸ ë°”ì¸ë”©
 	BindAttributeChangeDelegates();
 }
 
@@ -49,6 +58,7 @@ void ACharacterBase::PossessedBy(AController* NewController)
 
 	if (AbilitySystemComponent)
 	{
+		// ì„œë²„ í™˜ê²½: GAS ì–´ë¹Œë¦¬í‹° ì •ë³´ ì´ˆê¸°í™” ë° ì´ˆê¸° ìŠ¤í‚¬ ë¶€ì—¬
 		AbilitySystemComponent->InitAbilityActorInfo(this, this);
 		InitializeAbilityMulti(InitalAbilities, 1);
 		BindAttributeChangeDelegates();
@@ -61,6 +71,7 @@ void ACharacterBase::OnRep_PlayerState()
 
 	if (AbilitySystemComponent)
 	{
+		// í´ë¼ì´ì–¸íŠ¸ í™˜ê²½: GAS ì–´ë¹Œë¦¬í‹° ì •ë³´ ì´ˆê¸°í™”
 		AbilitySystemComponent->InitAbilityActorInfo(this, this);
 		BindAttributeChangeDelegates();
 	}
@@ -79,6 +90,28 @@ void ACharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 UAbilitySystemComponent* ACharacterBase::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
+}
+
+bool ACharacterBase::CanMove() const
+{
+	// StatusComponentë¥¼ ì´ìš©í•´ ì´ë™ ê°€ëŠ¥ ìƒíƒœ(ê¸°ì ˆ/ì¡í˜/ë„‰ë°± ì—†ìŒ) í™•ì¸
+	if (StatusComponent)
+	{
+		return StatusComponent->CanMove();
+	}
+
+	return true;
+}
+
+bool ACharacterBase::CanAct() const
+{
+	// StatusComponentë¥¼ ì´ìš©í•´ í–‰ë™ ê°€ëŠ¥ ìƒíƒœ(ê¸°ì ˆ/ì¡í˜ ì—†ìŒ) í™•ì¸
+	if (StatusComponent)
+	{
+		return StatusComponent->CanAct();
+	}
+
+	return true;
 }
 
 FGameplayAbilitySpecHandle ACharacterBase::InitializeAbility(TSubclassOf<UGameplayAbility> AbilityToGet, int32 AbilityLevel)
@@ -116,6 +149,7 @@ void ACharacterBase::BindAttributeChangeDelegates()
 
 	AttributeDelegatesBound = true;
 
+	// ì²´ë ¥(Health) ë³€ê²½ ë¸ë¦¬ê²Œì´íŠ¸ ë°”ì¸ë”©
 	AbilitySystemComponent
 		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetHealthAttribute())
 		.AddUObject(this, &ACharacterBase::HandleHealthChanged);
@@ -123,10 +157,26 @@ void ACharacterBase::BindAttributeChangeDelegates()
 	AbilitySystemComponent
 		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxHealthAttribute())
 		.AddUObject(this, &ACharacterBase::HandleMaxHealthChanged);
+
+	// ìŠ¤íƒœë¯¸ë‚˜(Stemina) ë³€ê²½ ë¸ë¦¬ê²Œì´íŠ¸ ë°”ì¸ë”©
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetSteminaAttribute())
+		.AddUObject(this, &ACharacterBase::HandleSteminaChanged);
+
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxSteminaAttribute())
+		.AddUObject(this, &ACharacterBase::HandleMaxSteminaChanged);
+
+	// ì´ë™ì†ë„(MoveSpeed) ë³€ê²½ ë¸ë¦¬ê²Œì´íŠ¸ ë°”ì¸ë”©
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMoveSpeedAttribute())
+		.AddUObject(this, &ACharacterBase::HandleMoveSpeedChanged);
+
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxMoveSpeedAttribute())
+		.AddUObject(this, &ACharacterBase::HandleMaxMoveSpeedChanged);
 }
 
-// Health Attribute°¡ º¯°æµÇ¾úÀ» ¶§ ASC µ¨¸®°ÔÀÌÆ®¿¡ ÀÇÇØ È£Ãâ
-// ÇöÀç Health¿Í MaxHealth¸¦ Blueprint ÀÌº¥Æ®·Î ³Ñ°Ü UI¸¦ °»½Å
 void ACharacterBase::HandleHealthChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
@@ -134,11 +184,10 @@ void ACharacterBase::HandleHealthChanged(const FOnAttributeChangeData& Data)
 		return;
 	}
 
+	// ì²´ë ¥ ë³€ê²½ ì‹œ Blueprint ì´ë²¤íŠ¸ í˜¸ì¶œ (UI ì—…ë°ì´íŠ¸)
 	OnHealthUpdated(BaseAttribute->GetHealth(), BaseAttribute->GetMaxHealth());
 }
 
-// MaxHealth°¡ º¯°æµÇ¾úÀ» ¶§ È£Ãâ
-// ÃÖ´ë Ã¼·ÂÀÌ ¹Ù²î¸é HP ºñÀ²µµ ´Ş¶óÁú ¼ö ÀÖÀ¸¹Ç·Î HP UI¸¦ ´Ù½Ã °»½Å
 void ACharacterBase::HandleMaxHealthChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
@@ -149,7 +198,6 @@ void ACharacterBase::HandleMaxHealthChanged(const FOnAttributeChangeData& Data)
 	OnHealthUpdated(BaseAttribute->GetHealth(), BaseAttribute->GetMaxHealth());
 }
 
-// Stemina Attribute°¡ º¯°æµÇ¾úÀ» ¶§ ASC µ¨¸®°ÔÀÌÆ®¿¡ ÀÇÇØ È£Ãâ
 void ACharacterBase::HandleSteminaChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
@@ -157,10 +205,10 @@ void ACharacterBase::HandleSteminaChanged(const FOnAttributeChangeData& Data)
 		return;
 	}
 
+	// ìŠ¤íƒœë¯¸ë‚˜ ë³€ê²½ ì‹œ Blueprint ì´ë²¤íŠ¸ í˜¸ì¶œ
 	OnSteminaupdated(BaseAttribute->GetStemina(), BaseAttribute->GetMaxStemina());
 }
 
-// MaxStemina Attribute°¡ º¯°æµÇ¾úÀ» ¶§ ASC µ¨¸®°ÔÀÌÆ®¿¡ ÀÇÇØ È£Ãâ
 void ACharacterBase::HandleMaxSteminaChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
@@ -171,7 +219,6 @@ void ACharacterBase::HandleMaxSteminaChanged(const FOnAttributeChangeData& Data)
 	OnSteminaupdated(BaseAttribute->GetStemina(), BaseAttribute->GetMaxStemina());
 }
 
-// Speed Attribute°¡ º¯°æµÇ¾úÀ» ¶§ ASC µ¨¸®°ÔÀÌÆ®¿¡ ÀÇÇØ È£Ãâ
 void ACharacterBase::HandleMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
@@ -179,11 +226,11 @@ void ACharacterBase::HandleMoveSpeedChanged(const FOnAttributeChangeData& Data)
 		return;
 	}
 
+	// ì´ë™ì†ë„ ì†ì„± ë³€ê²½ ì‹œ CharacterMovementì˜ MaxWalkSpeed ë™ê¸°í™”
 	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
 	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
 }
 
-// MaxSpeed Attribute°¡ º¯°æµÇ¾úÀ» ¶§ ASC µ¨¸®°ÔÀÌÆ®¿¡ ÀÇÇØ È£Ãâ
 void ACharacterBase::HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute)
