@@ -1,6 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
@@ -8,87 +6,73 @@
 #include "Enum/NPCEnum.h"
 #include "NPCData.generated.h"
 
-class UBehaviorTree;
-class UGameplayAbility;
-class UGameplayEffect;
-class USkeletalMesh;
-class UAnimInstance;
-
 UCLASS()
 class TEAMPROJECT_MOU_API UNPCData : public UPrimaryDataAsset
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	//UNPCData();
 
+    UNPCData();
 
-	/*NPC Çàµ¿ À¯Çü*/
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Identity")
-	ENpcType EnemyType = ENpcType::Normal;
+    /* NPC ì‹œì‘ ìƒíƒœ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "NPC ì‹œì‘ ìƒíƒœ"))
+    ENPCStartState StartState;
 
-	/*»ç¿ëÇÒ Behavior Tree */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|AI")
-	TObjectPtr<UBehaviorTree> BehaviorTree = nullptr;
+    /* ì •ì°° ì‚¬ìš© ì—¬ë¶€ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "ì •ì°° ì‚¬ìš© ì—¬ë¶€"))
+    bool UsePatrol;
 
-	/* ½Ã¾ß °¨Áö °Å¸® */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|AI",
-		meta = (ClampMin = "0.0", Units = "cm"))
-	float SightRadius = 1500.0f;
+    /* NPC í–‰ë™ í›„ ì •ì±… */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "í–‰ë™ í›„ ì •ì±…"))
+    ENPCAfterActionPolicy AfterActionPolicy;
 
-	/* Å¸°ÙÀ» ³õÄ¡´Â °Å¸® */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|AI",
-		meta = (ClampMin = "0.0", Units = "cm"))
-	float LoseSightRadius = 2000.0f;
+    /* NPC íƒ€ê¹ƒ ìƒì‹¤ ì‹œ ì •ì±… */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "íƒ€ê¹ƒ ìƒì‹¤ ì‹œ ì •ì±…"))
+    ENPCLostTargetPolicy LostTargetPolicy;
 
-	/* ÁÖº¯ ½Ã¾ß°¢ÀÇ Àı¹İ */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|AI",
-		meta = (ClampMin = "0.0", ClampMax = "180.0", Units = "deg"))
-	float PeripheralVisionHalfAngle = 70.0f;
+    /* ê³µìš© GA íƒœê·¸ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Ability", meta = (ToolTip = "ê³µìš© GA íƒœê·¸"))
+    FGameplayTag PrimaryAbilityTag;
 
+    /* NPC í–‰ë™ ì‹œì‘ ë²”ìœ„ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Combat", meta = (ToolTip = "ì•¡ì…˜ ì‹œì‘ ê±°ë¦¬"))
+    float ActionRange;
 
-	/* Æò»ó½Ã ÀÌµ¿¼Óµµ */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Movement",
-		meta = (ClampMin = "0.0", Units = "cm/s"))
-	float WalkSpeed = 250.0f;
+    /* NPC í–‰ë™ ì¸í„°ë²Œ ì‹œê°„ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Combat", meta = (ToolTip = "ì•¡ì…˜ í›„ ì¸í„°ë²Œ"))
+    float ActionInterval;
 
-	/* ÃßÀû ¶Ç´Â µµÁÖ ½Ã ÀÌµ¿¼Óµµ */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Movement",
-		meta = (ClampMin = "0.0", Units = "cm/s"))
-	float RunSpeed = 500.0f;
+    /* ê°ì§€ ë²”ìœ„ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Perception", meta = (ToolTip = "íƒ€ê¹ƒ ê°ì§€ ë²”ìœ„"))
+    float SightRadius;
 
+    /* ê°ì§€ í•´ì œ ë²”ìœ„ */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Perception", meta = (ToolTip = "íƒ€ê¹ƒ ê°ì§€ í•´ì œ ë²”ìœ„"))
+    float LoseSightRadius;
 
-	/* °øÅë BT¿¡¼­ ½ÇÇàÇÒ ´ëÇ¥ Ability ÅÂ±× */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Ability",
-		meta = (Categories = "Ability.Enemy"))
-	FGameplayTag PrimaryAbilityTag;
+    /* ì‹œì‘ ì‹œ ì ìš©í•  ìƒíƒœ íƒœê·¸ */
+    UFUNCTION(BlueprintPure, Category = "NPC|Behavior")
+    FGameplayTag GetStartStateTag() const;
 
-	/* NPC »ı¼º ½Ã ºÎ¿©ÇÒ Gameplay Ability ¸ñ·Ï */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Ability")
-	TArray<TSubclassOf<UGameplayAbility>> DefaultAbilities;
+    /* íƒ€ê¹ƒì´ ë³´ì´ëŠ” ë™ì•ˆ ë°˜ë³µ í–‰ë™í•˜ëŠ”ì§€ */
+    UFUNCTION(BlueprintPure, Category = "NPC|Behavior")
+    bool ShouldRepeatActionWhileTargetVisible() const;
 
-	/* NPC »ı¼º ½Ã Àû¿ëÇÒ ÃÊ±â Gameplay Effect */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Ability")
-	TArray<TSubclassOf<UGameplayEffect>> InitialEffects;
+    /* 1íšŒ í–‰ë™ í›„ ì ìš©í•  ë‹¤ìŒ ìƒíƒœ íƒœê·¸ */
+    UFUNCTION(BlueprintPure, Category = "NPC|Behavior")
+    FGameplayTag GetOneShotAfterActionStateTag() const;
 
+    /* íƒ€ê¹ƒ ìƒì‹¤ ì‹œ Home ë³µê·€ë¥¼ ì‚¬ìš©í•˜ëŠ”ì§€ */
+    UFUNCTION(BlueprintPure, Category = "NPC|Behavior")
+    bool ShouldReturnHomeOnLostTarget() const;
 
-	/* ±âº» Çàµ¿ ¶Ç´Â °ø°İÀÌ °¡´ÉÇÑ °Å¸® */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Combat",
-		meta = (ClampMin = "0.0", Units = "cm"))
-	float ActionRange = 200.0f;
+    /* íƒ€ê¹ƒ ìƒì‹¤ ì‹œ ì ìš©í•  ìƒíƒœ íƒœê·¸ */
+    UFUNCTION(BlueprintPure, Category = "NPC|Behavior")
+    FGameplayTag GetLostTargetStateTag() const;
 
-	/* Çàµ¿À» ´Ù½Ã ½ÃµµÇÏ±â Àü ±âº» ´ë±â½Ã°£ */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Combat",
-		meta = (ClampMin = "0.0", Units = "s"))
-	float ActionInterval = 1.5f;
-
-
-	/* Àû¿¡°Ô »ç¿ëÇÒ ½ºÄÌ·¹Å» ¸Ş½Ã */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Appearance")
-	TObjectPtr<USkeletalMesh> SkeletalMesh = nullptr;
-
-	/* Àû¿¡°Ô »ç¿ëÇÒ ¾Ö´Ï¸ŞÀÌ¼Ç ºí·çÇÁ¸°Æ® Å¬·¡½º */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Appearance")
-	TSubclassOf<UAnimInstance> AnimInstanceClass;
-	
+    /*íƒœê·¸ ì •ë³´ ë°›ì•„ì˜¤ê¸°*/
+    FGameplayTag PatrolTag() const;
+    FGameplayTag TrackingTag() const;
+    FGameplayTag StayTag() const;
 };
