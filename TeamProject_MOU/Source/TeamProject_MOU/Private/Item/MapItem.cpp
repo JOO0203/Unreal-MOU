@@ -3,6 +3,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/KismetRenderingLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "Blueprint/UserWidget.h"
 #include "TimerManager.h"
 
@@ -23,6 +24,9 @@ AMapItem::AMapItem()
 void AMapItem::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 레벨 경계 볼륨(MapBounds 태그)에서 지도 범위 자동 설정
+	ResolveMapBoundsFromVolume();
 
 	// 캡처 카메라 초기 세팅 (직교 폭 / 렌더타깃 연결)
 	if (CaptureCamera)
@@ -127,17 +131,54 @@ FVector2D AMapItem::WorldToMapUV(const FVector& WorldLocation) const
 	return FVector2D(FMath::Clamp(U, 0.0f, 1.0f), FMath::Clamp(V, 0.0f, 1.0f));
 }
 
-// [CAP-001] 캡처 카메라를 소지 플레이어 위로 이동/정렬
-void AMapItem::UpdateCaptureTransform()
+// [MAP-005] 레벨의 MapBounds 태그 볼륨을 찾아 Origin/Size 자동 설정
+void AMapItem::ResolveMapBoundsFromVolume()
 {
-	if (!CaptureCamera || !HoldingPlayer)
+	UWorld* World = GetWorld();
+	if (!World)
 	{
 		return;
 	}
 
-	// 소지 플레이어 위 CaptureHeight 높이에서 수직 하향으로 정렬
-	const FVector PlayerLoc = HoldingPlayer->GetActorLocation();
-	const FVector CamLoc = PlayerLoc + FVector(0.0f, 0.0f, CaptureHeight);
+	// "MapBounds" 태그가 붙은 액터를 검색
+	TArray<AActor*> BoundsActors;
+	UGameplayStatics::GetAllActorsWithTag(World, TEXT("MapBounds"), BoundsActors);
+	if (BoundsActors.Num() == 0)
+	{
+		// 볼륨이 없으면 에디터에서 수동 지정한 값을 그대로 사용 (폴백)
+		return;
+	}
+
+	// 첫 번째 볼륨의 월드 경계 박스를 읽음
+	FVector Origin, BoxExtent;
+	BoundsActors[0]->GetActorBounds(false, Origin, BoxExtent);
+
+	// 좌하단(XY) = 중심 - 절반크기, 전체크기 = 절반크기 * 2
+	MapWorldOrigin = FVector2D(Origin.X - BoxExtent.X, Origin.Y - BoxExtent.Y);
+	MapWorldSize = FVector2D(BoxExtent.X * 2.0f, BoxExtent.Y * 2.0f);
+
+	// 캡처가 맵 전체를 담도록 직교 폭을 맵 크기에 맞춤 (가로 기준)
+	CaptureOrthoWidth = MapWorldSize.X;
+	if (CaptureCamera)
+	{
+		CaptureCamera->OrthoWidth = CaptureOrthoWidth;
+	}
+}
+
+// [CAP-001] 캡처 카메라를 맵 중앙 상공에 고정 (전체 지도 방식)
+void AMapItem::UpdateCaptureTransform()
+{
+	if (!CaptureCamera)
+	{
+		return;
+	}
+
+	// 맵 중앙 XY = 원점 + 크기/2
+	const float CenterX = MapWorldOrigin.X + MapWorldSize.X * 0.5f;
+	const float CenterY = MapWorldOrigin.Y + MapWorldSize.Y * 0.5f;
+
+	// 맵 중앙 상공에서 수직 하향 (플레이어 위치와 무관하게 고정)
+	const FVector CamLoc(CenterX, CenterY, CaptureHeight);
 	CaptureCamera->SetWorldLocation(CamLoc);
 	CaptureCamera->SetWorldRotation(FRotator(-90.0f, 0.0f, 0.0f));
 }
@@ -145,16 +186,22 @@ void AMapItem::UpdateCaptureTransform()
 // [FOG-001] 소지 플레이어 위치를 Fog 마스크에 누적으로 밝힘
 void AMapItem::UpdateFogMask()
 {
-	if (!HoldingPlayer || !FogMaskRT || !FogBrushMID)
+	if (!HoldingPlayer)
 	{
 		return;
 	}
 
-	// 캡처 카메라를 현재 플레이어 위로 정렬 후 1회 캡처
+	// 캡처 카메라를 현재 플레이어 위로 정렬 후 1회 캡처 (Fog 에셋 유무와 무관하게 항상)
 	UpdateCaptureTransform();
 	if (CaptureCamera)
 	{
 		CaptureCamera->CaptureScene();
+	}
+
+	// 이하 Fog 마스크 그리기는 관련 에셋이 있을 때만
+	if (!FogMaskRT || !FogBrushMID)
+	{
+		return;
 	}
 
 	// 소지 플레이어 위치를 지도 UV로 변환하여 브러시 머티리얼에 전달

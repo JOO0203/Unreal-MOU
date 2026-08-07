@@ -91,6 +91,9 @@ public:
 #pragma endregion
 
 private:
+	// [MAP-005] 레벨의 MapBounds 태그 볼륨을 찾아 Origin/Size 자동 설정
+	void ResolveMapBoundsFromVolume();
+
 	// [CAP-001] 캡처 카메라를 소지 플레이어 위로 이동/정렬
 	void UpdateCaptureTransform();
 
