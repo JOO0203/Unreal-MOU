@@ -11,6 +11,7 @@
 #include "Animation/AnimMontage.h"
 #include "Components/StaticMeshComponent.h"
 #include "Base/ItemBase.h"
+#include "Net/UnrealNetwork.h"
 
 AMainCharacter::AMainCharacter()
 {
@@ -47,6 +48,12 @@ void AMainCharacter::Tick(float DeltaTime)
 
 	// 매 프레임 스태미나 소모 및 회복 처리
 	UpdateStamina(DeltaTime);
+}
+
+void AMainCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AMainCharacter, bIsSprinting);
 }
 
 void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -185,14 +192,47 @@ void AMainCharacter::OnSprintStart()
 		return;
 	}
 
+	// 클라이언트 측 예측 (즉시 달리기 적용)
 	bIsSprinting = true;
 	GetCharacterMovement()->MaxWalkSpeed = SprintWalkSpeed;
+
+	// 서버로 달리기 요청 전송
+	if (!HasAuthority())
+	{
+		ServerSetSprinting(true);
+	}
 }
 
 void AMainCharacter::OnSprintEnd()
 {
+	// 클라이언트 측 즉시 달리기 중지 적용
 	bIsSprinting = false;
 	GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+
+	// 서버로 달리기 중지 요청 전송
+	if (!HasAuthority())
+	{
+		ServerSetSprinting(false);
+	}
+}
+
+void AMainCharacter::ServerSetSprinting_Implementation(bool bSprint)
+{
+	if (bSprint)
+	{
+		if (StatusComponent && !StatusComponent->CanSprint())
+		{
+			bIsSprinting = false;
+			return; // 달리기 불가
+		}
+		bIsSprinting = true;
+		GetCharacterMovement()->MaxWalkSpeed = SprintWalkSpeed;
+	}
+	else
+	{
+		bIsSprinting = false;
+		GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+	}
 }
 
 void AMainCharacter::OnJumpStartInput()
@@ -239,13 +279,19 @@ void AMainCharacter::UpdateStamina(float DeltaTime)
 		CurrentExhaustionTimer -= DeltaTime;
 		if (CurrentExhaustionTimer <= 0.0f)
 		{
-			// 쿨다운 종료 시 Exhausted 상태 태그 제거
-			if (StatusComponent)
+			// 쿨다운 종료 시 Exhausted 상태 태그 제거 (서버 권한)
+			if (HasAuthority() && StatusComponent)
 			{
 				static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"), false);
 				StatusComponent->RemoveStatusTag(ExhaustedTag);
 			}
 		}
+	}
+
+	// 실제 스태미나 증감 연산은 서버에서만 수행 (AttributeSet의 복제(Replication)를 통해 클라이언트에 동기화됨)
+	if (!HasAuthority())
+	{
+		return;
 	}
 
 	// 캐릭터가 실제로 이동 중인지 체크
@@ -311,6 +357,34 @@ void AMainCharacter::SetEmotion(int32 EmotionIndex, FLinearColor EmoteColor)
 }
 
 void AMainCharacter::PlayEmote(UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor)
+{
+	if (!EmoteMontage || !GetMesh() || !GetMesh()->GetAnimInstance())
+	{
+		return;
+	}
+
+	// [이모트 사용 시 자동 Drop] 물건을 들고 있는 상태라면 먼저 내려놓음
+	if (CarryingComponent && CarryingComponent->IsCarrying())
+	{
+		CarryingComponent->GrabOrDrop();
+	}
+
+	if (!HasAuthority())
+	{
+		ServerPlayEmote(EmoteMontage, EmotionIndex, EmoteColor);
+	}
+	else
+	{
+		MulticastPlayEmote(EmoteMontage, EmotionIndex, EmoteColor);
+	}
+}
+
+void AMainCharacter::ServerPlayEmote_Implementation(UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor)
+{
+	MulticastPlayEmote(EmoteMontage, EmotionIndex, EmoteColor);
+}
+
+void AMainCharacter::MulticastPlayEmote_Implementation(UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor)
 {
 	if (!EmoteMontage || !GetMesh() || !GetMesh()->GetAnimInstance())
 	{

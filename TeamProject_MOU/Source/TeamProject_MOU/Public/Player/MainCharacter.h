@@ -20,6 +20,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 public:
@@ -101,6 +102,12 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "Emote")
 	void PlayEmote(class UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor = FLinearColor(0.0f, 0.623294f, 1.0f, 1.0f));
 
+	UFUNCTION(Server, Reliable)
+	void ServerPlayEmote(class UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayEmote(class UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor);
+
 	// 이모트 재생이 끝났을 때 표정을 초기화(Index 0)하는 콜백
 	UFUNCTION()
 	void OnEmoteMontageEnded(class UAnimMontage* Montage, bool bInterrupted);
@@ -145,10 +152,15 @@ private:
 	void OnEmoteToggle();
 	void OnUse();
 
+	// 달리기 동기화를 위한 서버 RPC
+	UFUNCTION(Server, Reliable)
+	void ServerSetSprinting(bool bSprint);
+
 	// 스태미나 처리 프라이빗 메서드
 	void UpdateStamina(float DeltaTime);
 
 	// 현재 달리기 조작 입력 상태
+	UPROPERTY(Replicated)
 	bool bIsSprinting = false;
 
 	// 스태미나 고갈에 따른 쿨다운 딜레이 진행 타이머

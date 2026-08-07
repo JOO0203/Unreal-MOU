@@ -87,6 +87,16 @@ public:
 	void Throw(FVector ThrowVelocity);
 	virtual void Throw_Implementation(FVector ThrowVelocity);
 
+	// 물리 동기화를 위한 멀티캐스트 함수들
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPickUp(AActor* Picker);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastDrop(FVector DropLocation);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastThrow(FVector ThrowVelocity);
+
 	// 좌클릭으로 아이템을 사용할 때 호출 (택배의 경우 기능을 비움)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Item|Action")
 	void OnUse();

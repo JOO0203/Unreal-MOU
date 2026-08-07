@@ -45,7 +45,10 @@ void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// 2. 가속도 입력 및 이동 여부 판단
 	bool bHasAcceleration = MovementComponent->GetCurrentAcceleration().SizeSquared() > 0.0f;
-	bShouldMove = (GroundSpeed > 3.0f) && bHasAcceleration;
+	
+	// 시뮬레이트 프록시(다른 플레이어)는 가속도가 기본적으로 동기화되지 않으므로 속도만으로 판단
+	bool bIsProxy = !MainCharacter->IsLocallyControlled();
+	bShouldMove = (GroundSpeed > 3.0f) && (bHasAcceleration || bIsProxy);
 
 	// 3. 점프/낙하 공중 체류 여부
 	bIsFalling = MovementComponent->IsFalling();

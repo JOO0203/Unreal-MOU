@@ -24,6 +24,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Carrying")
 	void Throw();
 
+	UFUNCTION(Server, Reliable)
+	void ServerGrabOrDrop();
+
+	UFUNCTION(Server, Reliable)
+	void ServerThrow();
+
 	UFUNCTION(BlueprintCallable, Category = "Carrying")
 	bool IsCarrying() const { return CarriedActor != nullptr; }
 
@@ -41,6 +47,9 @@ protected:
 	FName CarrySocketName = TEXT("CarrySocket");
 
 private:
-	UPROPERTY()
+	UPROPERTY(ReplicatedUsing = OnRep_CarriedActor)
 	TObjectPtr<AActor> CarriedActor;
+
+	UFUNCTION()
+	void OnRep_CarriedActor(AActor* OldCarriedActor);
 };
