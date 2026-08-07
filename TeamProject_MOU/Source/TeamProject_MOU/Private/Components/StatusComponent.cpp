@@ -1,10 +1,12 @@
 #include "Components/StatusComponent.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
+#include "Net/UnrealNetwork.h"
 
 UStatusComponent::UStatusComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);
 }
 
 void UStatusComponent::BeginPlay()
@@ -62,6 +64,36 @@ void UStatusComponent::RemoveStatusTag(FGameplayTag Tag)
 		}
 
 		OnStatusTagChanged.Broadcast(Tag, false);
+	}
+}
+
+void UStatusComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UStatusComponent, ActiveStatusTags);
+}
+
+void UStatusComponent::OnRep_ActiveStatusTags(const FGameplayTagContainer& OldTags)
+{
+	// 서버로부터 변경된 상태 태그가 클라이언트에 복제되었을 때,
+	// 추가/제거된 태그를 분석해서 UI 등에 이벤트를 발생시킵니다.
+	
+	// 새로 추가된 태그 찾기
+	for (auto It = ActiveStatusTags.CreateConstIterator(); It; ++It)
+	{
+		if (!OldTags.HasTagExact(*It))
+		{
+			OnStatusTagChanged.Broadcast(*It, true);
+		}
+	}
+	
+	// 제거된 태그 찾기
+	for (auto It = OldTags.CreateConstIterator(); It; ++It)
+	{
+		if (!ActiveStatusTags.HasTagExact(*It))
+		{
+			OnStatusTagChanged.Broadcast(*It, false);
+		}
 	}
 }
 

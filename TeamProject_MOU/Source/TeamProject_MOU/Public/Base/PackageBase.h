@@ -25,6 +25,8 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void PostInitializeComponents() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 public:
 	virtual void Tick(float DeltaTime) override;
@@ -45,10 +47,26 @@ public:
 	float CurrentSpoilTime = 0.0f;
 
 	// ---------------------------------------------------------
+	// [운반 부착 포인트 (핸들)]
+	// ---------------------------------------------------------
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<class USceneComponent> Handle_Front;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<class USceneComponent> Handle_Back;
+
+	// 들고 있을 때 택배가 세로로 눕도록 회전을 보정하는 변수 (블루프린트에서 조절 가능)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Package|Coop")
+	FRotator CarryRotationOffset = FRotator(0.0f, 90.0f, 0.0f);
+
+	// ---------------------------------------------------------
 	// [협동 운반 데이터]
 	// ---------------------------------------------------------
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Package|Coop")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentCarriers, Category = "Package|Coop")
 	TArray<TObjectPtr<AActor>> CurrentCarriers;
+
+	UFUNCTION()
+	void OnRep_CurrentCarriers();
 
 	UFUNCTION(BlueprintCallable, Category = "Package|Coop")
 	void AddCarrier(AActor* Carrier);
@@ -64,6 +82,57 @@ public:
 	UPROPERTY(Transient)
 	TMap<AActor*, float> AppliedWeightMap;
 
+	// 현재 패키지의 속도 비율 (끌림 판정용)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Package|Coop")
+	float CurrentSpeedRatio = 1.0f;
+
+	// 운반자들이 택배 중심점으로부터 떨어질 수 있는 최대 허용 거리 (초과 시 자동 Drop)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Package|Coop")
+	float MaxCarryDistance = 250.0f;
+
+	// [무거운 택배 전용] 운반자 손 소켓 이름 (CarryingComponent의 CarrySocketName과 일치해야 함)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Package|Coop")
+	FName CarrySocketName = TEXT("CarrySocket");
+
+	// [무거운 택배 전용] Handle_Front와 Handle_Back 사이의 거리 (메시에 맞게 조절)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Package|Coop")
+	float HandleLength = 100.0f;
+
+protected:
+	// [무거운 택배 전용] Tick에서 서버가 패키지 위치/회전을 계산하고 이동시킴
+	void UpdateHeavyPackagePosition(float DeltaTime);
+
+public:
+
+	// ---------------------------------------------------------
+	// [내구도 및 파손 시스템]
+	// ---------------------------------------------------------
+	
+	// 물리적 충돌 감지 콜백
+	UFUNCTION()
+	void OnPackageHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+
+	// 패키지에 대미지를 가함
+	UFUNCTION(BlueprintCallable, Category = "Package|Durability")
+	void DamagePackage(float DamageAmount);
+
+	// 패키지 파손 시 호출되는 이벤트 (시각적 찌그러짐 등 연출용) - 블루프린트에서 구현
+	UFUNCTION(BlueprintImplementableEvent, Category = "Package|Durability")
+	void OnPackageBroken();
+
+	// [Replicated] 파손 상태 - 복제되면 클라이언트에서 OnRep이 연출을 자동 실행
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_bIsBroken, Category = "Package|Durability")
+	bool bIsBroken = false;
+
+protected:
+	UFUNCTION()
+	void OnRep_bIsBroken();
+
+	// [RPC] 모든 클라이언트에서 파손 연출을 재생하기 위한 Multicast
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastOnPackageBroken();
+
+public:
 	// ---------------------------------------------------------
 	// [아이템 베이스 오버라이드]
 	// ---------------------------------------------------------
