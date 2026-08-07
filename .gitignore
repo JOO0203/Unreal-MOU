@@ -25,6 +25,7 @@ Saved/
 *.user
 *.userosscache
 *.sln.docstates
+*.Daily_Work_Log
 
 # Unreal generated project files
 *.xcodeproj
@@ -76,3 +77,4 @@ Desktop.ini
 
 !*.md
 CLAUDE.md
+Daily_Work_Log.md
