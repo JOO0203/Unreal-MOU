@@ -7,6 +7,7 @@
 class UInteractionComponent;
 class UCarryingComponent;
 class UInputAction;
+class AItemBase;
 
 UCLASS()
 class TEAMPROJECT_MOU_API AMainCharacter : public ACharacterBase
@@ -66,6 +67,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> SprintAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> UseAction;
+
 	// ---------------------------------------------------------
 	// [이모트(감정표현) 시스템]
 	// ---------------------------------------------------------
@@ -73,25 +77,29 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> EmoteToggleAction;
 
-	// 얼굴 동적 머티리얼 인스턴스 (초기화 시 자동 할당)
+	// 얼굴 동적 머티리얼 인스턴스 배열 (초기화 시 눈, 입 등을 찾아 자동 할당)
 	UPROPERTY(Transient)
-	TObjectPtr<class UMaterialInstanceDynamic> FaceMaterialInstance;
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> FaceMaterialInstances;
 
-	// 감정 인덱스를 변경하는 머티리얼 파라미터 이름 (에셋 설정에 맞춰 변경 가능)
+	// 감정 인덱스를 변경하는 머티리얼 파라미터 이름 (머티리얼에 적힌 이름과 정확히 일치해야 함)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emote")
-	FName EmotionParameterName = FName("EmotionIndex"); 
+	FName EmotionParameterName = FName("Emotion index"); 
+
+	// 감정 색상을 변경하는 머티리얼 파라미터 이름
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emote")
+	FName EmotionColorParameterName = FName("Emission Color");
 
 	// 이모트 퀵슬롯 UI 호출 이벤트 (블루프린트에서 위젯 띄우기 용도)
 	UFUNCTION(BlueprintImplementableEvent, Category = "Emote")
 	void OpenEmoteUI();
 
-	// 얼굴 표정을 즉시 변경합니다.
+	// 얼굴 표정과 색상을 즉시 변경합니다.
 	UFUNCTION(BlueprintCallable, Category = "Emote")
-	void SetEmotion(int32 EmotionIndex);
+	void SetEmotion(int32 EmotionIndex, FLinearColor EmoteColor = FLinearColor(0.0f, 0.623294f, 1.0f, 1.0f));
 
-	// 표정을 변경하고 애니메이션(몽타주)을 재생합니다.
+	// 표정과 색상을 변경하고 애니메이션(몽타주)을 재생합니다.
 	UFUNCTION(BlueprintCallable, Category = "Emote")
-	void PlayEmote(class UAnimMontage* EmoteMontage, int32 EmotionIndex);
+	void PlayEmote(class UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor = FLinearColor(0.0f, 0.623294f, 1.0f, 1.0f));
 
 	// 이모트 재생이 끝났을 때 표정을 초기화(Index 0)하는 콜백
 	UFUNCTION()
@@ -135,6 +143,7 @@ private:
 	void OnJumpStartInput();
 	void OnJumpEndInput();
 	void OnEmoteToggle();
+	void OnUse();
 
 	// 스태미나 처리 프라이빗 메서드
 	void UpdateStamina(float DeltaTime);

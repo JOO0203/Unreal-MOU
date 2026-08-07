@@ -10,6 +10,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/StaticMeshComponent.h"
+#include "Base/ItemBase.h"
 
 AMainCharacter::AMainCharacter()
 {
@@ -24,16 +25,18 @@ void AMainCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 눈(얼굴) 메시에 적용된 동적 머티리얼 인스턴스(DMI) 생성 및 캐싱
+	// 눈(얼굴)과 입 메시에 적용된 동적 머티리얼 인스턴스(DMI) 생성 및 캐싱
 	TArray<UStaticMeshComponent*> StaticMeshes;
 	GetComponents<UStaticMeshComponent>(StaticMeshes);
 	for (UStaticMeshComponent* SM : StaticMeshes)
 	{
-		// 블루프린트에서 만든 컴포넌트 이름에 'Eye'가 포함되어 있는지 확인
-		if (SM->GetName().Contains(TEXT("Eye")))
+		// 블루프린트에서 만든 컴포넌트 이름에 'Eye' 또는 'Mouth'가 포함되어 있는지 확인
+		if (SM->GetName().Contains(TEXT("Eye")) || SM->GetName().Contains(TEXT("Mouth")))
 		{
-			FaceMaterialInstance = SM->CreateAndSetMaterialInstanceDynamic(0);
-			break; // 첫 번째로 찾은 눈 컴포넌트만 사용
+			if (UMaterialInstanceDynamic* DMI = SM->CreateAndSetMaterialInstanceDynamic(0))
+			{
+				FaceMaterialInstances.Add(DMI);
+			}
 		}
 	}
 }
@@ -79,6 +82,12 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	{
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMainCharacter::OnSprintStart);
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMainCharacter::OnSprintEnd);
+	}
+	
+	// 좌클릭: 아이템 사용
+	if (UseAction)
+	{
+		EnhancedInputComponent->BindAction(UseAction, ETriggerEvent::Started, this, &AMainCharacter::OnUse);
 	}
 
 	// Space키: 점프 (ATeamProject_MOUCharacter 상속 JumpAction 사용)
@@ -196,6 +205,24 @@ void AMainCharacter::OnJumpEndInput()
 	DoJumpEnd();
 }
 
+void AMainCharacter::OnUse()
+{
+	if (!CanAct())
+	{
+		return;
+	}
+
+	// 현재 들고있는 택배(CarryingComponent)가 있다면 일반 아이템 사용 불가 (손이 비어있어야 함)
+	if (CarryingComponent && CarryingComponent->IsCarrying())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("물건을 들고 있어서 아이템을 사용할 수 없습니다!"));
+		return;
+	}
+
+	// TODO: 장착 중인 아이템 사용 로직 (인벤토리 시스템 연동 시 구현)
+	UE_LOG(LogTemp, Log, TEXT("아이템 사용 시도 (구현 필요)"));
+}
+
 void AMainCharacter::UpdateStamina(float DeltaTime)
 {
 	if (!BaseAttribute)
@@ -271,23 +298,27 @@ void AMainCharacter::OnEmoteToggle()
 	OpenEmoteUI();
 }
 
-void AMainCharacter::SetEmotion(int32 EmotionIndex)
+void AMainCharacter::SetEmotion(int32 EmotionIndex, FLinearColor EmoteColor)
 {
-	if (FaceMaterialInstance)
+	for (UMaterialInstanceDynamic* DMI : FaceMaterialInstances)
 	{
-		FaceMaterialInstance->SetScalarParameterValue(EmotionParameterName, static_cast<float>(EmotionIndex));
+		if (DMI)
+		{
+			DMI->SetScalarParameterValue(EmotionParameterName, static_cast<float>(EmotionIndex));
+			DMI->SetVectorParameterValue(EmotionColorParameterName, EmoteColor);
+		}
 	}
 }
 
-void AMainCharacter::PlayEmote(UAnimMontage* EmoteMontage, int32 EmotionIndex)
+void AMainCharacter::PlayEmote(UAnimMontage* EmoteMontage, int32 EmotionIndex, FLinearColor EmoteColor)
 {
 	if (!EmoteMontage || !GetMesh() || !GetMesh()->GetAnimInstance())
 	{
 		return;
 	}
 
-	// 1. 선택한 감정 표정으로 얼굴 머티리얼 변경
-	SetEmotion(EmotionIndex);
+	// 1. 선택한 감정 표정과 색상으로 얼굴 머티리얼 변경
+	SetEmotion(EmotionIndex, EmoteColor);
 
 	// 2. 이모트 몽타주 재생
 	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
@@ -305,8 +336,8 @@ void AMainCharacter::OnEmoteMontageEnded(UAnimMontage* Montage, bool bInterrupte
 	// 방금 끝난 몽타주가 이모트 몽타주인지 확인
 	if (Montage == CurrentEmoteMontage)
 	{
-		// 이모트가 끝났거나 중단(이동으로 인한 취소)되었으므로 기본 표정(0)으로 복귀
-		SetEmotion(0);
+		// 이모트가 끝났거나 중단(이동으로 인한 취소)되었으므로 기본 표정(0)과 기본 색상으로 복귀
+		SetEmotion(0, FLinearColor(0.0f, 0.623294f, 1.0f, 1.0f));
 		CurrentEmoteMontage = nullptr;
 	}
 }

@@ -45,6 +45,25 @@ public:
 	FGameplayAttributeData MaxStemina;
 	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxStemina);
 
+	// 드는 힘 (물건을 운반하거나 밀 때 사용하는 힘)
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_LiftPower)
+	FGameplayAttributeData LiftPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, LiftPower);
+
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_MaxLiftPower)
+	FGameplayAttributeData MaxLiftPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxLiftPower);
+
+	// 현재 들고 있는 무게 (과적 계산용)
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_CurrentWeight)
+	FGameplayAttributeData CurrentWeight;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, CurrentWeight);
+
+	// 과적 패널티 없이 들 수 있는 최대 무게
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_MaxWeight)
+	FGameplayAttributeData MaxWeight;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxWeight);
+
 	UFUNCTION(BlueprintCallable, Category = "Attribute")
 	void ResetHealthToMax();
 
@@ -65,6 +84,18 @@ public:
 
 	UFUNCTION()
 	void OnRep_MaxStemina(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_LiftPower(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_MaxLiftPower(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_CurrentWeight(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_MaxWeight(const FGameplayAttributeData& OldValue) const;
 
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
