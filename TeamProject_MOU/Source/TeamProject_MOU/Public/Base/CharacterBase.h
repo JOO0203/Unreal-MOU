@@ -6,6 +6,7 @@
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
 #include "GameplayAbilitySpecHandle.h"
+#include "Interfaces/PushableInterface.h"
 #include "CharacterBase.generated.h"
 
 class AController;
@@ -21,7 +22,7 @@ struct FOnAttributeChangeData;
  * GAS(Gameplay Ability System) 및 공통 상태 관리(StatusComponent)를 내장합니다.
  */
 UCLASS()
-class TEAMPROJECT_MOU_API ACharacterBase : public ATeamProject_MOUCharacter, public IAbilitySystemInterface
+class TEAMPROJECT_MOU_API ACharacterBase : public ATeamProject_MOUCharacter, public IAbilitySystemInterface, public IPushableInterface
 {
 	GENERATED_BODY()
 
@@ -104,6 +105,13 @@ protected:
 	void HandleMoveSpeedChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Data);
 
+	// 무게 변경 콜백 핸들러 (과적 시스템 연동)
+	void HandleCurrentWeightChanged(const FOnAttributeChangeData& Data);
+	void HandleMaxWeightChanged(const FOnAttributeChangeData& Data);
+
+	// 과적(Encumbrance) 상태 업데이트 및 이동속도/상태 디버프 적용
+	void UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight);
+
 	// 델리게이트 중복 바인딩 방지 플래그
 	bool AttributeDelegatesBound = false;
 
@@ -122,4 +130,10 @@ public:
 
 	// 다수 Gameplay Ability 일괄 부여 함수
 	void InitializeAbilityMulti(TArray<TSubclassOf<UGameplayAbility>> AbilityToAcquire, int32 AbilityLevel);
+
+	// ---------------------------------------------------------
+	// [밀기 인터페이스 구현 (IPushableInterface)]
+	// ---------------------------------------------------------
+	virtual float GetPushResistance_Implementation() const override;
+	virtual void Push_Implementation(AActor* Pusher, FVector PushDirection) override;
 };

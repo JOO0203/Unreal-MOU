@@ -175,6 +175,15 @@ void ACharacterBase::BindAttributeChangeDelegates()
 	AbilitySystemComponent
 		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxMoveSpeedAttribute())
 		.AddUObject(this, &ACharacterBase::HandleMaxMoveSpeedChanged);
+
+	// 무게 변경 델리게이트 바인딩
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetCurrentWeightAttribute())
+		.AddUObject(this, &ACharacterBase::HandleCurrentWeightChanged);
+
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxWeightAttribute())
+		.AddUObject(this, &ACharacterBase::HandleMaxWeightChanged);
 }
 
 void ACharacterBase::HandleHealthChanged(const FOnAttributeChangeData& Data)
@@ -240,4 +249,71 @@ void ACharacterBase::HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Dat
 
 	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
 	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
+}
+
+void ACharacterBase::HandleCurrentWeightChanged(const FOnAttributeChangeData& Data)
+{
+	if (!BaseAttribute) return;
+	UpdateEncumbranceState(Data.NewValue, BaseAttribute->GetMaxWeight());
+}
+
+void ACharacterBase::HandleMaxWeightChanged(const FOnAttributeChangeData& Data)
+{
+	if (!BaseAttribute) return;
+	UpdateEncumbranceState(BaseAttribute->GetCurrentWeight(), Data.NewValue);
+}
+
+void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight)
+{
+	if (InMaxWeight <= 0.0f) return;
+
+	float WeightRatio = InCurrentWeight / InMaxWeight;
+
+	// 과적 비율별 상태(디버프) 태그 부여 (블루프린트/GAS 기반 적용을 위한 태그 요청)
+	static const FGameplayTag Encumbered_HeavyTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Heavy"), false);
+	static const FGameplayTag Encumbered_OverloadedTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Overloaded"), false);
+	static const FGameplayTag Encumbered_ImmobileTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Immobile"), false);
+
+	if (StatusComponent)
+	{
+		// 1. 기존 과적 태그 일괄 제거
+		StatusComponent->RemoveStatusTag(Encumbered_HeavyTag);
+		StatusComponent->RemoveStatusTag(Encumbered_OverloadedTag);
+		StatusComponent->RemoveStatusTag(Encumbered_ImmobileTag);
+
+		// 2. 구간별(Tier) 디버프 적용 (옵션 A)
+		if (WeightRatio > 1.5f)
+		{
+			// 이동 불가 (150% 초과) - 속도 극감 및 상태 이상
+			StatusComponent->AddStatusTag(Encumbered_ImmobileTag);
+			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 이동 불가 (무게 비율: %f)"), WeightRatio);
+		}
+		else if (WeightRatio > 1.3f)
+		{
+			// 과적 (130% ~ 150%) - 달리기 불가 등
+			StatusComponent->AddStatusTag(Encumbered_OverloadedTag);
+			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 달리기 불가 (무게 비율: %f)"), WeightRatio);
+		}
+		else if (WeightRatio > 1.0f)
+		{
+			// 무거움 (100% ~ 130%) - 속도 약간 감소
+			StatusComponent->AddStatusTag(Encumbered_HeavyTag);
+			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 속도 감소 (무게 비율: %f)"), WeightRatio);
+		}
+	}
+}
+
+float ACharacterBase::GetPushResistance_Implementation() const
+{
+	// 플레이어는 저항이 없으므로 항상 밀림
+	return 0.0f;
+}
+
+void ACharacterBase::Push_Implementation(AActor* Pusher, FVector PushDirection)
+{
+	// TODO: 플레이어가 밀렸을 때 넘어지는 애니메이션 몽타주 실행 및 넉백 처리
+	UE_LOG(LogTemp, Log, TEXT("플레이어가 밀렸습니다! 넘어지는 애니메이션 연출 필요. 방향: %s"), *PushDirection.ToString());
+	
+	// 가벼운 넉백 (예시)
+	LaunchCharacter(PushDirection * 500.0f + FVector(0, 0, 200.0f), true, true);
 }
