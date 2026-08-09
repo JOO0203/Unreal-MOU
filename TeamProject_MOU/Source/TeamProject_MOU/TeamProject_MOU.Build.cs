@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
 public class TeamProject_MOU : ModuleRules
@@ -19,10 +20,13 @@ public class TeamProject_MOU : ModuleRules
             "GameplayStateTreeModule",
             "UMG",
             "Slate",
+            "SlateCore",
             "GameplayAbilities",
             "GameplayTags",
             "GameplayTasks",
-            "Niagara"
+            "Niagara",
+            "Sockets",
+            "Networking"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -43,6 +47,8 @@ public class TeamProject_MOU : ModuleRules
             "TeamProject_MOU/Variant_SideScrolling/Interfaces",
             "TeamProject_MOU/Variant_SideScrolling/UI"
         });
+
+        PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "..", "MOU_ChatServer", "Shared")));
 
         // Uncomment if you are using Slate UI
         // PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
