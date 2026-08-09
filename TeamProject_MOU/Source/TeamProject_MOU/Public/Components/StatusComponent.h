@@ -69,8 +69,11 @@ public:
 
 protected:
 	// 현재 캐릭터에게 적용된 상태 태그 컨테이너
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Status")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_ActiveStatusTags, Category = "Status")
 	FGameplayTagContainer ActiveStatusTags;
+
+	UFUNCTION()
+	void OnRep_ActiveStatusTags(const FGameplayTagContainer& OldTags);
 
 	// 소유자 Actor의 AbilitySystemComponent 참조
 	UPROPERTY()
