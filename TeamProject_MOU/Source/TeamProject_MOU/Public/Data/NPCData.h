@@ -4,6 +4,7 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 #include "Enum/NPCEnum.h"
+#include "NPC/NPCActionStruct.h"
 #include "NPCData.generated.h"
 
 UCLASS()
@@ -18,6 +19,10 @@ public:
     /* NPC 시작 상태 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "NPC 시작 상태"))
     ENPCStartState StartState;
+
+    /* NPC가 복귀할 홈 위치 */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "NPC가 타깃을 잃거나 행동을 마친 뒤 복귀할 월드 위치"))
+    FVector HomePosition = FVector::ZeroVector;
 
     /* 정찰 사용 여부 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "정찰 사용 여부"))
@@ -34,6 +39,10 @@ public:
     /* 공용 GA 태그 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Ability", meta = (ToolTip = "공용 GA 태그"))
     FGameplayTag PrimaryAbilityTag;
+
+    /* NPC 밀기, 잡기, 던지기 행동 설정 */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Action", meta = (ToolTip = "NPC별 밀기, 잡기, 던지기 행동 설정"))
+    FNPCActionStruct ActionData;
 
     /* NPC 행동 시작 범위 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Combat", meta = (ToolTip = "액션 시작 거리"))
