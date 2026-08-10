@@ -6,6 +6,10 @@
 
 #include "Chat/ChatWidgetBase.h"
 
+// MOU::kProtocolVersion 을 쓰기 위해 포함한다.
+// ChatProtocol.h 를 직접 넣지 않고 ChatFraming.h 를 거치는 이유는
+// 그쪽이 THIRD_PARTY_INCLUDES_START 로 감싸주기 때문이다.
+#include "Chat/ChatFraming.h"
 #include "Chat/ChatSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
@@ -443,6 +447,13 @@ void UChatWidgetBase::HandleLoginCompleted(const FChatLoginResult& Result)
 		// 서버가 확정한 이름을 표시한다. 내가 입력한 이름과 다를 수 있다.
 		AddSystemLine(FString::Printf(TEXT("%s(으)로 접속했습니다. (팀 %d)"), *Result.Name, Result.TeamId));
 	}
+	else if (Result.Result == EChatLoginResultBP::VersionMismatch)
+	{
+		// 재접속해도 계속 실패하는 종류의 실패다. 무엇을 해야 하는지까지 알려준다.
+		AddSystemLine(FString::Printf(
+			TEXT("프로토콜 버전이 맞지 않습니다. (클라 %d / 서버 %d) 양쪽을 다시 빌드해야 합니다."),
+			static_cast<int32>(MOU::kProtocolVersion), Result.ServerVersion));
+	}
 	else
 	{
 		AddSystemLine(TEXT("서버가 로그인을 거부했습니다."));
@@ -574,8 +585,33 @@ FLinearColor UChatWidgetBase::GetChannelColor(EChatChannelBP Channel)
 
 namespace
 {
-	/** 콘솔로 띄운 위젯을 기억해 둔다. 디버그 용도로만 쓴다. */
-	TWeakObjectPtr<UChatWidgetBase> GDebugChatWidget;
+	/**
+	 * 콘솔로 띄운 위젯을 월드별로 기억한다. 디버그 용도로만 쓴다.
+	 *
+	 * 월드마다 따로 두는 이유: PIE 에서 플레이어 수를 2 이상으로 올리면 창마다 월드가 따로 생긴다.
+	 * 전역 변수 하나로 관리하면 두 번째 창에서 ShowUI 를 쳐도 "이미 떠 있다"로 막혀서
+	 * 사망 채널처럼 두 창을 나란히 봐야 검증되는 기능을 눈으로 확인할 수 없다.
+	 */
+	TMap<TWeakObjectPtr<UWorld>, TWeakObjectPtr<UChatWidgetBase>> GDebugChatWidgets;
+
+	/** 파괴된 월드/위젯 항목을 정리한다. PIE 를 반복하면 죽은 키가 쌓이기 때문이다. */
+	void PruneDebugChatWidgets()
+	{
+		for (auto It = GDebugChatWidgets.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid() || !It.Value().IsValid())
+			{
+				It.RemoveCurrent();
+			}
+		}
+	}
+
+	UChatWidgetBase* FindDebugChatWidget(UWorld* World)
+	{
+		PruneDebugChatWidgets();
+		const TWeakObjectPtr<UChatWidgetBase>* Found = GDebugChatWidgets.Find(World);
+		return Found ? Found->Get() : nullptr;
+	}
 
 	APlayerController* GetFirstLocalPlayerController(UWorld* World)
 	{
@@ -588,9 +624,9 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& /*Args*/, UWorld* World)
 			{
-				if (GDebugChatWidget.IsValid())
+				if (FindDebugChatWidget(World) != nullptr)
 				{
-					return;   // 이미 떠 있다
+					return;   // 이 창에는 이미 떠 있다
 				}
 
 				APlayerController* PC = GetFirstLocalPlayerController(World);
@@ -603,7 +639,7 @@ namespace
 				if (Widget != nullptr)
 				{
 					Widget->AddToViewport();
-					GDebugChatWidget = Widget;
+					GDebugChatWidgets.Add(World, Widget);
 				}
 			}));
 
@@ -611,22 +647,22 @@ namespace
 		TEXT("MOU.Chat.HideUI"),
 		TEXT("채팅 위젯을 화면에서 제거한다."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
-			[](const TArray<FString>& /*Args*/, UWorld* /*World*/)
+			[](const TArray<FString>& /*Args*/, UWorld* World)
 			{
-				if (UChatWidgetBase* Widget = GDebugChatWidget.Get())
+				if (UChatWidgetBase* Widget = FindDebugChatWidget(World))
 				{
 					Widget->RemoveFromParent();
 				}
-				GDebugChatWidget.Reset();
+				GDebugChatWidgets.Remove(World);
 			}));
 
 	FAutoConsoleCommandWithWorldAndArgs GChatToggleInputCommand(
 		TEXT("MOU.Chat.ToggleInput"),
 		TEXT("채팅 입력창을 열거나 닫는다."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
-			[](const TArray<FString>& /*Args*/, UWorld* /*World*/)
+			[](const TArray<FString>& /*Args*/, UWorld* World)
 			{
-				if (UChatWidgetBase* Widget = GDebugChatWidget.Get())
+				if (UChatWidgetBase* Widget = FindDebugChatWidget(World))
 				{
 					Widget->ToggleChatInput();
 				}

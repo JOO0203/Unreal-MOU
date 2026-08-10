@@ -9,7 +9,11 @@
 namespace MOU
 {
 	// 헤더 구조나 오피코드 의미가 바뀌면 올린다.
-	constexpr uint16_t kProtocolVersion = 1;
+	// 로그인 시점에 서버가 이 값을 검사하고, 다르면 명확한 사유와 함께 거부한다.
+	// 이게 없으면 서버만 업데이트했을 때 클라이언트가 원인 모를 재접속을 무한 반복한다.
+	//
+	//   1 -> 2 : LoginReqBody 에 Version, LoginAckBody 에 Result/ServerVersion 추가
+	constexpr uint16_t kProtocolVersion = 2;
 
 	// BodySize 가 이 값을 넘으면 악성 패킷으로 보고 연결을 끊는다.
 	constexpr uint32_t kMaxBodySize = 4096;
@@ -39,6 +43,15 @@ namespace MOU
 		System  = 4,
 	};
 
+	// 로그인 거부 사유. LoginAckBody::Result 에 담겨 돌아온다.
+	// 클라이언트는 이 값을 보고 "재시도해도 소용없는 실패"인지 판단할 수 있다.
+	enum class ELoginResult : uint8_t
+	{
+		Success         = 0,
+		VersionMismatch = 1,   // 클라와 서버의 kProtocolVersion 이 다르다. 재접속해도 계속 실패한다
+		InvalidRequest  = 2,   // 바디 크기가 맞지 않는다
+	};
+
 #pragma pack(push, 1)
 
 	// 모든 패킷 앞에 붙는 고정 헤더.
@@ -52,8 +65,13 @@ namespace MOU
 
 	struct LoginReqBody
 	{
-		char    Name[kMaxNameLen];
-		int32_t TeamId;
+		// Version 은 반드시 첫 필드여야 한다.
+		// 구조체 전체 크기가 서로 달라도 서버가 이 2바이트만은 읽을 수 있어야
+		// "버전이 안 맞다"고 정확히 알려줄 수 있기 때문이다.
+		// 앞으로 필드를 추가할 때는 반드시 뒤에 붙이고 Version 은 그대로 둔다.
+		uint16_t Version;
+		char     Name[kMaxNameLen];
+		int32_t  TeamId;
 	};
 
 	struct LoginAckBody
@@ -62,6 +80,8 @@ namespace MOU
 		int32_t  TeamId;
 		char     Name[kMaxNameLen];      // 서버가 확정한 이름
 		uint8_t  bSuccess;
+		uint8_t  Result;                 // ELoginResult. 실패 사유
+		uint16_t ServerVersion;          // 버전 불일치 시 어느 쪽이 낡았는지 바로 알 수 있게
 	};
 
 	// 뒤에 TextLen 바이트의 UTF-8 본문이 이어진다.
@@ -92,5 +112,12 @@ namespace MOU
 
 #pragma pack(pop)
 
-	static_assert(sizeof(PacketHeader) == 6, "PacketHeader 는 6바이트여야 한다");
+	// 패딩이 끼면 서버와 클라이언트의 해석이 어긋난다.
+	// #pragma pack(1) 이 빠지거나 필드 순서를 바꿨을 때 여기서 잡힌다.
+	static_assert(sizeof(PacketHeader)      ==  6, "PacketHeader 는 6바이트여야 한다");
+	static_assert(sizeof(LoginReqBody)      == 38, "LoginReqBody 에 패딩이 끼었다");
+	static_assert(sizeof(LoginAckBody)      == 48, "LoginAckBody 에 패딩이 끼었다");
+	static_assert(sizeof(ChatSendBody)      == 11, "ChatSendBody 에 패딩이 끼었다");
+	static_assert(sizeof(ChatBroadcastBody) == 51, "ChatBroadcastBody 에 패딩이 끼었다");
+	static_assert(sizeof(SetDeadBody)       ==  9, "SetDeadBody 에 패딩이 끼었다");
 }

@@ -611,12 +611,29 @@ Source/TeamProject_MOU/Private/Chat/   ChatFraming.cpp  ChatClientRunnable.cpp  
   `SetDeadForTest()` 도 마찬가지라 **산 사람이 사망 채널을 엿볼 수 있다.**
   8단계에서 리슨서버가 신원을 미러링하도록 바꿀 것이므로,
   **게임플레이 코드에서 `SetDeadForTest` 호출을 늘리지 말 것.**
-- **프로토콜 버전 검사 없음.** `ChatProtocol.h` 를 한쪽만 고치면 조용히 깨진다.
-  채널 번호 불일치만 `static_assert` 로 컴파일 타임에 잡힌다.
-  `LoginReqBody` 에 버전 필드를 넣으려면 서버 수정이 필요해서 보류했다.
+- ~~프로토콜 버전 검사 없음~~ → **해결됨 (프로토콜 v2)**.
+  `LoginReqBody::Version` 을 서버가 검사하고, 다르면 `LoginAck` 에
+  `ELoginResult::VersionMismatch` 와 서버 버전을 담아 거부한다.
+  서버 콘솔·에디터 로그·채팅창 안내문 세 곳에 원인이 표시된다.
+  **`ChatProtocol.h` 를 고쳤으면 `kProtocolVersion` 을 올리고 서버와 언리얼을 같이 다시 빌드할 것.**
 - **엔디안 변환 없음.** 서버·클라이언트 모두 x86 리틀엔디안 전제.
 - 전송 지연이 최대 50ms 붙는다 (`FChatClientRunnable::WaitMilliseconds`).
   워커가 `Wait()` 에서 깨어나야 큐를 비우기 때문. 채팅에는 무해하다.
+- **재로그인하면 UserId 가 새로 발급된다.** 서버 `HandleLoginReq` 가 무조건 `AssignUserId()` 를 부른다.
+  지금은 무해하지만 **6단계에서 UserId 를 DB 키로 쓰기 전에** 반드시 막아야 한다.
+- **콘솔 명령이 Shipping 빌드에도 남는다.** `MOU.Chat.Dead` 같은 치트성 명령에
+  `ECVF_Cheat` 가 없다. 8단계에서 `SetDead` 를 리슨서버 전용으로 잠글 때 같이 정리한다.
+
+### 채팅 로그 DB (6단계)
+
+- **비정상 종료 시 큐에 남은 줄이 유실된다.** Ctrl+C(SIGINT/SIGTERM)로 내리면
+  `ChatLog::Stop()` 이 큐를 비우고 닫으므로 손실이 없지만,
+  작업 관리자에서 강제 종료하거나 정전이면 아직 커밋 안 된 만큼 사라진다.
+  채팅 로그라 이 정도는 감수하고 지연 없는 쪽을 택했다.
+- **`synchronous=NORMAL`.** OS 가 죽으면 최근 몇 커밋이 날아갈 수 있다. DB 가 깨지지는 않는다.
+- **큐 상한 1만 줄.** 넘치면 버리고 `GetDroppedCount()` 로 집계한다.
+  종료 시 "유실 N줄" 로 찍히므로, 0 이 아니면 디스크가 못 따라간다는 뜻이다.
+- **아직 읽는 기능이 없다.** 쓰기 전용이다. 접속 시 최근 대화 N줄을 내려주는 기능은 별도 작업이다.
 
 ### 서버 (`MOU_ChatServer/README.md` 에서 그대로)
 

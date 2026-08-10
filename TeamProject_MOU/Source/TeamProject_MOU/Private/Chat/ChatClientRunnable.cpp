@@ -64,6 +64,25 @@ uint32 FChatClientRunnable::Run()
 		// 안쪽 루프 = 연결이 살아있는 동안의 송수신 루프.
 		// 이전 연결에서 남은 조각이 새 연결에 섞이면 프레이밍이 깨지므로 버퍼를 비우고 시작한다.
 		RecvBuffer.Reset();
+
+		// 송신 큐도 같이 비운다.
+		// 새 연결에서는 LoginReq 가 가장 먼저 나가야 하는데, 끊기기 직전 큐에 남아있던
+		// 패킷이 먼저 나가면 서버가 미인증 상태로 보고 조용히 버린다(HandleChatSend 의 bAuthed 검사).
+		// 게임 스레드가 Connected 이벤트를 처리해 LoginReq 를 넣기까지 한 프레임이 걸리는데,
+		// 워커는 그보다 먼저 PumpSend 를 돌기 때문에 실제로 발생하는 경합이다.
+		// 소비자 쪽(워커)에서 비우므로 SPSC 규칙에 어긋나지 않는다.
+		{
+			TArray<uint8> Discarded;
+			int32 DiscardedCount = 0;
+			while (OutboundPackets.Dequeue(Discarded))
+			{
+				++DiscardedCount;
+			}
+			if (DiscardedCount > 0)
+			{
+				UE_LOG(LogMOUChat, Warning, TEXT("재접속하면서 미전송 패킷 %d개를 버렸다."), DiscardedCount);
+			}
+		}
 		while (!bStopRequested)
 		{
 			if (!PumpSend())
@@ -262,11 +281,13 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
 
 		FChatClientEvent Event;
-		Event.Type           = EChatClientEventType::LoginAck;
-		Event.Login.bSuccess = (Ack.bSuccess != 0);
-		Event.Login.UserId   = static_cast<int64>(Ack.UserId);
-		Event.Login.TeamId   = Ack.TeamId;
-		Event.Login.Name     = MOUChat::ReadFixedString(Ack.Name, static_cast<int32>(MOU::kMaxNameLen));
+		Event.Type                = EChatClientEventType::LoginAck;
+		Event.Login.bSuccess      = (Ack.bSuccess != 0);
+		Event.Login.UserId        = static_cast<int64>(Ack.UserId);
+		Event.Login.TeamId        = Ack.TeamId;
+		Event.Login.Name          = MOUChat::ReadFixedString(Ack.Name, static_cast<int32>(MOU::kMaxNameLen));
+		Event.Login.Result        = static_cast<EChatLoginResultBP>(Ack.Result);
+		Event.Login.ServerVersion = static_cast<int32>(Ack.ServerVersion);
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}

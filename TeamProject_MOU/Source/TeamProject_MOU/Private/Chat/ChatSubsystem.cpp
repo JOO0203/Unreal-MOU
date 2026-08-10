@@ -185,6 +185,7 @@ void UChatSubsystem::SendPendingLogin()
 	}
 
 	MOU::LoginReqBody Request{};
+	Request.Version = MOU::kProtocolVersion;   // 서버가 이 값을 검사하고 다르면 거부한다
 	MOUChat::CopyFixedString(Request.Name, static_cast<int32>(MOU::kMaxNameLen), PendingName);
 	Request.TeamId = PendingTeamId;
 
@@ -317,9 +318,18 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 				UE_LOG(LogMOUChat, Log, TEXT("로그인 완료. UserId=%lld, 이름=%s, 팀=%d"),
 					LoginResult.UserId, *LoginResult.Name, LoginResult.TeamId);
 			}
+			else if (LoginResult.Result == EChatLoginResultBP::VersionMismatch)
+			{
+				// 재시도해도 계속 실패한다. 원인을 바로 알 수 있게 상세히 남긴다.
+				UE_LOG(LogMOUChat, Error,
+					TEXT("프로토콜 버전 불일치로 로그인이 거부됐다. 클라이언트=%d, 서버=%d. ")
+					TEXT("ChatServer.exe 와 언리얼 프로젝트를 같은 커밋으로 다시 빌드할 것."),
+					static_cast<int32>(MOU::kProtocolVersion), LoginResult.ServerVersion);
+			}
 			else
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("서버가 로그인을 거부했다."));
+				UE_LOG(LogMOUChat, Warning, TEXT("서버가 로그인을 거부했다. (사유 코드 %d)"),
+					static_cast<int32>(LoginResult.Result));
 			}
 			OnChatLoginCompleted.Broadcast(LoginResult);
 			break;

@@ -123,6 +123,23 @@ namespace
 					{
 						LoginAckBody Ack{};
 						std::memcpy(&Ack, Body.data(), sizeof(Ack));
+
+						if (Ack.bSuccess == 0)
+						{
+							if (static_cast<ELoginResult>(Ack.Result) == ELoginResult::VersionMismatch)
+							{
+								std::printf("[로그인 실패] 프로토콜 버전 불일치. 이쪽=%u, 서버=%u\n"
+								            "             서버와 클라이언트를 같은 커밋으로 다시 빌드할 것.\n",
+								            kProtocolVersion, Ack.ServerVersion);
+							}
+							else
+							{
+								std::printf("[로그인 실패] 사유 코드 %u\n", Ack.Result);
+							}
+							GRunning = false;
+							return;
+						}
+
 						GMyUserId = Ack.UserId;
 						std::printf("[로그인 성공] UserId=%llu, 이름=%s, 팀=%d\n",
 						            static_cast<unsigned long long>(Ack.UserId),
@@ -156,6 +173,7 @@ namespace
 	bool DoLogin(const std::string& Name, int32_t TeamId)
 	{
 		LoginReqBody Req{};
+		Req.Version = kProtocolVersion;   // 서버가 이 값을 검사한다
 		CopyFixedString(Req.Name, kMaxNameLen, Name);
 		Req.TeamId = TeamId;
 		return SendPacket(GSock, EOpcode::LoginReq, &Req, sizeof(Req));

@@ -106,6 +106,20 @@ struct FChatMessage
 };
 
 /**
+ * 로그인 거부 사유. MOU::ELoginResult (ChatProtocol.h) 의 블루프린트 미러.
+ *
+ * VersionMismatch 는 재시도해도 계속 실패한다.
+ * 서버와 클라이언트를 같은 커밋으로 다시 빌드해야 한다.
+ */
+UENUM(BlueprintType)
+enum class EChatLoginResultBP : uint8
+{
+	Success         = 0 UMETA(DisplayName = "성공"),
+	VersionMismatch = 1 UMETA(DisplayName = "프로토콜 버전 불일치"),
+	InvalidRequest  = 2 UMETA(DisplayName = "잘못된 요청")
+};
+
+/**
  * LoginAck 결과. 내 신원이 여기서 확정된다.
  *
  * 여기 담긴 UserId / Name / TeamId 는 전부 "서버가 정해준" 값이다.
@@ -128,4 +142,12 @@ struct FChatLoginResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Chat")
 	int32 TeamId = -1;
+
+	/** 실패 사유. bSuccess 가 false 일 때만 의미가 있다. */
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Chat")
+	EChatLoginResultBP Result = EChatLoginResultBP::Success;
+
+	/** 서버가 알려준 프로토콜 버전. 버전 불일치를 진단할 때 쓴다. */
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Chat")
+	int32 ServerVersion = 0;
 };

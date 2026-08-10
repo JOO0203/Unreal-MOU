@@ -41,6 +41,11 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EChatChannelBP::Whisper) == static_cast<uint8>(MOU::EChatChannel::Whisper), "EChatChannelBP::Whisper 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatChannelBP::System)  == static_cast<uint8>(MOU::EChatChannel::System),  "EChatChannelBP::System 이 서버 정의와 다르다");
 
+	// 로그인 거부 사유도 같은 이유로 맞춰둔다.
+	static_assert(static_cast<uint8>(EChatLoginResultBP::Success)         == static_cast<uint8>(MOU::ELoginResult::Success),         "EChatLoginResultBP::Success 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::VersionMismatch) == static_cast<uint8>(MOU::ELoginResult::VersionMismatch), "EChatLoginResultBP::VersionMismatch 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::InvalidRequest)  == static_cast<uint8>(MOU::ELoginResult::InvalidRequest),  "EChatLoginResultBP::InvalidRequest 가 서버 정의와 다르다");
+
 	/** TryExtractPacket 의 결과. 서버 MOU::EFrameResult 와 같은 의미다. */
 	enum class EFrameResult : uint8
 	{

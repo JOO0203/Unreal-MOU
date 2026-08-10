@@ -3,12 +3,14 @@
 // 리슨서버와 별개의 프로세스로 상시 가동된다.
 // 호스트가 게임을 종료해도 이 프로세스는 살아있으므로 채팅 로그가 유지된다.
 //
-// 사용법: ChatServer <port>
+// 사용법: ChatServer <port> [db경로]
 
+#include "ChatLog.h"
 #include "Session.h"
 #include "Framing.h"
 
 #include <atomic>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +25,19 @@ namespace
 {
 	SessionManager GSessions;
 	std::atomic<bool> GRunning{ true };
+
+	// Ctrl+C 로 서버를 내릴 때 큐에 남은 채팅 로그를 마저 쓰고 나간다.
+	// 이게 없으면 accept() 에서 블록된 채 프로세스가 즉사해서
+	// 아직 커밋 안 된 로그가 통째로 사라진다.
+	//
+	// 윈도우 CRT 는 SIGINT 핸들러를 별도 스레드에서 호출하므로
+	// 여기서 ChatLog::Stop() 이 라이터 스레드를 join 해도 데드락이 나지 않는다.
+	void OnInterrupt(int)
+	{
+		GRunning = false;
+		ChatLog::Stop();
+		std::_Exit(0);   // 소켓과 메모리 회수는 OS 에 맡긴다
+	}
 
 	const char* ChannelName(EChatChannel Channel)
 	{
@@ -105,16 +120,55 @@ namespace
 		            ChannelName(Channel), Sender->Name.c_str(),
 		            static_cast<int>(TextLen), Text, DeliverCount);
 
-		// 6단계에서 여기에 SQLite 적재를 넣는다.
+		// 수신자가 0명이어도 기록은 남긴다.
+		// "아무도 못 들었지만 말한 것은 사실" 이므로 나중에 신고/관전 조회 때 필요하다.
+		// Enqueue 는 큐에 넣기만 하고 바로 돌아오므로 여기서 디스크를 기다리지 않는다.
+		ChatLog::Enqueue(Out.Timestamp, Sender->UserId, Sender->Name,
+		                 static_cast<uint8_t>(Channel), Sender->TeamId, Text, TextLen);
 	}
 
 	// ------------------------------------------------------------------
 	// 패킷 핸들러. false 를 반환하면 연결을 끊는다.
 	// ------------------------------------------------------------------
+	// 로그인 거부를 사유와 함께 알린다.
+	// 그냥 연결을 끊어버리면 클라이언트는 원인을 모른 채 3초마다 재접속만 반복한다.
+	void SendLoginFailure(const SessionPtr& Session, ELoginResult Reason)
+	{
+		LoginAckBody Ack{};
+		Ack.bSuccess      = 0;
+		Ack.Result        = static_cast<uint8_t>(Reason);
+		Ack.ServerVersion = kProtocolVersion;
+		SendPacket(Session->Sock, EOpcode::LoginAck, &Ack, sizeof(Ack));
+	}
+
 	bool HandleLoginReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
 	{
+		// Version 은 LoginReqBody 의 첫 필드다.
+		// 구조체 크기가 안 맞더라도 이 2바이트만은 읽어서 정확한 사유를 돌려준다.
+		if (BodySize < sizeof(uint16_t))
+		{
+			std::printf("[거부] LoginReq 가 너무 짧다 (%u바이트)\n", BodySize);
+			SendLoginFailure(Session, ELoginResult::InvalidRequest);
+			return false;
+		}
+
+		uint16_t ClientVersion = 0;
+		std::memcpy(&ClientVersion, Body, sizeof(ClientVersion));
+
+		if (ClientVersion != kProtocolVersion)
+		{
+			std::printf("[거부] 프로토콜 버전 불일치. 클라이언트=%u, 서버=%u"
+			            " (양쪽을 같은 커밋으로 다시 빌드할 것)\n",
+			            ClientVersion, kProtocolVersion);
+			SendLoginFailure(Session, ELoginResult::VersionMismatch);
+			return false;
+		}
+
 		if (BodySize < sizeof(LoginReqBody))
 		{
+			std::printf("[거부] LoginReq 크기 부족 (%u < %u)\n",
+			            BodySize, static_cast<uint32_t>(sizeof(LoginReqBody)));
+			SendLoginFailure(Session, ELoginResult::InvalidRequest);
 			return false;
 		}
 
@@ -132,9 +186,11 @@ namespace
 		}
 
 		LoginAckBody Ack{};
-		Ack.UserId   = Session->UserId;
-		Ack.TeamId   = Session->TeamId;
-		Ack.bSuccess = 1;
+		Ack.UserId        = Session->UserId;
+		Ack.TeamId        = Session->TeamId;
+		Ack.bSuccess      = 1;
+		Ack.Result        = static_cast<uint8_t>(ELoginResult::Success);
+		Ack.ServerVersion = kProtocolVersion;
 		CopyFixedString(Ack.Name, kMaxNameLen, Session->Name);
 
 		std::printf("[로그인] %s -> UserId=%llu, Team=%d\n",
@@ -281,9 +337,10 @@ int main(int argc, char** argv)
 	// MSVC 는 _IOLBF(줄 버퍼링)를 _IOFBF 와 동일하게 처리하므로 무버퍼로 둔다.
 	::setvbuf(stdout, nullptr, _IONBF, 0);
 
-	if (argc != 2)
+	if (argc < 2 || argc > 3)
 	{
-		std::printf("사용법: %s <port>\n", argv[0]);
+		std::printf("사용법: %s <port> [db경로]\n", argv[0]);
+		std::printf("  db경로를 생략하면 현재 디렉터리의 chat_log.db 를 쓴다.\n");
 		return 1;
 	}
 
@@ -316,6 +373,14 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
+	std::signal(SIGINT,  OnInterrupt);
+	std::signal(SIGTERM, OnInterrupt);
+
+	// 채팅 로그 DB. 두 번째 인자로 경로를 바꿀 수 있다 (테스트용으로 분리할 때 편하다).
+	// 열기에 실패해도 서버는 계속 돈다. 로그가 안 남는 것보다 채팅이 끊기는 게 나쁘다.
+	const char* DbPath = (argc >= 3) ? argv[2] : "chat_log.db";
+	ChatLog::Start(DbPath);
+
 	std::printf("=== MOU 채팅 서버 시작 (port %s) ===\n", argv[1]);
 
 	while (GRunning)
@@ -345,6 +410,7 @@ int main(int argc, char** argv)
 		std::thread(ClientThread, Session).detach();
 	}
 
+	ChatLog::Stop();
 	CloseSocket(ListenSock);
 	NetShutdown();
 	return 0;
