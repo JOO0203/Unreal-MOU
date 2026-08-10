@@ -19,6 +19,12 @@ AMapItem::AMapItem()
 	// 상시 캡처는 부담이 크므로 필요 시점에만 캡처하도록 기본 비활성화
 	CaptureCamera->bCaptureEveryFrame = false;
 	CaptureCamera->bCaptureOnMovement = false;
+
+	// 캐릭터/적(스켈레탈 메시)을 지도 캡처에서 제외 — 지형만 보이게
+	CaptureCamera->ShowFlags.SetSkeletalMeshes(false);
+
+	// 지도 캡처에서 그림자 제거 (평면적인 지형만)
+	CaptureCamera->ShowFlags.SetDynamicShadows(false);
 }
 
 void AMapItem::BeginPlay()
@@ -40,6 +46,14 @@ void AMapItem::BeginPlay()
 	{
 		FogBrushMID = UMaterialInstanceDynamic::Create(FogBrushMaterial, this);
 	}
+
+	// 지형이 로드될 시간을 준 뒤 1회 캡처 (World Partition 스트리밍 대비)
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			CaptureDelayTimerHandle, this, &AMapItem::CaptureMapOnce,
+			0.5f, false);   // false = 반복 안 함, 0.5초 후 딱 1번
+	}
 }
 
 void AMapItem::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -48,6 +62,7 @@ void AMapItem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(FogUpdateTimerHandle);
+		World->GetTimerManager().ClearTimer(CaptureDelayTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -122,11 +137,12 @@ void AMapItem::OnUnequipped_Implementation(AActor* Equipper)
 // [MAP-004] 월드 좌표 → 지도 UV(0~1). 위젯 마커용
 FVector2D AMapItem::WorldToMapUV(const FVector& WorldLocation) const
 {
-	// (월드 XY - 원점) / 전체 크기 → 0~1 정규화
-	const float U = (MapWorldSize.X != 0.0f)
-		? (WorldLocation.X - MapWorldOrigin.X) / MapWorldSize.X : 0.0f;
-	const float V = (MapWorldSize.Y != 0.0f)
+	// 하향 SceneCapture 이미지 축에 맞춰 정렬:
+	// U(가로) = 월드 Y, V(세로) = 1 - 월드 X (위가 +X)
+	const float U = (MapWorldSize.Y != 0.0f)
 		? (WorldLocation.Y - MapWorldOrigin.Y) / MapWorldSize.Y : 0.0f;
+	const float V = (MapWorldSize.X != 0.0f)
+		? 1.0f - (WorldLocation.X - MapWorldOrigin.X) / MapWorldSize.X : 0.0f;
 
 	return FVector2D(FMath::Clamp(U, 0.0f, 1.0f), FMath::Clamp(V, 0.0f, 1.0f));
 }
@@ -165,6 +181,23 @@ void AMapItem::ResolveMapBoundsFromVolume()
 	}
 }
 
+// [MAP-006] 레벨 로딩 시 지형을 1회만 캡처 (이후 고정)
+void AMapItem::CaptureMapOnce()
+{
+	// 이미 캡처했으면 다시 안 함 (확실한 1회 보장)
+	if (bMapCaptured || !CaptureCamera)
+	{
+		return;
+	}
+
+	// 맵 중앙 상공에 카메라 정렬 후 지형을 1회 캡처
+	UpdateCaptureTransform();
+	CaptureCamera->TextureTarget = CaptureRT;
+	CaptureCamera->CaptureScene();
+
+	bMapCaptured = true;
+}
+
 // [CAP-001] 캡처 카메라를 맵 중앙 상공에 고정 (전체 지도 방식)
 void AMapItem::UpdateCaptureTransform()
 {
@@ -183,36 +216,35 @@ void AMapItem::UpdateCaptureTransform()
 	CaptureCamera->SetWorldRotation(FRotator(-90.0f, 0.0f, 0.0f));
 }
 
-// [FOG-001] 소지 플레이어 위치를 Fog 마스크에 누적으로 밝힘
+// [FOG-001] 플레이어 현재 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
 void AMapItem::UpdateFogMask()
 {
-	if (!HoldingPlayer)
+	// (지형 캡처는 CaptureMapOnce에서 1회만 하므로 여기선 캡처하지 않음)
+
+	if (!HoldingPlayer || !FogBrushMID)
 	{
 		return;
 	}
 
-	// 캡처 카메라를 현재 플레이어 위로 정렬 후 1회 캡처 (Fog 에셋 유무와 무관하게 항상)
-	UpdateCaptureTransform();
-	if (CaptureCamera)
-	{
-		CaptureCamera->CaptureScene();
-	}
-
-	// 이하 Fog 마스크 그리기는 관련 에셋이 있을 때만
-	if (!FogMaskRT || !FogBrushMID)
-	{
-		return;
-	}
-
-	// 소지 플레이어 위치를 지도 UV로 변환하여 브러시 머티리얼에 전달
+	// 플레이어 위치 → UV, 반경 계산 (두 마스크 공통)
 	const FVector2D PlayerUV = WorldToMapUV(HoldingPlayer->GetActorLocation());
+	const float RadiusUV = (MapWorldSize.X != 0.0f) ? (RevealRadius / MapWorldSize.X) : 0.0f;
 	FogBrushMID->SetVectorParameterValue(
 		TEXT("BrushCenter"), FLinearColor(PlayerUV.X, PlayerUV.Y, 0.0f, 0.0f));
-
-	// 밝힘 반경을 UV 비율로 환산 (맵 가로 기준)
-	const float RadiusUV = (MapWorldSize.X != 0.0f) ? (RevealRadius / MapWorldSize.X) : 0.0f;
 	FogBrushMID->SetScalarParameterValue(TEXT("BrushRadius"), RadiusUV);
 
-	// 마스크에 덧그리기(누적) — 기존 밝힘을 지우지 않도록 머티리얼 블렌드로 누적 처리
-	UKismetRenderingLibrary::DrawMaterialToRenderTarget(this, FogMaskRT, FogBrushMID);
+	// 1) 방문 마스크: 회색(VisitedIntensity)으로 누적 (지우지 않음)
+	if (FogMaskRT)
+	{
+		FogBrushMID->SetScalarParameterValue(TEXT("BrushIntensity"), VisitedIntensity);
+		UKismetRenderingLibrary::DrawMaterialToRenderTarget(this, FogMaskRT, FogBrushMID);
+	}
+
+	// 2) 현재 마스크: 매번 지우고 현재 위치만 밝게(1.0)
+	if (FogRevealRT)
+	{
+		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogRevealRT, FLinearColor::Black);
+		FogBrushMID->SetScalarParameterValue(TEXT("BrushIntensity"), 1.0f);
+		UKismetRenderingLibrary::DrawMaterialToRenderTarget(this, FogRevealRT, FogBrushMID);
+	}
 }
