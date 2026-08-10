@@ -35,6 +35,8 @@
 #include "Containers/Queue.h"
 #include "HAL/Runnable.h"
 
+#include "Chat/LobbyTypes.h"
+
 #include <atomic>
 
 class FSocket;
@@ -53,6 +55,12 @@ enum class EChatClientEventType : uint8
 	LoginAck,
 	/** RegisterAck 수신. Login.bSuccess / Login.Result 에 결과가 들어있다. */
 	RegisterAck,
+	/** RoomCreateAck 수신. RoomId 와 RoomResult 가 유효하다. */
+	RoomCreateAck,
+	/** RoomListAck 수신. Rooms 배열이 유효하다. */
+	RoomListAck,
+	/** RoomJoinAck 수신. Join 이 유효하다. */
+	RoomJoinAck,
 	/** 연결이 끊겼다. 서버 종료, 강제 차단, 프레이밍 오류 등. */
 	Disconnected
 };
@@ -65,8 +73,19 @@ struct FChatClientEvent
 {
 	EChatClientEventType Type = EChatClientEventType::Disconnected;
 
-	/** Type == LoginAck 일 때만 유효 */
+	/** Type == LoginAck / RegisterAck 일 때만 유효 */
 	FChatLoginResult Login;
+
+	/** Type == RoomListAck 일 때만 유효 */
+	TArray<FMOURoomInfo> Rooms;
+
+	/** Type == RoomJoinAck 일 때만 유효 */
+	FMOURoomJoinResult Join;
+
+	/** Type == RoomCreateAck 일 때만 유효 */
+	int32            RoomId = 0;
+	EMOURoomResultBP RoomResult = EMOURoomResultBP::Success;
+	bool             bRoomSuccess = false;
 
 	/** 로그 표시용 부가 설명 (실패 사유 등) */
 	FString Detail;

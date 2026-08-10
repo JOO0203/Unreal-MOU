@@ -365,6 +365,154 @@ void UChatSubsystem::SetDeadForTest(bool bDead)
 	}
 }
 
+// ---------------------------------------------------------------------------
+// 로비
+//
+// 서버는 방 주소록 역할만 한다. 여기서 오가는 것은 방 메타데이터뿐이고,
+// 실제 게임 트래픽은 참가자가 호스트의 리슨서버에 직접 붙어서 주고받는다.
+// ---------------------------------------------------------------------------
+
+bool UChatSubsystem::IsValidRoomPassword(const FString& RoomPassword)
+{
+	if (RoomPassword.Len() != static_cast<int32>(MOU::kRoomPasswordLen))
+	{
+		return false;
+	}
+	for (const TCHAR C : RoomPassword)
+	{
+		if (!FChar::IsDigit(C))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+FString UChatSubsystem::GetRoomResultText(EMOURoomResultBP Result)
+{
+	switch (Result)
+	{
+	case EMOURoomResultBP::Success:        return TEXT("성공");
+	case EMOURoomResultBP::NotAuthed:      return TEXT("먼저 로그인해야 합니다.");
+	case EMOURoomResultBP::NotFound:       return TEXT("방을 찾을 수 없습니다. 이미 닫혔을 수 있습니다.");
+	case EMOURoomResultBP::WrongPassword:  return TEXT("방 비밀번호가 올바르지 않습니다.");
+	case EMOURoomResultBP::Full:           return TEXT("정원이 가득 찼습니다.");
+	case EMOURoomResultBP::AlreadyStarted: return TEXT("이미 시작된 게임입니다.");
+	case EMOURoomResultBP::AlreadyHosting: return TEXT("이미 방을 만들었습니다. 기존 방을 먼저 닫으세요.");
+	default:                               return TEXT("잘못된 요청입니다.");
+	}
+}
+
+void UChatSubsystem::CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort)
+{
+	if (ChatClient == nullptr || ConnectionState != EChatConnectionState::LoggedIn)
+	{
+		UE_LOG(LogMOUChat, Warning, TEXT("로그인 후에 방을 만들 수 있다."));
+		OnRoomCreated.Broadcast(false, 0, EMOURoomResultBP::NotAuthed);
+		return;
+	}
+
+	MOU::RoomCreateReqBody Request{};
+	MOUChat::CopyFixedString(Request.Title, static_cast<int32>(MOU::kMaxRoomTitleLen), Title);
+	Request.HostPort   = static_cast<uint16>(HostPort);
+	Request.MaxPlayers = static_cast<uint8>(MOU::kMaxPlayersInRoom);
+
+	const bool bUsePassword = IsValidRoomPassword(RoomPassword);
+	Request.bHasPassword = bUsePassword ? 1 : 0;
+	if (bUsePassword)
+	{
+		// 널 종료가 없는 고정 4바이트다. UTF-8 로 바꾼 뒤 그대로 복사한다.
+		const FTCHARToUTF8 Utf8(*RoomPassword);
+		FMemory::Memcpy(Request.Password, Utf8.Get(), MOU::kRoomPasswordLen);
+	}
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomCreateReq, &Request, sizeof(Request)))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RoomCreateReq 전송: \"%s\" 포트 %d %s"),
+			*Title, HostPort, bUsePassword ? TEXT("[비번]") : TEXT(""));
+	}
+}
+
+void UChatSubsystem::RequestRoomList()
+{
+	if (ChatClient == nullptr || ConnectionState != EChatConnectionState::LoggedIn)
+	{
+		UE_LOG(LogMOUChat, Warning, TEXT("로그인 후에 방 목록을 볼 수 있다."));
+		OnRoomListReceived.Broadcast(TArray<FMOURoomInfo>());
+		return;
+	}
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomListReq, nullptr, 0))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+	}
+}
+
+void UChatSubsystem::JoinRoom(int32 RoomId, const FString& RoomPassword)
+{
+	if (ChatClient == nullptr || ConnectionState != EChatConnectionState::LoggedIn)
+	{
+		FMOURoomJoinResult Failed;
+		Failed.RoomId = RoomId;
+		Failed.Result = EMOURoomResultBP::NotAuthed;
+		OnRoomJoinCompleted.Broadcast(Failed);
+		return;
+	}
+
+	MOU::RoomJoinReqBody Request{};
+	Request.RoomId = static_cast<uint32>(RoomId);
+	if (IsValidRoomPassword(RoomPassword))
+	{
+		const FTCHARToUTF8 Utf8(*RoomPassword);
+		FMemory::Memcpy(Request.Password, Utf8.Get(), MOU::kRoomPasswordLen);
+	}
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomJoinReq, &Request, sizeof(Request)))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RoomJoinReq 전송: #%d"), RoomId);
+	}
+}
+
+void UChatSubsystem::CloseMyRoom()
+{
+	if (ChatClient == nullptr)
+	{
+		return;
+	}
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomLeaveReq, nullptr, 0))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RoomLeaveReq 전송 (내 방 #%d 닫기)"), MyRoomId);
+	}
+	MyRoomId = 0;
+}
+
+void UChatSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
+{
+	if (ChatClient == nullptr || RoomId == 0)
+	{
+		return;
+	}
+
+	MOU::RoomStateUpdateBody Request{};
+	Request.RoomId         = static_cast<uint32>(RoomId);
+	Request.CurrentPlayers = static_cast<uint8>(FMath::Clamp(CurrentPlayers, 0, 255));
+	Request.State          = static_cast<uint8>(bInGame ? MOU::ERoomState::InGame : MOU::ERoomState::Waiting);
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomStateUpdate, &Request, sizeof(Request)))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+	}
+}
+
 void UChatSubsystem::Disconnect()
 {
 	bHasPendingLogin = false;   // 사용자가 의도적으로 끊은 것이므로 자동 재로그인하지 않는다
@@ -460,8 +608,43 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 			OnChatRegisterCompleted.Broadcast(Event.Login.bSuccess, Event.Login.Result);
 			break;
 
+		case EChatClientEventType::RoomCreateAck:
+			if (Event.bRoomSuccess)
+			{
+				MyRoomId = Event.RoomId;
+				UE_LOG(LogMOUChat, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
+			}
+			else
+			{
+				UE_LOG(LogMOUChat, Warning, TEXT("방 생성 실패: %s"),
+					*UChatSubsystem::GetRoomResultText(Event.RoomResult));
+			}
+			OnRoomCreated.Broadcast(Event.bRoomSuccess, Event.RoomId, Event.RoomResult);
+			break;
+
+		case EChatClientEventType::RoomListAck:
+			UE_LOG(LogMOUChat, Log, TEXT("방 목록 수신: %d개"), Event.Rooms.Num());
+			OnRoomListReceived.Broadcast(Event.Rooms);
+			break;
+
+		case EChatClientEventType::RoomJoinAck:
+			if (Event.Join.bSuccess)
+			{
+				UE_LOG(LogMOUChat, Log, TEXT("방 참여 승인. 호스트 %s:%d 로 접속하면 된다"),
+					*Event.Join.HostAddress, Event.Join.HostPort);
+			}
+			else
+			{
+				UE_LOG(LogMOUChat, Warning, TEXT("방 참여 실패: %s"),
+					*UChatSubsystem::GetRoomResultText(Event.Join.Result));
+			}
+			OnRoomJoinCompleted.Broadcast(Event.Join);
+			break;
+
 		case EChatClientEventType::Disconnected:
 			LoginResult = FChatLoginResult();
+			// 연결이 끊기면 서버가 내 방을 지운다. 클라이언트 쪽 기억도 같이 비운다.
+			MyRoomId = 0;
 			SetConnectionState(EChatConnectionState::Disconnected, Event.Detail);
 			break;
 		}
@@ -569,6 +752,105 @@ namespace
 					}
 					const FString Nick = Args.IsValidIndex(2) ? Args[2] : Args[0];
 					Chat->RegisterAccount(Args[0], Args[1], Nick);
+				}
+			}));
+
+	// -ExecCmds= 로 넘긴 명령은 전부 엔진 초기화 직후 같은 프레임에 실행된다.
+	// 그런데 로그인은 서버 왕복이 필요해서 몇 프레임 뒤에나 끝난다.
+	// 그래서 헤드리스로 검증할 때 "로그인 완료 후에 방 목록 요청" 같은 순서를 만들 수 없다.
+	// 이 명령은 그 간극을 메우는 테스트 보조 도구다.
+	//
+	//   -ExecCmds="MOU.Chat.Login id pw 0,MOU.Exec.Delayed 3 MOU.Room.List"
+	FAutoConsoleCommandWithWorldAndArgs GExecDelayedCommand(
+		TEXT("MOU.Exec.Delayed"),
+		TEXT("N초 뒤에 콘솔 명령을 실행한다. 사용법: MOU.Exec.Delayed <초> <명령...>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (Args.Num() < 2)
+				{
+					UE_LOG(LogMOUChat, Warning, TEXT("사용법: MOU.Exec.Delayed <초> <명령...>"));
+					return;
+				}
+
+				const float Delay = FCString::Atof(*Args[0]);
+
+				FString Command;
+				for (int32 i = 1; i < Args.Num(); ++i)
+				{
+					if (i > 1) { Command += TEXT(" "); }
+					Command += Args[i];
+				}
+
+				// 월드가 그 사이에 사라질 수 있으므로 약한 참조로 잡는다.
+				TWeakObjectPtr<UWorld> WeakWorld(World);
+				FTSTicker::GetCoreTicker().AddTicker(
+					FTickerDelegate::CreateLambda(
+						[WeakWorld, Command](float) -> bool
+						{
+							if (UWorld* W = WeakWorld.Get())
+							{
+								GEngine->Exec(W, *Command);
+							}
+							return false;   // false = 한 번만 실행하고 해제
+						}),
+					Delay);
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomHostCommand(
+		TEXT("MOU.Room.Host"),
+		TEXT("방을 만든다. 사용법: MOU.Room.Host <방제목> [비번4자리] [포트]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					const FString Title = Args.IsValidIndex(0) ? Args[0] : TEXT("테스트방");
+					const FString Pw    = Args.IsValidIndex(1) ? Args[1] : FString();
+					const int32   Port  = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 7777;
+					Chat->CreateRoom(Title, Pw, Port);
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomListCommand(
+		TEXT("MOU.Room.List"),
+		TEXT("대기 중인 방 목록을 요청한다."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>&, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					Chat->RequestRoomList();
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomJoinCommand(
+		TEXT("MOU.Room.Join"),
+		TEXT("방에 참여한다. 사용법: MOU.Room.Join <방번호> [비번4자리]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					if (!Args.IsValidIndex(0))
+					{
+						UE_LOG(LogMOUChat, Warning, TEXT("사용법: MOU.Room.Join <방번호> [비번4자리]"));
+						return;
+					}
+					const FString Pw = Args.IsValidIndex(1) ? Args[1] : FString();
+					Chat->JoinRoom(FCString::Atoi(*Args[0]), Pw);
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomCloseCommand(
+		TEXT("MOU.Room.Close"),
+		TEXT("내가 만든 방을 닫는다."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>&, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					Chat->CloseMyRoom();
 				}
 			}));
 

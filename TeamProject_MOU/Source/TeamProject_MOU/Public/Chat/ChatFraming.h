@@ -19,6 +19,7 @@
 
 #include "CoreMinimal.h"
 #include "Chat/ChatTypes.h"
+#include "Chat/LobbyTypes.h"   // 아래 static_assert 가 EMOURoomResultBP 를 쓴다
 
 // 서버와 공유하는 프로토콜 정의.
 // 실제 파일 위치: <저장소 루트>/MOU_ChatServer/Shared/ChatProtocol.h
@@ -50,6 +51,18 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EChatLoginResultBP::DuplicateId)     == static_cast<uint8>(MOU::ELoginResult::DuplicateId),     "EChatLoginResultBP::DuplicateId 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::InvalidFormat)   == static_cast<uint8>(MOU::ELoginResult::InvalidFormat),   "EChatLoginResultBP::InvalidFormat 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::ServerError)     == static_cast<uint8>(MOU::ELoginResult::ServerError),     "EChatLoginResultBP::ServerError 가 서버 정의와 다르다");
+
+	// 로비 결과 코드도 같은 이유로 맞춰둔다.
+	static_assert(static_cast<uint8>(EMOURoomResultBP::Success)        == static_cast<uint8>(MOU::ERoomResult::Success),        "EMOURoomResultBP::Success 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotAuthed)      == static_cast<uint8>(MOU::ERoomResult::NotAuthed),      "EMOURoomResultBP::NotAuthed 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotFound)       == static_cast<uint8>(MOU::ERoomResult::NotFound),       "EMOURoomResultBP::NotFound 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::WrongPassword)  == static_cast<uint8>(MOU::ERoomResult::WrongPassword),  "EMOURoomResultBP::WrongPassword 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::Full)           == static_cast<uint8>(MOU::ERoomResult::Full),           "EMOURoomResultBP::Full 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::AlreadyStarted) == static_cast<uint8>(MOU::ERoomResult::AlreadyStarted), "EMOURoomResultBP::AlreadyStarted 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::AlreadyHosting) == static_cast<uint8>(MOU::ERoomResult::AlreadyHosting), "EMOURoomResultBP::AlreadyHosting 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::InvalidRequest) == static_cast<uint8>(MOU::ERoomResult::InvalidRequest), "EMOURoomResultBP::InvalidRequest 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomStateBP::Waiting)         == static_cast<uint8>(MOU::ERoomState::Waiting),         "EMOURoomStateBP::Waiting 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomStateBP::InGame)          == static_cast<uint8>(MOU::ERoomState::InGame),          "EMOURoomStateBP::InGame 이 서버 정의와 다르다");
 
 	/** TryExtractPacket 의 결과. 서버 MOU::EFrameResult 와 같은 의미다. */
 	enum class EFrameResult : uint8

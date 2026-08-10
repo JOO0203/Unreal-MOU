@@ -15,7 +15,8 @@ namespace MOU
 	//   1 -> 2 : LoginReqBody 에 Version, LoginAckBody 에 Result/ServerVersion 추가
 	//   2 -> 3 : 계정 시스템 도입. LoginReq 가 이름 대신 아이디/비밀번호를 보낸다.
 	//            UserId 가 "접속 일련번호" 에서 "계정 고유번호" 로 바뀌었다.
-	constexpr uint16_t kProtocolVersion = 3;
+	//   3 -> 4 : 로비(방 목록) 추가. 방 생성/조회/참여 옵코드가 붙었다.
+	constexpr uint16_t kProtocolVersion = 4;
 
 	// BodySize 가 이 값을 넘으면 악성 패킷으로 보고 연결을 끊는다.
 	constexpr uint32_t kMaxBodySize = 4096;
@@ -29,6 +30,13 @@ namespace MOU
 	// 계정 정책. 서버가 검사하고, 클라이언트는 미리 걸러서 왕복을 아낀다.
 	constexpr uint32_t kMinLoginIdLen  = 3;
 	constexpr uint32_t kMinPasswordLen = 6;
+
+	// --- 로비 ---
+	constexpr uint32_t kMaxRoomTitleLen  = 48;
+	constexpr uint32_t kRoomPasswordLen  = 4;    // 숫자 4자리. 널 종료를 두지 않는다
+	constexpr uint32_t kMaxPlayersInRoom = 4;    // 1~4인 게임
+	constexpr uint32_t kMaxRoomsInList   = 20;   // 한 번에 내려주는 방 개수 상한
+	constexpr uint32_t kMaxAddressLen    = 16;   // "255.255.255.255" + 널
 
 	enum class EOpcode : uint16_t
 	{
@@ -44,6 +52,38 @@ namespace MOU
 		Heartbeat     = 9,
 		RegisterReq   = 10,  // 계정 생성
 		RegisterAck   = 11,
+
+		// --- 로비 (v4) ---
+		// 서버는 "방 주소록" 역할만 한다. 실제 게임 트래픽은 여기를 거치지 않고
+		// 참가자가 호스트의 리슨서버에 직접 붙는다.
+		RoomCreateReq   = 12,
+		RoomCreateAck   = 13,
+		RoomListReq     = 14,
+		RoomListAck     = 15,
+		RoomJoinReq     = 16,
+		RoomJoinAck     = 17,
+		RoomLeaveReq    = 18,  // 호스트가 보내면 방이 사라진다
+		RoomStateUpdate = 19,  // 호스트가 인원수/시작여부를 갱신한다
+	};
+
+	/** 방 관련 요청의 결과. */
+	enum class ERoomResult : uint8_t
+	{
+		Success        = 0,
+		NotAuthed      = 1,   // 로그인하지 않았다
+		NotFound       = 2,   // 그런 방이 없다 (이미 닫혔을 수 있다)
+		WrongPassword  = 3,
+		Full           = 4,
+		AlreadyStarted = 5,   // 이미 게임이 시작된 방
+		AlreadyHosting = 6,   // 이미 방을 하나 갖고 있다
+		InvalidRequest = 7,
+	};
+
+	/** 방의 진행 상태. */
+	enum class ERoomState : uint8_t
+	{
+		Waiting = 0,   // 대기 중. 목록에 노출된다
+		InGame  = 1,   // 게임 시작됨. 목록에서 감춘다
 	};
 
 	enum class EChatChannel : uint8_t
@@ -152,6 +192,77 @@ namespace MOU
 		uint8_t  bDead;
 	};
 
+	// ------------------------------------------------------------------
+	// 로비 (v4)
+	// ------------------------------------------------------------------
+
+	// [호스트 주소를 클라이언트가 보내지 않는 이유]
+	//   IP 는 서버가 TCP 연결의 상대 주소에서 직접 읽는다.
+	//   클라이언트가 "내 IP 는 여기다" 라고 적어 보내게 하면 남의 주소를 적어
+	//   엉뚱한 사람에게 접속을 몰아주는 장난이 가능하다.
+	//   이름을 서버가 채우는 것과 같은 원칙이다.
+	//   포트는 리슨서버가 실제로 여는 값이라 클라이언트만 알 수 있어 받는다.
+	struct RoomCreateReqBody
+	{
+		char     Title[kMaxRoomTitleLen];
+		char     Password[kRoomPasswordLen];   // bHasPassword 가 0 이면 무시한다
+		uint16_t HostPort;                     // 리슨서버 포트 (보통 7777)
+		uint8_t  bHasPassword;
+		uint8_t  MaxPlayers;                   // 1~kMaxPlayersInRoom
+	};
+
+	struct RoomCreateAckBody
+	{
+		uint32_t RoomId;                       // 0 이면 실패
+		uint8_t  bSuccess;
+		uint8_t  Result;                       // ERoomResult
+	};
+
+	// RoomListAckBody 뒤에 Count 개의 RoomInfo 가 이어붙는다.
+	//
+	// 주의: 여기에는 호스트 주소가 없다.
+	//   목록만 보고 바로 접속하지 못하게 일부러 뺐다.
+	//   주소는 RoomJoinReq 로 비밀번호 검사를 통과해야 받을 수 있다.
+	struct RoomInfo
+	{
+		uint32_t RoomId;
+		uint64_t HostUserId;
+		char     Title[kMaxRoomTitleLen];
+		char     HostName[kMaxNameLen];
+		uint8_t  CurrentPlayers;
+		uint8_t  MaxPlayers;
+		uint8_t  bHasPassword;
+		uint8_t  State;                        // ERoomState
+	};
+
+	struct RoomListAckBody
+	{
+		uint16_t Count;
+	};
+
+	struct RoomJoinReqBody
+	{
+		uint32_t RoomId;
+		char     Password[kRoomPasswordLen];   // 비밀번호 방이 아니면 무시된다
+	};
+
+	struct RoomJoinAckBody
+	{
+		uint32_t RoomId;
+		char     HostAddress[kMaxAddressLen];  // 성공했을 때만 채워진다
+		uint16_t HostPort;
+		uint8_t  bSuccess;
+		uint8_t  Result;                       // ERoomResult
+	};
+
+	// 호스트가 인원 변화나 게임 시작을 알린다. 방장만 보낼 수 있다.
+	struct RoomStateUpdateBody
+	{
+		uint32_t RoomId;
+		uint8_t  CurrentPlayers;
+		uint8_t  State;                        // ERoomState
+	};
+
 #pragma pack(pop)
 
 	// 패딩이 끼면 서버와 클라이언트의 해석이 어긋난다.
@@ -164,4 +275,15 @@ namespace MOU
 	static_assert(sizeof(ChatSendBody)      == 11, "ChatSendBody 에 패딩이 끼었다");
 	static_assert(sizeof(ChatBroadcastBody) == 51, "ChatBroadcastBody 에 패딩이 끼었다");
 	static_assert(sizeof(SetDeadBody)       ==  9, "SetDeadBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomCreateReqBody) == 56, "RoomCreateReqBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomCreateAckBody) ==  6, "RoomCreateAckBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomInfo)          == 96, "RoomInfo 에 패딩이 끼었다");
+	static_assert(sizeof(RoomListAckBody)   ==  2, "RoomListAckBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomJoinReqBody)   ==  8, "RoomJoinReqBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomJoinAckBody)   == 24, "RoomJoinAckBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomStateUpdateBody) == 6, "RoomStateUpdateBody 에 패딩이 끼었다");
+
+	// 방 목록 한 번에 담을 수 있는지 확인한다. 넘치면 kMaxRoomsInList 를 줄여야 한다.
+	static_assert(sizeof(RoomListAckBody) + sizeof(RoomInfo) * kMaxRoomsInList <= kMaxBodySize,
+	              "방 목록이 kMaxBodySize 를 넘는다");
 }

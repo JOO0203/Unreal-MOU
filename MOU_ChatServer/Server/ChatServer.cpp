@@ -7,6 +7,7 @@
 
 #include "Accounts.h"
 #include "ChatLog.h"
+#include "Rooms.h"
 #include "Session.h"
 #include "Framing.h"
 
@@ -302,6 +303,167 @@ namespace
 		return SendResult(ToLoginResult(R));
 	}
 
+	// ------------------------------------------------------------------
+	// 로비
+	//
+	// 서버는 방 주소록 역할만 한다. 게임 트래픽은 여기를 지나가지 않고
+	// 참가자가 호스트의 리슨서버에 직접 붙는다.
+	// ------------------------------------------------------------------
+
+	bool HandleRoomCreateReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		auto Reply = [&](ERoomResult R, uint32_t RoomId)
+		{
+			RoomCreateAckBody Ack{};
+			Ack.RoomId   = RoomId;
+			Ack.bSuccess = (R == ERoomResult::Success) ? 1 : 0;
+			Ack.Result   = static_cast<uint8_t>(R);
+			return SendPacket(Session->Sock, EOpcode::RoomCreateAck, &Ack, sizeof(Ack));
+		};
+
+		if (!Session->bAuthed)
+		{
+			return Reply(ERoomResult::NotAuthed, 0);
+		}
+		if (BodySize < sizeof(RoomCreateReqBody))
+		{
+			return Reply(ERoomResult::InvalidRequest, 0);
+		}
+
+		RoomCreateReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const std::string Title = ReadFixedString(Req.Title, kMaxRoomTitleLen);
+		// 비밀번호는 널 종료가 없는 고정 4바이트다. 길이를 지정해 그대로 읽는다.
+		const std::string Password(Req.Password, kRoomPasswordLen);
+
+		uint32_t NewRoomId = 0;
+		const ERoomResult R = Rooms::Create(
+			Session->UserId, Session->Name, Session->PeerAddress, Req.HostPort,
+			Title, Req.bHasPassword != 0, Password, Req.MaxPlayers, NewRoomId);
+
+		if (R == ERoomResult::Success)
+		{
+			std::printf("[방 생성] #%u \"%s\" 방장=%s(%llu) 주소=%s:%u %s\n",
+			            NewRoomId, Title.c_str(), Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId),
+			            Session->PeerAddress.c_str(), Req.HostPort,
+			            Req.bHasPassword ? "[비번]" : "");
+		}
+		else
+		{
+			std::printf("[거부] 방 생성 실패: %s (사유 %u)\n", Title.c_str(), static_cast<unsigned>(R));
+		}
+
+		return Reply(R, NewRoomId);
+	}
+
+	bool HandleRoomListReq(const SessionPtr& Session, const char*, uint32_t)
+	{
+		if (!Session->bAuthed)
+		{
+			// 로그인하지 않은 사람에게는 목록을 주지 않는다.
+			RoomListAckBody Empty{};
+			Empty.Count = 0;
+			return SendPacket(Session->Sock, EOpcode::RoomListAck, &Empty, sizeof(Empty));
+		}
+
+		std::vector<RoomInfo> List;
+		Rooms::ListWaiting(List, kMaxRoomsInList);
+
+		RoomListAckBody Head{};
+		Head.Count = static_cast<uint16_t>(List.size());
+
+		// 고정 헤더 + 가변 배열. ChatBroadcast 와 같은 2조각 전송 방식이다.
+		return SendPacket2(Session->Sock, EOpcode::RoomListAck,
+		                   &Head, sizeof(Head),
+		                   List.empty() ? nullptr : reinterpret_cast<const char*>(List.data()),
+		                   static_cast<uint32_t>(List.size() * sizeof(RoomInfo)));
+	}
+
+	bool HandleRoomJoinReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		RoomJoinAckBody Ack{};
+
+		auto Reply = [&](ERoomResult R)
+		{
+			Ack.bSuccess = (R == ERoomResult::Success) ? 1 : 0;
+			Ack.Result   = static_cast<uint8_t>(R);
+			return SendPacket(Session->Sock, EOpcode::RoomJoinAck, &Ack, sizeof(Ack));
+		};
+
+		if (!Session->bAuthed)
+		{
+			return Reply(ERoomResult::NotAuthed);
+		}
+		if (BodySize < sizeof(RoomJoinReqBody))
+		{
+			return Reply(ERoomResult::InvalidRequest);
+		}
+
+		RoomJoinReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const std::string Password(Req.Password, kRoomPasswordLen);
+
+		std::string HostAddress;
+		uint16_t    HostPort = 0;
+		const ERoomResult R = Rooms::Join(Req.RoomId, Password, HostAddress, HostPort);
+
+		Ack.RoomId = Req.RoomId;
+		if (R == ERoomResult::Success)
+		{
+			CopyFixedString(Ack.HostAddress, kMaxAddressLen, HostAddress);
+			Ack.HostPort = HostPort;
+			std::printf("[방 참여] #%u <- %s(%llu), 주소 %s:%u 전달\n",
+			            Req.RoomId, Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId),
+			            HostAddress.c_str(), HostPort);
+		}
+		else
+		{
+			std::printf("[거부] 방 참여 실패: #%u <- %s (사유 %u)\n",
+			            Req.RoomId, Session->Name.c_str(), static_cast<unsigned>(R));
+		}
+
+		return Reply(R);
+	}
+
+	bool HandleRoomStateUpdate(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		if (!Session->bAuthed || BodySize < sizeof(RoomStateUpdateBody))
+		{
+			return true;   // 조용히 무시한다. 상태 갱신은 응답이 없는 단방향 통지다
+		}
+
+		RoomStateUpdateBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const ERoomResult R = Rooms::UpdateState(
+			Req.RoomId, Session->UserId, Req.CurrentPlayers,
+			static_cast<ERoomState>(Req.State));
+
+		if (R == ERoomResult::Success)
+		{
+			std::printf("[방 갱신] #%u 인원 %u명, 상태 %s\n",
+			            Req.RoomId, Req.CurrentPlayers,
+			            Req.State == static_cast<uint8_t>(ERoomState::InGame) ? "게임중" : "대기중");
+		}
+		return true;
+	}
+
+	bool HandleRoomLeaveReq(const SessionPtr& Session, const char*, uint32_t)
+	{
+		if (Session->bAuthed)
+		{
+			Rooms::RemoveByHost(Session->UserId);
+			std::printf("[방 삭제] 방장 %s(%llu) 가 방을 닫았다. 남은 방 %zu개\n",
+			            Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId), Rooms::Count());
+		}
+		return true;
+	}
+
 	bool HandleChatSend(const SessionPtr& Session, const char* Body, uint32_t BodySize)
 	{
 		if (!Session->bAuthed)
@@ -360,6 +522,11 @@ namespace
 		{
 		case EOpcode::LoginReq:  return HandleLoginReq(Session, Data, Size);
 		case EOpcode::RegisterReq: return HandleRegisterReq(Session, Data, Size);
+		case EOpcode::RoomCreateReq:   return HandleRoomCreateReq(Session, Data, Size);
+		case EOpcode::RoomListReq:     return HandleRoomListReq(Session, Data, Size);
+		case EOpcode::RoomJoinReq:     return HandleRoomJoinReq(Session, Data, Size);
+		case EOpcode::RoomLeaveReq:    return HandleRoomLeaveReq(Session, Data, Size);
+		case EOpcode::RoomStateUpdate: return HandleRoomStateUpdate(Session, Data, Size);
 		case EOpcode::ChatSend:  return HandleChatSend(Session, Data, Size);
 		case EOpcode::SetDead:   return HandleSetDead(Session, Data, Size);
 		case EOpcode::Heartbeat: return true;
@@ -419,6 +586,14 @@ namespace
 			{
 				break;
 			}
+		}
+
+		// 방장이 나가면 그 방은 이미 들어갈 수 없는 곳이 된다(리슨서버가 죽었으므로).
+		// 목록에 유령 방이 남지 않도록 여기서 반드시 지운다.
+		// 정상 종료든 랜선이 뽑혔든 이 자리를 지나가므로 한 곳에서 처리된다.
+		if (Session->bAuthed)
+		{
+			Rooms::RemoveByHost(Session->UserId);
 		}
 
 		std::printf("[종료] %s (UserId=%llu) 연결 해제\n",
@@ -518,6 +693,8 @@ int main(int argc, char** argv)
 
 		// 고정 배열이 아니므로 접속자 수 상한이 없다.
 		SessionPtr Session = GSessions.Add(ClientSock);
+		// 방을 만들 때 호스트 주소로 쓸 값이다. 여기서 한 번만 확정해둔다.
+		Session->PeerAddress = AddrText;
 		std::thread(ClientThread, Session).detach();
 	}
 

@@ -29,6 +29,11 @@ namespace MOU
 		bool        bDead   = false;
 		bool        bAuthed = false;
 
+		// accept() 시점에 읽은 상대 IP. 방을 만들 때 호스트 주소로 쓴다.
+		// 클라이언트가 "내 IP 는 여기다" 라고 보내오는 값을 쓰면
+		// 남의 주소를 적어 엉뚱한 곳으로 접속을 몰아줄 수 있다.
+		std::string PeerAddress;
+
 		// TCP 는 메시지 경계를 보장하지 않으므로 세션마다 누적 버퍼를 둔다.
 		// 전역으로 두면 클라이언트끼리 데이터가 섞인다.
 		std::vector<char> RecvBuf;

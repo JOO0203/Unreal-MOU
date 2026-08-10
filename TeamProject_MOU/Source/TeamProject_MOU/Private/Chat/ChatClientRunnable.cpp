@@ -314,6 +314,98 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		break;
 	}
 
+	case MOU::EOpcode::RoomCreateAck:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomCreateAckBody)))
+		{
+			UE_LOG(LogMOUChat, Warning, TEXT("RoomCreateAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::RoomCreateAckBody Ack{};
+		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
+
+		FChatClientEvent Event;
+		Event.Type         = EChatClientEventType::RoomCreateAck;
+		Event.RoomId       = static_cast<int32>(Ack.RoomId);
+		Event.bRoomSuccess = (Ack.bSuccess != 0);
+		Event.RoomResult   = static_cast<EMOURoomResultBP>(Ack.Result);
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
+	case MOU::EOpcode::RoomListAck:
+	{
+		const int32 FixedSize = static_cast<int32>(sizeof(MOU::RoomListAckBody));
+		if (Body.Num() < FixedSize)
+		{
+			UE_LOG(LogMOUChat, Warning, TEXT("RoomListAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::RoomListAckBody Head{};
+		FMemory::Memcpy(&Head, Body.GetData(), sizeof(Head));
+
+		// 서버가 보냈다고 주장하는 개수를 그대로 믿지 않는다.
+		// 실제로 도착한 바이트 수로 검산해야 배열 밖을 읽지 않는다.
+		const int32 InfoSize = static_cast<int32>(sizeof(MOU::RoomInfo));
+		const int32 Declared = static_cast<int32>(Head.Count);
+		const int32 Available = (Body.Num() - FixedSize) / InfoSize;
+		const int32 SafeCount = FMath::Min(Declared, Available);
+
+		if (SafeCount < Declared)
+		{
+			UE_LOG(LogMOUChat, Warning,
+				TEXT("RoomListAck 가 %d개라고 했지만 %d개분만 도착했다"), Declared, Available);
+		}
+
+		FChatClientEvent Event;
+		Event.Type = EChatClientEventType::RoomListAck;
+		Event.Rooms.Reserve(SafeCount);
+
+		for (int32 i = 0; i < SafeCount; ++i)
+		{
+			MOU::RoomInfo Src{};
+			FMemory::Memcpy(&Src, Body.GetData() + FixedSize + i * InfoSize, sizeof(Src));
+
+			FMOURoomInfo Info;
+			Info.RoomId         = static_cast<int32>(Src.RoomId);
+			Info.HostUserId     = static_cast<int64>(Src.HostUserId);
+			Info.Title          = MOUChat::ReadFixedString(Src.Title, static_cast<int32>(MOU::kMaxRoomTitleLen));
+			Info.HostName       = MOUChat::ReadFixedString(Src.HostName, static_cast<int32>(MOU::kMaxNameLen));
+			Info.CurrentPlayers = Src.CurrentPlayers;
+			Info.MaxPlayers     = Src.MaxPlayers;
+			Info.bHasPassword   = (Src.bHasPassword != 0);
+			Info.State          = static_cast<EMOURoomStateBP>(Src.State);
+			Event.Rooms.Add(MoveTemp(Info));
+		}
+
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
+	case MOU::EOpcode::RoomJoinAck:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomJoinAckBody)))
+		{
+			UE_LOG(LogMOUChat, Warning, TEXT("RoomJoinAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::RoomJoinAckBody Ack{};
+		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
+
+		FChatClientEvent Event;
+		Event.Type             = EChatClientEventType::RoomJoinAck;
+		Event.Join.bSuccess    = (Ack.bSuccess != 0);
+		Event.Join.RoomId      = static_cast<int32>(Ack.RoomId);
+		Event.Join.HostPort    = static_cast<int32>(Ack.HostPort);
+		Event.Join.Result      = static_cast<EMOURoomResultBP>(Ack.Result);
+		Event.Join.HostAddress = MOUChat::ReadFixedString(Ack.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
 	case MOU::EOpcode::ChatBroadcast:
 	{
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::ChatBroadcastBody));

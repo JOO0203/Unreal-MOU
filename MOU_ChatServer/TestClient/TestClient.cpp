@@ -47,6 +47,21 @@ namespace
 		}
 	}
 
+	const char* RoomResultName(ERoomResult R)
+	{
+		switch (R)
+		{
+		case ERoomResult::Success:        return "성공";
+		case ERoomResult::NotAuthed:      return "로그인 필요";
+		case ERoomResult::NotFound:       return "없는 방";
+		case ERoomResult::WrongPassword:  return "방 비밀번호 불일치";
+		case ERoomResult::Full:           return "정원 초과";
+		case ERoomResult::AlreadyStarted: return "이미 시작된 방";
+		case ERoomResult::AlreadyHosting: return "이미 방을 갖고 있음";
+		default:                          return "잘못된 요청";
+		}
+	}
+
 	const char* ChannelName(uint8_t Channel)
 	{
 		switch (static_cast<EChatChannel>(Channel))
@@ -184,6 +199,73 @@ namespace
 					}
 					break;
 
+				case EOpcode::RoomCreateAck:
+					if (Body.size() >= sizeof(RoomCreateAckBody))
+					{
+						RoomCreateAckBody Ack{};
+						std::memcpy(&Ack, Body.data(), sizeof(Ack));
+						if (Ack.bSuccess)
+						{
+							std::printf("[방 생성 성공] 방번호 #%u\n", Ack.RoomId);
+						}
+						else
+						{
+							std::printf("[방 생성 실패] %s\n",
+							            RoomResultName(static_cast<ERoomResult>(Ack.Result)));
+						}
+					}
+					break;
+
+				case EOpcode::RoomListAck:
+					if (Body.size() >= sizeof(RoomListAckBody))
+					{
+						RoomListAckBody Head{};
+						std::memcpy(&Head, Body.data(), sizeof(Head));
+
+						const size_t Expected = sizeof(Head) + sizeof(RoomInfo) * Head.Count;
+						if (Body.size() < Expected)
+						{
+							std::printf("[방 목록] 크기가 맞지 않는다\n");
+							break;
+						}
+
+						std::printf("[방 목록] %u개\n", Head.Count);
+						for (uint16_t i = 0; i < Head.Count; ++i)
+						{
+							RoomInfo Info{};
+							std::memcpy(&Info, Body.data() + sizeof(Head) + i * sizeof(RoomInfo),
+							            sizeof(Info));
+							std::printf("  #%u \"%s\" 방장=%s %u/%u %s\n",
+							            Info.RoomId,
+							            ReadFixedString(Info.Title, kMaxRoomTitleLen).c_str(),
+							            ReadFixedString(Info.HostName, kMaxNameLen).c_str(),
+							            Info.CurrentPlayers, Info.MaxPlayers,
+							            Info.bHasPassword ? "[비번]" : "");
+						}
+					}
+					break;
+
+				case EOpcode::RoomJoinAck:
+					if (Body.size() >= sizeof(RoomJoinAckBody))
+					{
+						RoomJoinAckBody Ack{};
+						std::memcpy(&Ack, Body.data(), sizeof(Ack));
+						if (Ack.bSuccess)
+						{
+							// 실제 게임에서는 이 주소로 ClientTravel 한다.
+							std::printf("[방 참여 성공] #%u -> 호스트 %s:%u 로 접속하면 된다\n",
+							            Ack.RoomId,
+							            ReadFixedString(Ack.HostAddress, kMaxAddressLen).c_str(),
+							            Ack.HostPort);
+						}
+						else
+						{
+							std::printf("[방 참여 실패] %s\n",
+							            RoomResultName(static_cast<ERoomResult>(Ack.Result)));
+						}
+					}
+					break;
+
 				case EOpcode::ChatBroadcast:
 					if (Body.size() >= sizeof(ChatBroadcastBody))
 					{
@@ -214,6 +296,46 @@ namespace
 		CopyFixedString(Req.Password, kMaxPasswordLen, Password);
 		Req.TeamId = TeamId;
 		return SendPacket(GSock, EOpcode::LoginReq, &Req, sizeof(Req));
+	}
+
+	bool DoRoomCreate(const std::string& Title, const std::string& Password, uint16_t HostPort)
+	{
+		RoomCreateReqBody Req{};
+		CopyFixedString(Req.Title, kMaxRoomTitleLen, Title);
+		Req.HostPort     = HostPort;
+		Req.MaxPlayers   = static_cast<uint8_t>(kMaxPlayersInRoom);
+		Req.bHasPassword = (Password.size() == kRoomPasswordLen) ? 1 : 0;
+		if (Req.bHasPassword)
+		{
+			// 널 종료가 없는 고정 4바이트라 memcpy 로 넣는다.
+			std::memcpy(Req.Password, Password.data(), kRoomPasswordLen);
+		}
+		return SendPacket(GSock, EOpcode::RoomCreateReq, &Req, sizeof(Req));
+	}
+
+	bool DoRoomList()
+	{
+		return SendPacket(GSock, EOpcode::RoomListReq, nullptr, 0);
+	}
+
+	bool DoRoomJoin(uint32_t RoomId, const std::string& Password)
+	{
+		RoomJoinReqBody Req{};
+		Req.RoomId = RoomId;
+		if (Password.size() == kRoomPasswordLen)
+		{
+			std::memcpy(Req.Password, Password.data(), kRoomPasswordLen);
+		}
+		return SendPacket(GSock, EOpcode::RoomJoinReq, &Req, sizeof(Req));
+	}
+
+	bool DoRoomStateUpdate(uint32_t RoomId, uint8_t CurrentPlayers, ERoomState State)
+	{
+		RoomStateUpdateBody Req{};
+		Req.RoomId         = RoomId;
+		Req.CurrentPlayers = CurrentPlayers;
+		Req.State          = static_cast<uint8_t>(State);
+		return SendPacket(GSock, EOpcode::RoomStateUpdate, &Req, sizeof(Req));
 	}
 
 	bool DoRegister(const std::string& LoginId, const std::string& Password,
@@ -334,6 +456,12 @@ namespace
 		std::printf("  /deadchan 사망 채널로 전환\n");
 		std::printf("  /dead     내 상태를 사망으로\n");
 		std::printf("  /alive    내 상태를 생존으로\n");
+		std::printf("  --- 로비 ---\n");
+		std::printf("  /host <방제목> [비번4자리]   방 만들기 (리슨서버 포트는 7777 로 가정)\n");
+		std::printf("  /rooms                       대기 중인 방 목록\n");
+		std::printf("  /join <방번호> [비번4자리]   방 참여 (성공하면 호스트 주소를 받는다)\n");
+		std::printf("  /start <방번호> <인원>       게임 시작 상태로 바꾼다\n");
+		std::printf("  /close                       내 방 닫기\n");
 		std::printf("  /q        종료\n\n");
 
 		EChatChannel Current = EChatChannel::All;
@@ -350,6 +478,45 @@ namespace
 			if (Line == "/deadchan")   { Current = EChatChannel::Dead; std::printf("-> 사망 채널\n"); continue; }
 			if (Line == "/dead")       { SetDead(true);  continue; }
 			if (Line == "/alive")      { SetDead(false); continue; }
+
+			// --- 로비 명령 ---
+			if (Line.rfind("/host ", 0) == 0)
+			{
+				// /host <방제목> [비번4자리]
+				std::string Rest = Line.substr(6);
+				std::string Title = Rest, Pw;
+				const size_t Space = Rest.rfind(' ');
+				if (Space != std::string::npos && Rest.size() - Space - 1 == kRoomPasswordLen)
+				{
+					Title = Rest.substr(0, Space);
+					Pw    = Rest.substr(Space + 1);
+				}
+				DoRoomCreate(Title, Pw, 7777);
+				continue;
+			}
+			if (Line == "/rooms")      { DoRoomList(); continue; }
+			if (Line.rfind("/join ", 0) == 0)
+			{
+				// /join <방번호> [비번4자리]
+				std::string Rest = Line.substr(6);
+				const size_t Space = Rest.find(' ');
+				const uint32_t RoomId = static_cast<uint32_t>(std::atoi(Rest.substr(0, Space).c_str()));
+				const std::string Pw = (Space == std::string::npos) ? "" : Rest.substr(Space + 1);
+				DoRoomJoin(RoomId, Pw);
+				continue;
+			}
+			if (Line.rfind("/start", 0) == 0)
+			{
+				// /start <방번호> <인원수> -> 게임 시작 상태로 바꾼다
+				std::string Rest = Line.size() > 7 ? Line.substr(7) : "";
+				const size_t Space = Rest.find(' ');
+				const uint32_t RoomId = static_cast<uint32_t>(std::atoi(Rest.substr(0, Space).c_str()));
+				const uint8_t Players = (Space == std::string::npos)
+					? 1 : static_cast<uint8_t>(std::atoi(Rest.substr(Space + 1).c_str()));
+				DoRoomStateUpdate(RoomId, Players, ERoomState::InGame);
+				continue;
+			}
+			if (Line == "/close")      { SendPacket(GSock, EOpcode::RoomLeaveReq, nullptr, 0); continue; }
 
 			const std::vector<char> Packet = BuildChatPacket(Current, Line);
 			if (!SendAll(GSock, Packet.data(), static_cast<int32_t>(Packet.size())))

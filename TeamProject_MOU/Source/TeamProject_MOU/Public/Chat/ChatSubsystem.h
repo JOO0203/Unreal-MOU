@@ -26,6 +26,7 @@
 
 #include "CoreMinimal.h"
 #include "Chat/ChatTypes.h"
+#include "Chat/LobbyTypes.h"
 #include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "ChatSubsystem.generated.h"
@@ -44,6 +45,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnChatLoginCompleted, const FChatLo
 
 /** 계정 생성 시도가 끝났을 때. bSuccess 가 false 면 Result 에 사유가 들어있다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnChatRegisterCompleted, bool, bSuccess, EChatLoginResultBP, Result);
+
+/** 방 생성 결과. 성공하면 RoomId 가 내 방 번호다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoomCreated, bool, bSuccess, int32, RoomId, EMOURoomResultBP, Result);
+
+/** 방 목록이 도착했을 때. 비어 있을 수도 있다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomListReceived, const TArray<FMOURoomInfo>&, Rooms);
+
+/** 방 참여 시도 결과. 성공하면 Result.MakeTravelURL() 로 ClientTravel 하면 된다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomJoinCompleted, const FMOURoomJoinResult&, Result);
 
 /**
  * 채팅 서버 연결의 소유자.
@@ -140,6 +150,55 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat", meta = (DevelopmentOnly))
 	void SetDeadForTest(bool bDead);
 
+	// --- 로비 -------------------------------------------------------------
+
+	/**
+	 * 방을 만든다. 내가 방장이 되고, 이어서 리슨서버를 열어야 한다.
+	 *
+	 * 서버는 내 IP 를 TCP 연결에서 직접 읽으므로 여기서 보내지 않는다.
+	 * HostPort 는 리슨서버가 실제로 열 포트다(기본 7777).
+	 *
+	 * @param RoomPassword 숫자 4자리. 비우면 공개방이 된다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort = 7777);
+
+	/** 대기 중인 방 목록을 요청한다. 결과는 OnRoomListReceived 로 온다. */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void RequestRoomList();
+
+	/**
+	 * 방 참여를 시도한다. 성공해야만 호스트 주소를 받는다.
+	 * 결과는 OnRoomJoinCompleted 로 오고, 거기서 ClientTravel 하면 된다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void JoinRoom(int32 RoomId, const FString& RoomPassword);
+
+	/** 내가 만든 방을 닫는다. 접속을 끊어도 서버가 알아서 지우지만, 명시적으로 닫을 때 쓴다. */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void CloseMyRoom();
+
+	/**
+	 * 방 인원수와 진행 상태를 서버에 알린다. 방장만 의미가 있다.
+	 *
+	 * 리슨서버에서 사람이 들어오고 나갈 때, 그리고 게임을 시작할 때 불러야
+	 * 목록에 보이는 인원수가 실제와 맞는다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame);
+
+	/** 방 비밀번호가 숫자 4자리 규칙에 맞는지. UI 가 미리 걸러줄 때 쓴다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	static bool IsValidRoomPassword(const FString& RoomPassword);
+
+	/** 방 관련 실패 사유를 사용자에게 보여줄 문구로 바꾼다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	static FString GetRoomResultText(EMOURoomResultBP Result);
+
+	/** 내가 방장인 방 번호. 0 이면 방을 갖고 있지 않다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	int32 GetMyRoomId() const { return MyRoomId; }
+
 	/** 연결을 끊고 워커 스레드를 정리한다. 재접속하려면 ConnectToChatServer 를 다시 부른다. */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
 	void Disconnect();
@@ -164,6 +223,15 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "MOU|Chat")
 	FOnChatRegisterCompleted OnChatRegisterCompleted;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomCreated OnRoomCreated;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomListReceived OnRoomListReceived;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomJoinCompleted OnRoomJoinCompleted;
 
 private:
 	/** 게임 스레드 틱. 워커 큐를 비우고 델리게이트를 브로드캐스트한다. */
@@ -222,4 +290,7 @@ private:
 	FString PendingRegisterId;
 	FString PendingRegisterPassword;
 	FString PendingRegisterNickname;
+
+	/** 내가 방장인 방 번호. RoomCreateAck 로 확정되고, 방을 닫거나 끊기면 0 이 된다. */
+	int32 MyRoomId = 0;
 };
