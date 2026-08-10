@@ -51,6 +51,8 @@ enum class EChatClientEventType : uint8
 	ConnectFailed,
 	/** LoginAck 수신. Login 필드에 서버가 확정한 신원이 들어있다. */
 	LoginAck,
+	/** RegisterAck 수신. Login.bSuccess / Login.Result 에 결과가 들어있다. */
+	RegisterAck,
 	/** 연결이 끊겼다. 서버 종료, 강제 차단, 프레이밍 오류 등. */
 	Disconnected
 };

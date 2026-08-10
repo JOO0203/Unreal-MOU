@@ -116,7 +116,14 @@ enum class EChatLoginResultBP : uint8
 {
 	Success         = 0 UMETA(DisplayName = "성공"),
 	VersionMismatch = 1 UMETA(DisplayName = "프로토콜 버전 불일치"),
-	InvalidRequest  = 2 UMETA(DisplayName = "잘못된 요청")
+	InvalidRequest  = 2 UMETA(DisplayName = "잘못된 요청"),
+
+	// --- 계정 관련 ---
+	AccountNotFound = 3 UMETA(DisplayName = "없는 아이디"),
+	WrongPassword   = 4 UMETA(DisplayName = "비밀번호 불일치"),
+	DuplicateId     = 5 UMETA(DisplayName = "이미 있는 아이디"),
+	InvalidFormat   = 6 UMETA(DisplayName = "형식 위반"),
+	ServerError     = 7 UMETA(DisplayName = "서버 오류")
 };
 
 /**

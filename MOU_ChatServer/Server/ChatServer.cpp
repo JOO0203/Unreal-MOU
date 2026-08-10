@@ -5,6 +5,7 @@
 //
 // 사용법: ChatServer <port> [db경로]
 
+#include "Accounts.h"
 #include "ChatLog.h"
 #include "Session.h"
 #include "Framing.h"
@@ -36,6 +37,7 @@ namespace
 	{
 		GRunning = false;
 		ChatLog::Stop();
+		Accounts::Stop();
 		std::_Exit(0);   // 소켓과 메모리 회수는 OS 에 맡긴다
 	}
 
@@ -130,6 +132,34 @@ namespace
 	// ------------------------------------------------------------------
 	// 패킷 핸들러. false 를 반환하면 연결을 끊는다.
 	// ------------------------------------------------------------------
+	// 계정 모듈의 결과를 프로토콜 사유 코드로 옮긴다.
+	// 두 enum 을 따로 두는 이유는 계정 모듈이 프로토콜을 몰라도 되게 하기 위함이다.
+	ELoginResult ToLoginResult(EAccountResult R)
+	{
+		switch (R)
+		{
+		case EAccountResult::Success:       return ELoginResult::Success;
+		case EAccountResult::NotFound:      return ELoginResult::AccountNotFound;
+		case EAccountResult::WrongPassword: return ELoginResult::WrongPassword;
+		case EAccountResult::DuplicateId:   return ELoginResult::DuplicateId;
+		case EAccountResult::InvalidFormat: return ELoginResult::InvalidFormat;
+		default:                            return ELoginResult::ServerError;
+		}
+	}
+
+	const char* AccountResultName(EAccountResult R)
+	{
+		switch (R)
+		{
+		case EAccountResult::Success:       return "성공";
+		case EAccountResult::NotFound:      return "없는 아이디";
+		case EAccountResult::WrongPassword: return "비밀번호 불일치";
+		case EAccountResult::DuplicateId:   return "이미 있는 아이디";
+		case EAccountResult::InvalidFormat: return "형식 위반";
+		default:                            return "서버 오류";
+		}
+	}
+
 	// 로그인 거부를 사유와 함께 알린다.
 	// 그냥 연결을 끊어버리면 클라이언트는 원인을 모른 채 3초마다 재접속만 반복한다.
 	void SendLoginFailure(const SessionPtr& Session, ELoginResult Reason)
@@ -175,15 +205,29 @@ namespace
 		LoginReqBody Req{};
 		std::memcpy(&Req, Body, sizeof(Req));
 
-		Session->UserId  = GSessions.AssignUserId();
-		Session->Name    = ReadFixedString(Req.Name, kMaxNameLen);
+		const std::string LoginId  = ReadFixedString(Req.LoginId,  kMaxLoginIdLen);
+		const std::string Password = ReadFixedString(Req.Password, kMaxPasswordLen);
+
+		// 계정 검증. UserId 는 이제 서버가 세는 번호가 아니라 accounts.id 다.
+		// 그래서 같은 계정으로 재접속하면 언제나 같은 번호가 나온다.
+		uint64_t    AccountId = 0;
+		std::string Nickname;
+		const EAccountResult AuthResult =
+			Accounts::Authenticate(LoginId, Password, AccountId, Nickname);
+
+		if (AuthResult != EAccountResult::Success)
+		{
+			std::printf("[거부] 로그인 실패: id=%s 사유=%s\n",
+			            LoginId.c_str(), AccountResultName(AuthResult));
+			SendLoginFailure(Session, ToLoginResult(AuthResult));
+			// 연결은 유지한다. 사용자가 비번을 고쳐 다시 시도할 수 있어야 한다.
+			return true;
+		}
+
+		Session->UserId  = AccountId;
+		Session->Name    = Nickname;
 		Session->TeamId  = Req.TeamId;
 		Session->bAuthed = true;
-
-		if (Session->Name.empty())
-		{
-			Session->Name = "익명" + std::to_string(Session->UserId);
-		}
 
 		LoginAckBody Ack{};
 		Ack.UserId        = Session->UserId;
@@ -198,6 +242,64 @@ namespace
 		            static_cast<unsigned long long>(Session->UserId), Session->TeamId);
 
 		return SendPacket(Session->Sock, EOpcode::LoginAck, &Ack, sizeof(Ack));
+	}
+
+	// 계정 생성. 로그인과 달리 세션 상태를 바꾸지 않는다.
+	// 가입에 성공해도 자동 로그인은 시키지 않고, 클라이언트가 이어서 LoginReq 를 보낸다.
+	// 가입과 로그인을 분리해두면 나중에 "가입 즉시 이메일 인증" 같은 단계를 끼우기 쉽다.
+	bool HandleRegisterReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		auto SendResult = [&](ELoginResult Reason)
+		{
+			RegisterAckBody Ack{};
+			Ack.bSuccess      = (Reason == ELoginResult::Success) ? 1 : 0;
+			Ack.Result        = static_cast<uint8_t>(Reason);
+			Ack.ServerVersion = kProtocolVersion;
+			return SendPacket(Session->Sock, EOpcode::RegisterAck, &Ack, sizeof(Ack));
+		};
+
+		if (BodySize < sizeof(uint16_t))
+		{
+			return SendResult(ELoginResult::InvalidRequest);
+		}
+
+		uint16_t ClientVersion = 0;
+		std::memcpy(&ClientVersion, Body, sizeof(ClientVersion));
+		if (ClientVersion != kProtocolVersion)
+		{
+			std::printf("[거부] 가입 요청 버전 불일치. 클라이언트=%u, 서버=%u\n",
+			            ClientVersion, kProtocolVersion);
+			return SendResult(ELoginResult::VersionMismatch);
+		}
+
+		if (BodySize < sizeof(RegisterReqBody))
+		{
+			return SendResult(ELoginResult::InvalidRequest);
+		}
+
+		RegisterReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const std::string LoginId  = ReadFixedString(Req.LoginId,  kMaxLoginIdLen);
+		const std::string Password = ReadFixedString(Req.Password, kMaxPasswordLen);
+		const std::string Nickname = ReadFixedString(Req.Nickname, kMaxNameLen);
+
+		uint64_t NewUserId = 0;
+		const EAccountResult R = Accounts::Create(LoginId, Password, Nickname, NewUserId);
+
+		if (R == EAccountResult::Success)
+		{
+			std::printf("[가입] %s (닉네임 %s) -> UserId=%llu\n",
+			            LoginId.c_str(), Nickname.c_str(),
+			            static_cast<unsigned long long>(NewUserId));
+		}
+		else
+		{
+			std::printf("[거부] 가입 실패: id=%s 사유=%s\n",
+			            LoginId.c_str(), AccountResultName(R));
+		}
+
+		return SendResult(ToLoginResult(R));
 	}
 
 	bool HandleChatSend(const SessionPtr& Session, const char* Body, uint32_t BodySize)
@@ -257,6 +359,7 @@ namespace
 		switch (static_cast<EOpcode>(Header.Opcode))
 		{
 		case EOpcode::LoginReq:  return HandleLoginReq(Session, Data, Size);
+		case EOpcode::RegisterReq: return HandleRegisterReq(Session, Data, Size);
 		case EOpcode::ChatSend:  return HandleChatSend(Session, Data, Size);
 		case EOpcode::SetDead:   return HandleSetDead(Session, Data, Size);
 		case EOpcode::Heartbeat: return true;
@@ -381,6 +484,14 @@ int main(int argc, char** argv)
 	const char* DbPath = (argc >= 3) ? argv[2] : "chat_log.db";
 	ChatLog::Start(DbPath);
 
+	// 계정도 같은 파일에 둔다(테이블이 다르므로 섞이지 않는다).
+	// 커넥션은 별개다 — ChatLog 쪽은 라이터 스레드 전용이라 남이 끼면 안 된다.
+	if (!Accounts::Start(DbPath))
+	{
+		std::printf("[치명] 계정 DB 를 열지 못했다. 아무도 로그인할 수 없다.\n");
+		return 1;
+	}
+
 	std::printf("=== MOU 채팅 서버 시작 (port %s) ===\n", argv[1]);
 
 	while (GRunning)
@@ -411,6 +522,7 @@ int main(int argc, char** argv)
 	}
 
 	ChatLog::Stop();
+	Accounts::Stop();
 	CloseSocket(ListenSock);
 	NetShutdown();
 	return 0;

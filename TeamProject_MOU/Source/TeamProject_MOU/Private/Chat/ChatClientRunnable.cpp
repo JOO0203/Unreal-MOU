@@ -292,6 +292,28 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		break;
 	}
 
+	case MOU::EOpcode::RegisterAck:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::RegisterAckBody)))
+		{
+			UE_LOG(LogMOUChat, Warning, TEXT("RegisterAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::RegisterAckBody Ack{};
+		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
+
+		// 가입 결과는 신원이 아니므로 UserId/Name 은 채우지 않는다.
+		// bSuccess 와 Result 만 의미가 있다.
+		FChatClientEvent Event;
+		Event.Type                = EChatClientEventType::RegisterAck;
+		Event.Login.bSuccess      = (Ack.bSuccess != 0);
+		Event.Login.Result        = static_cast<EChatLoginResultBP>(Ack.Result);
+		Event.Login.ServerVersion = static_cast<int32>(Ack.ServerVersion);
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
 	case MOU::EOpcode::ChatBroadcast:
 	{
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::ChatBroadcastBody));

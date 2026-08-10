@@ -31,6 +31,22 @@ namespace
 	std::atomic<bool> GRunning{ true };
 	uint64_t GMyUserId = 0;
 
+	const char* LoginResultName(ELoginResult R)
+	{
+		switch (R)
+		{
+		case ELoginResult::Success:         return "성공";
+		case ELoginResult::VersionMismatch: return "프로토콜 버전 불일치";
+		case ELoginResult::InvalidRequest:  return "잘못된 요청";
+		case ELoginResult::AccountNotFound: return "없는 아이디";
+		case ELoginResult::WrongPassword:   return "비밀번호가 틀림";
+		case ELoginResult::DuplicateId:     return "이미 있는 아이디";
+		case ELoginResult::InvalidFormat:   return "아이디/비밀번호 형식 위반";
+		case ELoginResult::ServerError:     return "서버 오류";
+		default:                            return "알 수 없음";
+		}
+	}
+
 	const char* ChannelName(uint8_t Channel)
 	{
 		switch (static_cast<EChatChannel>(Channel))
@@ -134,7 +150,9 @@ namespace
 							}
 							else
 							{
-								std::printf("[로그인 실패] 사유 코드 %u\n", Ack.Result);
+								std::printf("[로그인 실패] %s (코드 %u)\n",
+								            LoginResultName(static_cast<ELoginResult>(Ack.Result)),
+								            Ack.Result);
 							}
 							GRunning = false;
 							return;
@@ -145,6 +163,24 @@ namespace
 						            static_cast<unsigned long long>(Ack.UserId),
 						            ReadFixedString(Ack.Name, kMaxNameLen).c_str(),
 						            Ack.TeamId);
+					}
+					break;
+
+				case EOpcode::RegisterAck:
+					if (Body.size() >= sizeof(RegisterAckBody))
+					{
+						RegisterAckBody Ack{};
+						std::memcpy(&Ack, Body.data(), sizeof(Ack));
+						if (Ack.bSuccess != 0)
+						{
+							std::printf("[가입 성공] 이어서 로그인한다.\n");
+						}
+						else
+						{
+							std::printf("[가입 실패] %s (코드 %u)\n",
+							            LoginResultName(static_cast<ELoginResult>(Ack.Result)),
+							            Ack.Result);
+						}
 					}
 					break;
 
@@ -170,13 +206,25 @@ namespace
 		}
 	}
 
-	bool DoLogin(const std::string& Name, int32_t TeamId)
+	bool DoLogin(const std::string& LoginId, const std::string& Password, int32_t TeamId)
 	{
 		LoginReqBody Req{};
 		Req.Version = kProtocolVersion;   // 서버가 이 값을 검사한다
-		CopyFixedString(Req.Name, kMaxNameLen, Name);
+		CopyFixedString(Req.LoginId,  kMaxLoginIdLen,  LoginId);
+		CopyFixedString(Req.Password, kMaxPasswordLen, Password);
 		Req.TeamId = TeamId;
 		return SendPacket(GSock, EOpcode::LoginReq, &Req, sizeof(Req));
+	}
+
+	bool DoRegister(const std::string& LoginId, const std::string& Password,
+	                const std::string& Nickname)
+	{
+		RegisterReqBody Req{};
+		Req.Version = kProtocolVersion;
+		CopyFixedString(Req.LoginId,  kMaxLoginIdLen,  LoginId);
+		CopyFixedString(Req.Password, kMaxPasswordLen, Password);
+		CopyFixedString(Req.Nickname, kMaxNameLen,     Nickname);
+		return SendPacket(GSock, EOpcode::RegisterReq, &Req, sizeof(Req));
 	}
 
 	void SetDead(bool bDead)
@@ -320,13 +368,28 @@ int main(int argc, char** argv)
 	::SetConsoleCP(CP_UTF8);
 #endif
 
-	if (argc < 4)
+	if (argc < 5)
 	{
-		std::printf("사용법: %s <ip> <port> <name> [split|merge|bad]\n", argv[0]);
+		std::printf("사용법: %s <ip> <port> <아이디> <비밀번호> [split|merge|bad] [--register 닉네임]\n",
+		            argv[0]);
+		std::printf("  --register 를 주면 로그인 전에 계정을 먼저 만든다.\n");
 		return 1;
 	}
 
-	const std::string Mode = (argc >= 5) ? argv[4] : "";
+	const std::string Mode = (argc >= 6 && argv[5][0] != '-') ? argv[5] : "";
+
+	// --register <닉네임> 을 찾는다. 위치는 5번 인자 뒤 아무데나 허용한다.
+	std::string RegisterNick;
+	bool bWantRegister = false;
+	for (int i = 5; i < argc - 1; ++i)
+	{
+		if (std::strcmp(argv[i], "--register") == 0)
+		{
+			bWantRegister = true;
+			RegisterNick  = argv[i + 1];
+			break;
+		}
+	}
 
 	if (!NetInit())
 	{
@@ -362,9 +425,17 @@ int main(int argc, char** argv)
 
 	std::thread Receiver(RecvThread);
 
-	// 팀 ID 는 이름 길이의 홀짝으로 대충 나눈다. 팀 채널 테스트용.
+	// 팀 ID 는 아이디 길이의 홀짝으로 대충 나눈다. 팀 채널 테스트용.
 	const int32_t TeamId = static_cast<int32_t>(std::strlen(argv[3]) % 2);
-	DoLogin(argv[3], TeamId);
+
+	if (bWantRegister)
+	{
+		DoRegister(argv[3], argv[4], RegisterNick);
+		// RegisterAck 를 받고 나서 로그인해야 한다.
+		std::this_thread::sleep_for(std::chrono::milliseconds(300));
+	}
+
+	DoLogin(argv[3], argv[4], TeamId);
 
 	// LoginAck 를 받을 시간을 준다.
 	std::this_thread::sleep_for(std::chrono::milliseconds(200));

@@ -47,6 +47,8 @@ endif()
 add_executable(ChatServer
     Server/ChatServer.cpp
     Server/ChatLog.cpp
+    Server/Accounts.cpp
+    Server/Crypto.cpp
     Server/Session.cpp
 )
 target_include_directories(ChatServer PRIVATE Server)

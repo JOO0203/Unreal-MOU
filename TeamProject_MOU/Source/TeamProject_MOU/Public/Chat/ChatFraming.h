@@ -45,6 +45,11 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EChatLoginResultBP::Success)         == static_cast<uint8>(MOU::ELoginResult::Success),         "EChatLoginResultBP::Success 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::VersionMismatch) == static_cast<uint8>(MOU::ELoginResult::VersionMismatch), "EChatLoginResultBP::VersionMismatch 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::InvalidRequest)  == static_cast<uint8>(MOU::ELoginResult::InvalidRequest),  "EChatLoginResultBP::InvalidRequest 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::AccountNotFound) == static_cast<uint8>(MOU::ELoginResult::AccountNotFound), "EChatLoginResultBP::AccountNotFound 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::WrongPassword)   == static_cast<uint8>(MOU::ELoginResult::WrongPassword),   "EChatLoginResultBP::WrongPassword 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::DuplicateId)     == static_cast<uint8>(MOU::ELoginResult::DuplicateId),     "EChatLoginResultBP::DuplicateId 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::InvalidFormat)   == static_cast<uint8>(MOU::ELoginResult::InvalidFormat),   "EChatLoginResultBP::InvalidFormat 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::ServerError)     == static_cast<uint8>(MOU::ELoginResult::ServerError),     "EChatLoginResultBP::ServerError 가 서버 정의와 다르다");
 
 	/** TryExtractPacket 의 결과. 서버 MOU::EFrameResult 와 같은 의미다. */
 	enum class EFrameResult : uint8

@@ -42,6 +42,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnChatStateChanged, EChatConnectio
 /** 로그인이 끝나 내 신원(UserId/이름/팀)이 확정됐을 때. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnChatLoginCompleted, const FChatLoginResult&, Result);
 
+/** 계정 생성 시도가 끝났을 때. bSuccess 가 false 면 Result 에 사유가 들어있다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnChatRegisterCompleted, bool, bSuccess, EChatLoginResultBP, Result);
+
 /**
  * 채팅 서버 연결의 소유자.
  *
@@ -80,16 +83,42 @@ public:
 	void ConnectToChatServer(const FString& InHost = TEXT("127.0.0.1"), int32 InPort = 9000);
 
 	/**
-	 * 로그인 요청. 서버가 UserId 를 부여하고 LoginAck 로 돌려준다.
+	 * 계정으로 로그인한다. 성공하면 서버가 accounts.id 를 UserId 로 돌려준다.
 	 *
 	 * 아직 연결 전이라면 요청을 보관했다가 연결되는 순간 자동으로 보낸다.
 	 * 그래서 ConnectToChatServer 직후에 바로 불러도 된다.
 	 *
-	 * 주의: 여기 넣은 이름/팀은 서버가 검증하지 않는다 (4단계 한계).
-	 *       인증은 8단계에서 리슨서버 티켓 방식으로 붙일 예정이다.
+	 * 화면에 표시할 이름은 여기서 정하지 않는다. 계정에 저장된 닉네임을
+	 * 서버가 LoginAck 로 내려주므로, 그 값(GetLoginResult().Name)을 써야 한다.
+	 *
+	 * [경고] Password 는 평문으로 전송된다(TLS 없음).
+	 *        실제로 쓰는 비밀번호를 넣지 말 것.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
-	void Login(const FString& DisplayName, int32 TeamId);
+	void Login(const FString& LoginId, const FString& Password, int32 TeamId);
+
+	/**
+	 * 계정을 만든다. 성공해도 자동 로그인은 되지 않으므로 이어서 Login 을 불러야 한다.
+	 * 결과는 OnChatRegisterCompleted 로 온다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
+	void RegisterAccount(const FString& LoginId, const FString& Password, const FString& Nickname);
+
+	/**
+	 * 아이디/비밀번호가 서버 규칙을 만족하는지 미리 검사한다.
+	 *
+	 * 서버도 똑같이 검사하지만, UI 가 먼저 걸러주면 왕복 없이 즉시 알려줄 수 있다.
+	 * @param OutReason 실패 시 사용자에게 보여줄 안내 문구
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Chat")
+	static bool ValidateCredentials(const FString& LoginId, const FString& Password, FString& OutReason);
+
+	/**
+	 * 실패 사유를 사용자에게 보여줄 문구로 바꾼다.
+	 * 로그와 UI 가 같은 문구를 쓰도록 한 곳에 모아둔다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Chat")
+	static FString GetLoginResultText(EChatLoginResultBP Result);
 
 	/**
 	 * 채팅을 보낸다. 로그인 전에 부르면 서버가 무시하므로 여기서 미리 막는다.
@@ -133,6 +162,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "MOU|Chat")
 	FOnChatLoginCompleted OnChatLoginCompleted;
 
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Chat")
+	FOnChatRegisterCompleted OnChatRegisterCompleted;
+
 private:
 	/** 게임 스레드 틱. 워커 큐를 비우고 델리게이트를 브로드캐스트한다. */
 	bool Tick(float DeltaTime);
@@ -144,6 +176,17 @@ private:
 
 	/** 보관해둔 로그인 요청을 실제로 전송한다. */
 	void SendPendingLogin();
+
+	/**
+	 * 보관해둔 계정 생성 요청을 전송한다.
+	 *
+	 * 로그인과 마찬가지로 보관이 필요한 이유:
+	 * 워커는 연결이 성사되는 순간 송신 큐를 통째로 비운다(끊기기 전에 쌓인
+	 * 낡은 패킷이 LoginReq 보다 먼저 나가는 것을 막기 위해서다).
+	 * 그래서 연결 전에 EnqueuePacket 한 RegisterReq 는 그대로 버려진다.
+	 * 서브시스템이 들고 있다가 Connected 시점에 다시 보내야 한다.
+	 */
+	void SendPendingRegister();
 
 	UPROPERTY()
 	EChatConnectionState ConnectionState = EChatConnectionState::Disconnected;
@@ -165,7 +208,18 @@ private:
 	FTSTicker::FDelegateHandle TickHandle;
 
 	// 연결 전에 Login() 이 호출된 경우 여기 보관했다가 Connected 시점에 보낸다.
+	//
+	// [주의] PendingPassword 는 재접속 시 다시 로그인하려고 메모리에 남겨둔다.
+	//        Disconnect() 하면 지운다. 디스크나 로그에는 절대 쓰지 않는다.
 	bool    bHasPendingLogin = false;
-	FString PendingName;
+	FString PendingLoginId;
+	FString PendingPassword;
 	int32   PendingTeamId = -1;
+
+	// 계정 생성 요청. 로그인과 달리 한 번만 보낸다(RegisterAck 를 받으면 지운다).
+	// 재접속할 때마다 가입을 다시 시도하면 "이미 있는 아이디" 오류가 반복된다.
+	bool    bHasPendingRegister = false;
+	FString PendingRegisterId;
+	FString PendingRegisterPassword;
+	FString PendingRegisterNickname;
 };

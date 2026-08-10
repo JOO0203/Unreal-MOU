@@ -157,11 +157,59 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *InHost, InPort));
 }
 
-void UChatSubsystem::Login(const FString& DisplayName, int32 TeamId)
+FString UChatSubsystem::GetLoginResultText(EChatLoginResultBP Result)
+{
+	switch (Result)
+	{
+	case EChatLoginResultBP::Success:         return TEXT("성공");
+	case EChatLoginResultBP::VersionMismatch: return TEXT("서버와 버전이 다릅니다. 양쪽을 다시 빌드해야 합니다.");
+	case EChatLoginResultBP::InvalidRequest:  return TEXT("잘못된 요청입니다.");
+	case EChatLoginResultBP::AccountNotFound: return TEXT("존재하지 않는 아이디입니다.");
+	case EChatLoginResultBP::WrongPassword:   return TEXT("비밀번호가 올바르지 않습니다.");
+	case EChatLoginResultBP::DuplicateId:     return TEXT("이미 사용 중인 아이디입니다.");
+	case EChatLoginResultBP::InvalidFormat:   return TEXT("아이디 또는 비밀번호 형식이 올바르지 않습니다.");
+	case EChatLoginResultBP::ServerError:     return TEXT("서버 오류입니다. 잠시 후 다시 시도해 주세요.");
+	default:                                  return TEXT("알 수 없는 오류입니다.");
+	}
+}
+
+bool UChatSubsystem::ValidateCredentials(const FString& LoginId, const FString& Password, FString& OutReason)
+{
+	// 서버와 같은 규칙을 쓴다. 길이는 UTF-8 바이트 기준이라 한글 아이디면 글자 수보다 커진다.
+	const int32 IdBytes = MOUChat::GetUtf8Length(LoginId);
+	const int32 PwBytes = MOUChat::GetUtf8Length(Password);
+
+	if (IdBytes < static_cast<int32>(MOU::kMinLoginIdLen))
+	{
+		OutReason = FString::Printf(TEXT("아이디는 %d자 이상이어야 합니다."), MOU::kMinLoginIdLen);
+		return false;
+	}
+	if (IdBytes >= static_cast<int32>(MOU::kMaxLoginIdLen))
+	{
+		OutReason = FString::Printf(TEXT("아이디가 너무 깁니다. (%d바이트 미만)"), MOU::kMaxLoginIdLen);
+		return false;
+	}
+	if (PwBytes < static_cast<int32>(MOU::kMinPasswordLen))
+	{
+		OutReason = FString::Printf(TEXT("비밀번호는 %d자 이상이어야 합니다."), MOU::kMinPasswordLen);
+		return false;
+	}
+	if (PwBytes >= static_cast<int32>(MOU::kMaxPasswordLen))
+	{
+		OutReason = FString::Printf(TEXT("비밀번호가 너무 깁니다. (%d바이트 미만)"), MOU::kMaxPasswordLen);
+		return false;
+	}
+
+	OutReason.Empty();
+	return true;
+}
+
+void UChatSubsystem::Login(const FString& LoginId, const FString& Password, int32 TeamId)
 {
 	// 요청은 항상 보관해둔다.
 	// 연결이 끊겼다가 자동 재접속했을 때 이 값으로 다시 로그인해야 하기 때문이다.
-	PendingName      = DisplayName;
+	PendingLoginId   = LoginId;
+	PendingPassword  = Password;
 	PendingTeamId    = TeamId;
 	bHasPendingLogin = true;
 
@@ -173,7 +221,51 @@ void UChatSubsystem::Login(const FString& DisplayName, int32 TeamId)
 	else
 	{
 		// 아직 TCP 가 안 붙었다. 붙는 순간 Tick 의 Connected 처리에서 자동으로 보낸다.
-		UE_LOG(LogMOUChat, Log, TEXT("연결 전이라 로그인 요청을 보관한다: %s (팀 %d)"), *DisplayName, TeamId);
+		// 비밀번호는 절대 로그에 남기지 않는다.
+		UE_LOG(LogMOUChat, Log, TEXT("연결 전이라 로그인 요청을 보관한다: %s (팀 %d)"), *LoginId, TeamId);
+	}
+}
+
+void UChatSubsystem::RegisterAccount(const FString& LoginId, const FString& Password, const FString& Nickname)
+{
+	// 연결 전에 불릴 수 있으므로 일단 보관한다.
+	// 지금 바로 EnqueuePacket 하면, 연결이 성사되는 순간 워커가 송신 큐를 비우면서
+	// 이 패킷까지 같이 버린다(그 비우기는 낡은 패킷이 LoginReq 를 앞지르는 것을 막는 장치다).
+	PendingRegisterId       = LoginId;
+	PendingRegisterPassword = Password;
+	PendingRegisterNickname = Nickname;
+	bHasPendingRegister     = true;
+
+	if (ConnectionState == EChatConnectionState::Connected
+		|| ConnectionState == EChatConnectionState::LoggedIn)
+	{
+		SendPendingRegister();
+	}
+	else
+	{
+		UE_LOG(LogMOUChat, Log, TEXT("연결 전이라 가입 요청을 보관한다: %s"), *LoginId);
+	}
+}
+
+void UChatSubsystem::SendPendingRegister()
+{
+	if (ChatClient == nullptr || !bHasPendingRegister)
+	{
+		return;
+	}
+
+	MOU::RegisterReqBody Request{};
+	Request.Version = MOU::kProtocolVersion;
+	MOUChat::CopyFixedString(Request.LoginId,  static_cast<int32>(MOU::kMaxLoginIdLen),  PendingRegisterId);
+	MOUChat::CopyFixedString(Request.Password, static_cast<int32>(MOU::kMaxPasswordLen), PendingRegisterPassword);
+	MOUChat::CopyFixedString(Request.Nickname, static_cast<int32>(MOU::kMaxNameLen),     PendingRegisterNickname);
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RegisterReq, &Request, sizeof(Request)))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RegisterReq 전송: %s (닉네임 %s)"),
+			*PendingRegisterId, *PendingRegisterNickname);
 	}
 }
 
@@ -186,14 +278,15 @@ void UChatSubsystem::SendPendingLogin()
 
 	MOU::LoginReqBody Request{};
 	Request.Version = MOU::kProtocolVersion;   // 서버가 이 값을 검사하고 다르면 거부한다
-	MOUChat::CopyFixedString(Request.Name, static_cast<int32>(MOU::kMaxNameLen), PendingName);
+	MOUChat::CopyFixedString(Request.LoginId,  static_cast<int32>(MOU::kMaxLoginIdLen),  PendingLoginId);
+	MOUChat::CopyFixedString(Request.Password, static_cast<int32>(MOU::kMaxPasswordLen), PendingPassword);
 	Request.TeamId = PendingTeamId;
 
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::LoginReq, &Request, sizeof(Request)))
 	{
 		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("LoginReq 전송: %s (팀 %d)"), *PendingName, PendingTeamId);
+		UE_LOG(LogMOUChat, Log, TEXT("LoginReq 전송: %s (팀 %d)"), *PendingLoginId, PendingTeamId);
 	}
 }
 
@@ -275,6 +368,7 @@ void UChatSubsystem::SetDeadForTest(bool bDead)
 void UChatSubsystem::Disconnect()
 {
 	bHasPendingLogin = false;   // 사용자가 의도적으로 끊은 것이므로 자동 재로그인하지 않는다
+	PendingPassword.Empty();    // 비밀번호를 필요 이상으로 메모리에 두지 않는다
 	ShutdownClient();
 }
 
@@ -301,6 +395,9 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 
 		case EChatClientEventType::Connected:
 			SetConnectionState(EChatConnectionState::Connected, Event.Detail);
+			// 가입을 먼저 보낸다. 같은 TCP 스트림이라 서버가 이 순서대로 처리하므로,
+			// "가입 후 곧바로 로그인" 이 한 번의 연결로 끝난다.
+			SendPendingRegister();
 			// 접속 전에 Login() 이 호출됐거나, 끊겼다 재접속한 경우 여기서 자동으로 로그인한다.
 			SendPendingLogin();
 			break;
@@ -328,10 +425,39 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 			}
 			else
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("서버가 로그인을 거부했다. (사유 코드 %d)"),
-					static_cast<int32>(LoginResult.Result));
+				// 아이디/비밀번호 실수는 흔한 일이라 사용자가 고칠 수 있게 사유를 그대로 남긴다.
+				UE_LOG(LogMOUChat, Warning, TEXT("서버가 로그인을 거부했다: %s"),
+					*UChatSubsystem::GetLoginResultText(LoginResult.Result));
+
+				// 인증 실패는 재시도해도 같은 결과다. 보관해둔 요청을 지워
+				// 재접속 때마다 틀린 비밀번호를 자동 재전송하는 것을 막는다.
+				if (LoginResult.Result == EChatLoginResultBP::AccountNotFound
+					|| LoginResult.Result == EChatLoginResultBP::WrongPassword
+					|| LoginResult.Result == EChatLoginResultBP::InvalidFormat)
+				{
+					bHasPendingLogin = false;
+					PendingPassword.Empty();
+				}
 			}
 			OnChatLoginCompleted.Broadcast(LoginResult);
+			break;
+
+		case EChatClientEventType::RegisterAck:
+			// 응답을 받았으므로 보관본을 지운다.
+			// 안 지우면 재접속할 때마다 가입을 다시 시도해 "이미 있는 아이디" 가 반복된다.
+			bHasPendingRegister = false;
+			PendingRegisterPassword.Empty();
+
+			if (Event.Login.bSuccess)
+			{
+				UE_LOG(LogMOUChat, Log, TEXT("계정 생성 완료. 이어서 로그인하면 된다."));
+			}
+			else
+			{
+				UE_LOG(LogMOUChat, Warning, TEXT("계정 생성 실패: %s"),
+					*UChatSubsystem::GetLoginResultText(Event.Login.Result));
+			}
+			OnChatRegisterCompleted.Broadcast(Event.Login.bSuccess, Event.Login.Result);
 			break;
 
 		case EChatClientEventType::Disconnected:
@@ -373,7 +499,8 @@ void UChatSubsystem::SetConnectionState(EChatConnectionState NewState, const FSt
 //
 // PIE 에서 ` 키를 눌러 콘솔을 열고 아래 명령을 입력한다.
 //   MOU.Chat.Connect 127.0.0.1 9000
-//   MOU.Chat.Login 홍길동 0
+//   MOU.Chat.Register player1 secret123 홍길동
+//   MOU.Chat.Login player1 secret123 0
 //   MOU.Chat.Say 0 안녕하세요          (첫 인자가 채널: 0=전체 1=팀 2=사망)
 //   MOU.Chat.Dead 1
 //   MOU.Chat.Disconnect
@@ -409,15 +536,39 @@ namespace
 
 	FAutoConsoleCommandWithWorldAndArgs GChatLoginCommand(
 		TEXT("MOU.Chat.Login"),
-		TEXT("채팅 서버에 로그인한다. 사용법: MOU.Chat.Login <이름> [팀ID]"),
+		TEXT("채팅 서버에 로그인한다. 사용법: MOU.Chat.Login <아이디> <비밀번호> [팀ID]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
 				if (UChatSubsystem* Chat = FindChatSubsystem(World))
 				{
-					const FString NameArg = Args.IsValidIndex(0) ? Args[0] : TEXT("테스터");
-					const int32   TeamArg = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 0;
-					Chat->Login(NameArg, TeamArg);
+					if (Args.Num() < 2)
+					{
+						UE_LOG(LogMOUChat, Warning,
+							TEXT("사용법: MOU.Chat.Login <아이디> <비밀번호> [팀ID]"));
+						return;
+					}
+					const int32 TeamArg = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 0;
+					Chat->Login(Args[0], Args[1], TeamArg);
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GChatRegisterCommand(
+		TEXT("MOU.Chat.Register"),
+		TEXT("계정을 만든다. 사용법: MOU.Chat.Register <아이디> <비밀번호> [닉네임]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					if (Args.Num() < 2)
+					{
+						UE_LOG(LogMOUChat, Warning,
+							TEXT("사용법: MOU.Chat.Register <아이디> <비밀번호> [닉네임]"));
+						return;
+					}
+					const FString Nick = Args.IsValidIndex(2) ? Args[2] : Args[0];
+					Chat->RegisterAccount(Args[0], Args[1], Nick);
 				}
 			}));
 
