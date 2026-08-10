@@ -58,10 +58,6 @@
 		{
 			"Name": "AllToolsets",
 			"Enabled": true
-		},
-		{
-			"Name": "MeshTerrainMode",
-			"Enabled": true
 		}
 	]
 }
