@@ -13,6 +13,13 @@ namespace Rooms
 {
 namespace
 {
+	struct Member
+	{
+		uint64_t    UserId = 0;
+		std::string Name;
+		bool        bReady = false;
+	};
+
 	struct Room
 	{
 		uint32_t    RoomId = 0;
@@ -23,14 +30,19 @@ namespace
 		std::string Title;
 		bool        bHasPassword = false;
 		std::string Password;       // 숫자 4자리. 방과 함께 사라지는 휘발성 값이다
-		uint8_t     CurrentPlayers = 1;
 		uint8_t     MaxPlayers = static_cast<uint8_t>(kMaxPlayersInRoom);
 		ERoomState  State = ERoomState::Waiting;
+
+		// [0] 은 항상 방장이다. Create 에서 넣고, 방장이 나가면 방 자체가 사라지므로
+		// 이 불변식은 방이 살아있는 동안 유지된다.
+		std::vector<Member> Members;
 	};
 
 	std::mutex               GMutex;
 	std::map<uint32_t, Room> GRooms;       // RoomId -> Room. 번호순 정렬이 목록 순서로도 쓸 만하다
 	uint32_t                 GNextRoomId = 1;
+
+	// --- 아래 헬퍼들은 전부 GMutex 를 이미 잡은 상태에서만 부른다 ---
 
 	// 한 사람이 방을 여러 개 만들지 못하게 막는다.
 	// 리슨서버는 한 프로세스당 하나뿐이라, 방이 둘이면 하나는 반드시 유령이 된다.
@@ -44,6 +56,53 @@ namespace
 			}
 		}
 		return nullptr;
+	}
+
+	/** 이 사람이 멤버로 들어가 있는 방. 없으면 nullptr. */
+	Room* FindRoomOfMember(uint64_t UserId)
+	{
+		for (auto& Pair : GRooms)
+		{
+			for (const Member& M : Pair.second.Members)
+			{
+				if (M.UserId == UserId)
+				{
+					return &Pair.second;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	/**
+	 * 방장을 뺀 참여자가 전부 준비했는가.
+	 *
+	 * 참여자가 아무도 없으면(방장 혼자) true 다. 혼자 시작하는 것을 막지 않는다 —
+	 * 1인 테스트가 개발 중에 가장 많이 필요하기 때문이다.
+	 */
+	bool AreAllReady(const Room& R)
+	{
+		for (const Member& M : R.Members)
+		{
+			if (M.UserId != R.HostUserId && !M.bReady)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** 방의 멤버 UserId 를 담는다. 나간 본인 등 한 명을 뺄 수 있다(Except=0 이면 전원). */
+	void CollectMemberIds(const Room& R, uint64_t Except, std::vector<uint64_t>& Out)
+	{
+		Out.clear();
+		for (const Member& M : R.Members)
+		{
+			if (M.UserId != Except)
+			{
+				Out.push_back(M.UserId);
+			}
+		}
 	}
 }
 
@@ -68,6 +127,12 @@ ERoomResult Create(uint64_t HostUserId, const std::string& HostName,
 	{
 		return ERoomResult::AlreadyHosting;
 	}
+	// 남의 방에 들어가 있으면서 방을 새로 만들 수는 없다.
+	// 먼저 나가야 이전 방의 멤버 목록이 정리된다.
+	if (FindRoomOfMember(HostUserId) != nullptr)
+	{
+		return ERoomResult::AlreadyHosting;
+	}
 
 	Room NewRoom;
 	NewRoom.RoomId       = GNextRoomId++;
@@ -78,16 +143,23 @@ ERoomResult Create(uint64_t HostUserId, const std::string& HostName,
 	NewRoom.Title        = Title;
 	NewRoom.bHasPassword = bHasPassword;
 	NewRoom.Password     = bHasPassword ? Password : std::string();
-	NewRoom.CurrentPlayers = 1;   // 방장 본인
 	NewRoom.MaxPlayers   = (MaxPlayers == 0 || MaxPlayers > kMaxPlayersInRoom)
 	                       ? static_cast<uint8_t>(kMaxPlayersInRoom) : MaxPlayers;
+
+	// 방장은 [0] 번 멤버로 들어간다. 준비 여부를 묻지 않으므로 true 로 둔다.
+	Member Host;
+	Host.UserId = HostUserId;
+	Host.Name   = HostName;
+	Host.bReady = true;
+	NewRoom.Members.push_back(std::move(Host));
 
 	OutRoomId = NewRoom.RoomId;
 	GRooms.emplace(NewRoom.RoomId, std::move(NewRoom));
 	return ERoomResult::Success;
 }
 
-ERoomResult Join(uint32_t RoomId, const std::string& Password,
+ERoomResult Join(uint32_t RoomId, uint64_t UserId, const std::string& Name,
+                 const std::string& Password,
                  std::string& OutHostAddress, uint16_t& OutHostPort)
 {
 	std::lock_guard<std::mutex> Lock(GMutex);
@@ -98,30 +170,192 @@ ERoomResult Join(uint32_t RoomId, const std::string& Password,
 		return ERoomResult::NotFound;
 	}
 
-	const Room& R = It->second;
+	Room& R = It->second;
 
 	if (R.State != ERoomState::Waiting)
 	{
 		return ERoomResult::AlreadyStarted;
-	}
-	if (R.CurrentPlayers >= R.MaxPlayers)
-	{
-		return ERoomResult::Full;
 	}
 	if (R.bHasPassword && Password != R.Password)
 	{
 		return ERoomResult::WrongPassword;
 	}
 
-	// 여기까지 왔을 때만 주소를 알려준다.
+	// 이미 이 방에 있으면 다시 넣지 않는다. 재전송이나 더블클릭으로
+	// 같은 사람이 목록에 두 번 뜨는 것을 막는다. 주소는 그대로 다시 준다.
+	for (const Member& M : R.Members)
+	{
+		if (M.UserId == UserId)
+		{
+			OutHostAddress = R.HostAddress;
+			OutHostPort    = R.HostPort;
+			return ERoomResult::Success;
+		}
+	}
+
+	if (R.Members.size() >= R.MaxPlayers)
+	{
+		return ERoomResult::Full;
+	}
+	// 다른 방에 있던 사람이면 거기서 먼저 빠져나와야 한다.
+	// 조용히 옮겨주면 원래 방의 멤버들에게 알릴 기회를 놓친다.
+	if (FindRoomOfMember(UserId) != nullptr)
+	{
+		return ERoomResult::InvalidRequest;
+	}
+
+	Member NewMember;
+	NewMember.UserId = UserId;
+	NewMember.Name   = Name;
+	NewMember.bReady = false;   // 들어오면 준비 안 된 상태로 시작한다
+	R.Members.push_back(std::move(NewMember));
+
 	OutHostAddress = R.HostAddress;
 	OutHostPort    = R.HostPort;
-
-	// 인원수는 여기서 올리지 않는다.
-	// 실제로 접속에 성공했는지는 호스트만 알 수 있고,
-	// 호스트가 RoomStateUpdate 로 알려주는 값이 진실이다.
-	// 여기서 낙관적으로 올리면 접속에 실패한 사람 때문에 방이 영영 꽉 차 보인다.
 	return ERoomResult::Success;
+}
+
+void Leave(uint64_t UserId, uint32_t& OutRoomId, bool& bOutRoomClosed,
+           std::vector<uint64_t>& OutNotifyUserIds)
+{
+	OutRoomId      = 0;
+	bOutRoomClosed = false;
+	OutNotifyUserIds.clear();
+
+	std::lock_guard<std::mutex> Lock(GMutex);
+
+	Room* R = FindRoomOfMember(UserId);
+	if (R == nullptr)
+	{
+		return;   // 어느 방에도 없다. 접속 종료 경로에서 그냥 불러도 안전하다
+	}
+
+	OutRoomId = R->RoomId;
+
+	// 나갈 사람을 뺀 나머지가 소식을 받을 대상이다. 방을 지우기 전에 떠 둬야 한다.
+	CollectMemberIds(*R, UserId, OutNotifyUserIds);
+
+	if (R->HostUserId == UserId)
+	{
+		// 방장이 나갔다 = 리슨서버가 사라졌다 = 방이 성립하지 않는다.
+		// 이양하지 않고 없앤다. 남은 사람들에게는 호출자가 RoomClosed 를 보낸다.
+		bOutRoomClosed = true;
+		GRooms.erase(R->RoomId);
+		return;
+	}
+
+	R->Members.erase(
+		std::remove_if(R->Members.begin(), R->Members.end(),
+		               [UserId](const Member& M) { return M.UserId == UserId; }),
+		R->Members.end());
+}
+
+ERoomResult SetReady(uint64_t UserId, bool bReady, uint32_t& OutRoomId)
+{
+	OutRoomId = 0;
+
+	std::lock_guard<std::mutex> Lock(GMutex);
+
+	Room* R = FindRoomOfMember(UserId);
+	if (R == nullptr)
+	{
+		return ERoomResult::NotInRoom;
+	}
+	if (R->State != ERoomState::Waiting)
+	{
+		return ERoomResult::AlreadyStarted;
+	}
+
+	OutRoomId = R->RoomId;
+
+	for (Member& M : R->Members)
+	{
+		if (M.UserId == UserId)
+		{
+			// 방장은 늘 준비된 것으로 본다. 자기가 시작 버튼을 누르는 사람이라
+			// 따로 준비를 물을 이유가 없다.
+			M.bReady = (UserId == R->HostUserId) ? true : bReady;
+			return ERoomResult::Success;
+		}
+	}
+	return ERoomResult::NotInRoom;
+}
+
+ERoomResult StartGame(uint64_t HostUserId, uint32_t& OutRoomId,
+                      std::string& OutHostAddress, uint16_t& OutHostPort,
+                      std::vector<uint64_t>& OutNotifyUserIds)
+{
+	OutRoomId = 0;
+	OutNotifyUserIds.clear();
+
+	std::lock_guard<std::mutex> Lock(GMutex);
+
+	Room* R = FindRoomOfMember(HostUserId);
+	if (R == nullptr)
+	{
+		return ERoomResult::NotInRoom;
+	}
+	if (R->HostUserId != HostUserId)
+	{
+		return ERoomResult::NotHost;
+	}
+	if (R->State != ERoomState::Waiting)
+	{
+		return ERoomResult::AlreadyStarted;
+	}
+	// 클라이언트가 버튼을 잠가두지만 그건 UX 일 뿐이다. 판정은 여기서 다시 한다.
+	if (!AreAllReady(*R))
+	{
+		return ERoomResult::NotAllReady;
+	}
+
+	R->State = ERoomState::InGame;   // 목록에서 사라진다
+
+	OutRoomId      = R->RoomId;
+	OutHostAddress = R->HostAddress;
+	OutHostPort    = R->HostPort;
+	CollectMemberIds(*R, /*Except=*/0, OutNotifyUserIds);   // 방장도 포함
+	return ERoomResult::Success;
+}
+
+bool GetMembers(uint32_t RoomId, std::vector<RoomMemberInfo>& OutMembers,
+                bool& bOutAllReady, std::vector<uint64_t>& OutNotifyUserIds)
+{
+	OutMembers.clear();
+	OutNotifyUserIds.clear();
+	bOutAllReady = false;
+
+	std::lock_guard<std::mutex> Lock(GMutex);
+
+	auto It = GRooms.find(RoomId);
+	if (It == GRooms.end())
+	{
+		return false;
+	}
+
+	const Room& R = It->second;
+
+	for (const Member& M : R.Members)
+	{
+		RoomMemberInfo Info{};
+		Info.UserId  = M.UserId;
+		Info.bIsHost = (M.UserId == R.HostUserId) ? 1 : 0;
+		Info.bReady  = M.bReady ? 1 : 0;
+		CopyFixedString(Info.Name, kMaxNameLen, M.Name);
+		OutMembers.push_back(Info);
+
+		OutNotifyUserIds.push_back(M.UserId);
+	}
+
+	bOutAllReady = AreAllReady(R);
+	return true;
+}
+
+uint32_t FindRoomOf(uint64_t UserId)
+{
+	std::lock_guard<std::mutex> Lock(GMutex);
+	const Room* R = FindRoomOfMember(UserId);
+	return R ? R->RoomId : 0;
 }
 
 void ListWaiting(std::vector<RoomInfo>& Out, size_t MaxCount)
@@ -136,7 +370,7 @@ void ListWaiting(std::vector<RoomInfo>& Out, size_t MaxCount)
 		const Room& R = It->second;
 
 		// 시작됐거나 꽉 찬 방은 들어갈 수 없으므로 목록에서 뺀다.
-		if (R.State != ERoomState::Waiting || R.CurrentPlayers >= R.MaxPlayers)
+		if (R.State != ERoomState::Waiting || R.Members.size() >= R.MaxPlayers)
 		{
 			continue;
 		}
@@ -144,7 +378,8 @@ void ListWaiting(std::vector<RoomInfo>& Out, size_t MaxCount)
 		RoomInfo Info{};
 		Info.RoomId         = R.RoomId;
 		Info.HostUserId     = R.HostUserId;
-		Info.CurrentPlayers = R.CurrentPlayers;
+		// 서버가 직접 센 값이다. v4 까지는 호스트가 신고하는 값이라 늘 어긋나 있었다.
+		Info.CurrentPlayers = static_cast<uint8_t>(R.Members.size());
 		Info.MaxPlayers     = R.MaxPlayers;
 		Info.bHasPassword   = R.bHasPassword ? 1 : 0;
 		Info.State          = static_cast<uint8_t>(R.State);
@@ -155,8 +390,7 @@ void ListWaiting(std::vector<RoomInfo>& Out, size_t MaxCount)
 	}
 }
 
-ERoomResult UpdateState(uint32_t RoomId, uint64_t RequesterUserId,
-                        uint8_t CurrentPlayers, ERoomState State)
+ERoomResult UpdateState(uint32_t RoomId, uint64_t RequesterUserId, ERoomState State)
 {
 	std::lock_guard<std::mutex> Lock(GMutex);
 
@@ -174,23 +408,8 @@ ERoomResult UpdateState(uint32_t RoomId, uint64_t RequesterUserId,
 		return ERoomResult::NotAuthed;
 	}
 
-	R.CurrentPlayers = (CurrentPlayers > R.MaxPlayers) ? R.MaxPlayers : CurrentPlayers;
-	R.State          = State;
+	R.State = State;
 	return ERoomResult::Success;
-}
-
-void RemoveByHost(uint64_t HostUserId)
-{
-	std::lock_guard<std::mutex> Lock(GMutex);
-
-	for (auto It = GRooms.begin(); It != GRooms.end(); ++It)
-	{
-		if (It->second.HostUserId == HostUserId)
-		{
-			GRooms.erase(It);
-			return;   // 한 사람당 방은 하나뿐이다
-		}
-	}
 }
 
 size_t Count()

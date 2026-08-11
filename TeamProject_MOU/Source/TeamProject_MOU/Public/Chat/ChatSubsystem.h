@@ -52,8 +52,20 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoomCreated, bool, bSuccess, i
 /** 방 목록이 도착했을 때. 비어 있을 수도 있다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomListReceived, const TArray<FMOURoomInfo>&, Rooms);
 
-/** 방 참여 시도 결과. 성공하면 Result.MakeTravelURL() 로 ClientTravel 하면 된다. */
+/** 방 참여 시도 결과. 성공하면 대기실로 들어간 것이다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomJoinCompleted, const FMOURoomJoinResult&, Result);
+
+/**
+ * 대기실 명단이 갱신됐다. 들어오고/나가고/준비를 누를 때마다 온다.
+ * bAllReady 는 서버가 판정한 값이다 — 방장의 "게임 시작" 버튼을 켤지 말지가 이것이다.
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoomMembersChanged, int32, RoomId, const TArray<FMOURoomMember>&, Members, bool, bAllReady);
+
+/** 방이 사라졌다. 대기실을 닫고 메인메뉴로 돌아가야 한다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRoomClosed, int32, RoomId, EMOURoomCloseReasonBP, Reason);
+
+/** 게임이 시작됐다. Result.MakeTravelURL() 로 호스트에게 붙으면 된다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRoomGameStarted, const FMOURoomJoinResult&, Host, bool, bIsHost);
 
 /**
  * 채팅 서버 연결의 소유자.
@@ -168,21 +180,42 @@ public:
 	void RequestRoomList();
 
 	/**
-	 * 방 참여를 시도한다. 성공해야만 호스트 주소를 받는다.
-	 * 결과는 OnRoomJoinCompleted 로 오고, 거기서 ClientTravel 하면 된다.
+	 * 방에 들어간다. 성공하면 대기실 멤버가 되고 호스트 주소를 받는다.
+	 * 결과는 OnRoomJoinCompleted 로 오고, 이어서 OnRoomMembersChanged 가 온다.
+	 *
+	 * 여기서 바로 여행하지 않는다. 게임이 시작될 때(OnRoomGameStarted) 떠난다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
 	void JoinRoom(int32 RoomId, const FString& RoomPassword);
 
-	/** 내가 만든 방을 닫는다. 접속을 끊어도 서버가 알아서 지우지만, 명시적으로 닫을 때 쓴다. */
+	/**
+	 * 지금 있는 방에서 나간다. 방장이 나가면 방이 사라지고
+	 * 남은 사람들에게 OnRoomClosed 가 간다(호스트 이양은 하지 않는다).
+	 *
+	 * 접속을 끊어도 서버가 같은 처리를 하지만, 명시적으로 나갈 때 쓴다.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
-	void CloseMyRoom();
+	void LeaveRoom();
 
 	/**
-	 * 방 인원수와 진행 상태를 서버에 알린다. 방장만 의미가 있다.
+	 * 준비 상태를 바꾼다. 참여자만 의미가 있다(방장은 늘 준비된 것으로 본다).
+	 * 응답은 따로 없고 갱신된 명단이 OnRoomMembersChanged 로 온다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void SetReady(bool bReady);
+
+	/**
+	 * 게임을 시작한다. 방장만, 전원이 준비했을 때만 성공한다.
+	 * 성공하면 방 멤버 전원에게 OnRoomGameStarted 가 간다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void StartGame();
+
+	/**
+	 * 방 진행 상태를 서버에 알린다. 방장만 의미가 있다.
 	 *
-	 * 리슨서버에서 사람이 들어오고 나갈 때, 그리고 게임을 시작할 때 불러야
-	 * 목록에 보이는 인원수가 실제와 맞는다.
+	 * [v5] 인원수는 서버가 직접 세므로 CurrentPlayers 는 무시된다.
+	 *      게임 시작도 StartGame() 이 대신하므로, 이 함수를 새로 쓸 일은 거의 없다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
 	void UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame);
@@ -195,9 +228,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
 	static FString GetRoomResultText(EMOURoomResultBP Result);
 
-	/** 내가 방장인 방 번호. 0 이면 방을 갖고 있지 않다. */
+	/** 내가 방장인 방 번호. 0 이면 방장이 아니다 (참여자로 들어가 있을 수는 있다). */
 	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
 	int32 GetMyRoomId() const { return MyRoomId; }
+
+	/** 지금 들어가 있는 방 번호. 방장이든 참여자든 상관없다. 0 이면 어느 방에도 없다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	int32 GetCurrentRoomId() const { return CurrentRoomId; }
+
+	/** 내가 지금 방의 방장인지. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool IsRoomHost() const { return CurrentRoomId != 0 && CurrentRoomId == MyRoomId; }
+
+	/** 마지막으로 받은 대기실 명단. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	TArray<FMOURoomMember> GetRoomMembers() const { return RoomMembers; }
+
+	/** 참여자 전원이 준비했는지. 서버가 판정해 내려준 값이다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool AreAllMembersReady() const { return bAllMembersReady; }
+
+	/** 내 준비 상태. 명단에서 나를 찾아 읽는다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool IsSelfReady() const;
 
 	/** 연결을 끊고 워커 스레드를 정리한다. 재접속하려면 ConnectToChatServer 를 다시 부른다. */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
@@ -232,6 +285,15 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
 	FOnRoomJoinCompleted OnRoomJoinCompleted;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomMembersChanged OnRoomMembersChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomClosed OnRoomClosed;
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomGameStarted OnRoomGameStarted;
 
 private:
 	/** 게임 스레드 틱. 워커 큐를 비우고 델리게이트를 브로드캐스트한다. */
@@ -291,6 +353,23 @@ private:
 	FString PendingRegisterPassword;
 	FString PendingRegisterNickname;
 
+	/** 방을 떠났을 때 대기실 관련 상태를 한 번에 비운다. */
+	void ClearRoomState();
+
 	/** 내가 방장인 방 번호. RoomCreateAck 로 확정되고, 방을 닫거나 끊기면 0 이 된다. */
 	int32 MyRoomId = 0;
+
+	/**
+	 * 지금 들어가 있는 방. 방을 만들거나(RoomCreateAck) 참여하면(RoomJoinAck) 채워지고,
+	 * 나가거나 방이 닫히거나 연결이 끊기면 0 이 된다.
+	 *
+	 * MyRoomId 와 나누어 두는 이유: 참여자는 방에 있어도 방장이 아니다.
+	 * 하나로 합치면 "방장인가" 와 "방에 있는가" 를 구분할 수 없다.
+	 */
+	int32 CurrentRoomId = 0;
+
+	UPROPERTY()
+	TArray<FMOURoomMember> RoomMembers;
+
+	bool bAllMembersReady = false;
 };

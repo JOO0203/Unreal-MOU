@@ -61,6 +61,12 @@ enum class EChatClientEventType : uint8
 	RoomListAck,
 	/** RoomJoinAck 수신. Join 이 유효하다. */
 	RoomJoinAck,
+	/** RoomMemberList 수신. Members / RoomId / bAllReady 가 유효하다. */
+	RoomMemberList,
+	/** RoomClosed 수신. RoomId 와 CloseReason 이 유효하다. 대기실을 닫아야 한다. */
+	RoomClosed,
+	/** RoomStart 수신. RoomId 와 Join(호스트 주소)이 유효하다. */
+	RoomStart,
 	/** 연결이 끊겼다. 서버 종료, 강제 차단, 프레이밍 오류 등. */
 	Disconnected
 };
@@ -79,13 +85,26 @@ struct FChatClientEvent
 	/** Type == RoomListAck 일 때만 유효 */
 	TArray<FMOURoomInfo> Rooms;
 
-	/** Type == RoomJoinAck 일 때만 유효 */
+	/** Type == RoomJoinAck / RoomStart 일 때만 유효 */
 	FMOURoomJoinResult Join;
 
-	/** Type == RoomCreateAck 일 때만 유효 */
+	/** Type == RoomMemberList 일 때만 유효 */
+	TArray<FMOURoomMember> Members;
+
+	/** Type == RoomCreateAck / RoomMemberList / RoomClosed / RoomStart 일 때 유효 */
 	int32            RoomId = 0;
 	EMOURoomResultBP RoomResult = EMOURoomResultBP::Success;
 	bool             bRoomSuccess = false;
+
+	/**
+	 * Type == RoomMemberList 일 때만 유효.
+	 * 서버가 판정한 값이다. 클라이언트가 Members 를 보고 직접 세지 않는다 —
+	 * 목록이 한 박자 늦게 도착한 쪽이 서버와 다른 결론을 내면 UI 가 흔들린다.
+	 */
+	bool bAllReady = false;
+
+	/** Type == RoomClosed 일 때만 유효 */
+	EMOURoomCloseReasonBP CloseReason = EMOURoomCloseReasonBP::HostLeft;
 
 	/** 로그 표시용 부가 설명 (실패 사유 등) */
 	FString Detail;

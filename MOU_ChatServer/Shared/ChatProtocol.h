@@ -16,7 +16,10 @@ namespace MOU
 	//   2 -> 3 : 계정 시스템 도입. LoginReq 가 이름 대신 아이디/비밀번호를 보낸다.
 	//            UserId 가 "접속 일련번호" 에서 "계정 고유번호" 로 바뀌었다.
 	//   3 -> 4 : 로비(방 목록) 추가. 방 생성/조회/참여 옵코드가 붙었다.
-	constexpr uint16_t kProtocolVersion = 4;
+	//   4 -> 5 : 대기실 추가. 서버가 방 멤버를 추적한다.
+	//            RoomJoin 이 "주소 조회" 에서 "실제 입장" 으로 의미가 바뀌었고,
+	//            RoomLeaveReq 를 참여자도 보낼 수 있게 됐다.
+	constexpr uint16_t kProtocolVersion = 5;
 
 	// BodySize 가 이 값을 넘으면 악성 패킷으로 보고 연결을 끊는다.
 	constexpr uint32_t kMaxBodySize = 4096;
@@ -54,16 +57,25 @@ namespace MOU
 		RegisterAck   = 11,
 
 		// --- 로비 (v4) ---
-		// 서버는 "방 주소록" 역할만 한다. 실제 게임 트래픽은 여기를 거치지 않고
-		// 참가자가 호스트의 리슨서버에 직접 붙는다.
+		// 게임 트래픽은 여기를 거치지 않는다. 참가자는 호스트의 리슨서버에 직접 붙는다.
+		// 이 서버가 관리하는 것은 "누가 어느 방에 있고 준비했는가" 까지다.
 		RoomCreateReq   = 12,
 		RoomCreateAck   = 13,
 		RoomListReq     = 14,
 		RoomListAck     = 15,
 		RoomJoinReq     = 16,
 		RoomJoinAck     = 17,
-		RoomLeaveReq    = 18,  // 호스트가 보내면 방이 사라진다
-		RoomStateUpdate = 19,  // 호스트가 인원수/시작여부를 갱신한다
+		RoomLeaveReq    = 18,  // 누구나 보낸다. 호스트가 보내면 방이 사라진다
+		RoomStateUpdate = 19,  // 호스트가 진행 상태를 갱신한다 (인원수는 서버가 센다)
+
+		// --- 대기실 (v5) ---
+		// 서버가 방 멤버를 추적하면서 생긴 것들이다.
+		// v4 까지는 방이 {호스트, 주소, 비번} 뿐이라 참여자에게 아무것도 보낼 수 없었다.
+		RoomMemberList  = 20,  // 서버 -> 방 멤버 전원. 멤버/준비상태가 바뀔 때마다
+		RoomReadyReq    = 21,  // 참여자 -> 서버. 준비 토글
+		RoomClosed      = 22,  // 서버 -> 남은 멤버. 방이 사라졌다
+		RoomStartReq    = 23,  // 호스트 -> 서버. 게임 시작 (전원 준비 완료여야 한다)
+		RoomStart       = 24,  // 서버 -> 방 멤버 전원. 호스트 주소를 함께 내려준다
 	};
 
 	/** 방 관련 요청의 결과. */
@@ -77,6 +89,24 @@ namespace MOU
 		AlreadyStarted = 5,   // 이미 게임이 시작된 방
 		AlreadyHosting = 6,   // 이미 방을 하나 갖고 있다
 		InvalidRequest = 7,
+
+		// --- 대기실 (v5) ---
+		NotInRoom      = 8,   // 방에 들어가 있지 않다
+		NotHost        = 9,   // 방장만 할 수 있는 일이다
+		NotAllReady    = 10,  // 아직 준비하지 않은 참여자가 있다
+	};
+
+	/**
+	 * 방이 사라진 이유. RoomClosedBody 에 담긴다.
+	 *
+	 * 호스트 이양은 하지 않는다. 호스트가 곧 리슨서버라서, 호스트 프로세스가 죽으면
+	 * 게임 세션 자체가 사라진다. 남은 사람을 새 호스트로 세우려면 리슨서버를 다시 열고
+	 * 전원이 새 주소로 재접속해야 하는데, UE 가 이를 기본 지원하지 않는다.
+	 * 그래서 방을 없애고 모두 메인메뉴로 돌려보낸다.
+	 */
+	enum class ERoomCloseReason : uint8_t
+	{
+		HostLeft = 0,   // 방장이 나갔다 (정상 종료든 랜선이 뽑혔든)
 	};
 
 	/** 방의 진행 상태. */
@@ -255,12 +285,66 @@ namespace MOU
 		uint8_t  Result;                       // ERoomResult
 	};
 
-	// 호스트가 인원 변화나 게임 시작을 알린다. 방장만 보낼 수 있다.
+	// 호스트가 진행 상태를 알린다. 방장만 보낼 수 있다.
+	//
+	// [v5] CurrentPlayers 는 이제 서버가 무시한다.
+	//   서버가 멤버를 직접 세므로 호스트의 신고값을 믿을 이유가 없다.
+	//   필드를 지우지 않은 것은 구조체 크기를 유지해 진단을 쉽게 하기 위해서다.
 	struct RoomStateUpdateBody
 	{
 		uint32_t RoomId;
-		uint8_t  CurrentPlayers;
+		uint8_t  CurrentPlayers;               // v5 부터 무시된다
 		uint8_t  State;                        // ERoomState
+	};
+
+	// ------------------------------------------------------------------
+	// 대기실 (v5)
+	// ------------------------------------------------------------------
+
+	/** 대기실에 앉아 있는 사람 하나. RoomMemberListBody 뒤에 Count 개가 이어진다. */
+	struct RoomMemberInfo
+	{
+		uint64_t UserId;
+		char     Name[kMaxNameLen];
+		uint8_t  bIsHost;
+		uint8_t  bReady;                       // 호스트는 항상 1 로 채워 보낸다
+	};
+
+	// 뒤에 Count 개의 RoomMemberInfo 가 이어붙는다.
+	//
+	// bAllReady 를 서버가 계산해서 내려주는 이유:
+	//   "게임 시작 버튼을 켜도 되는가" 의 판정은 서버가 해야 한다.
+	//   클라이언트가 멤버 목록을 보고 직접 세면, 목록이 한 박자 늦게 도착한 클라이언트가
+	//   서버와 다른 결론을 낸다. 어차피 StartReq 에서 서버가 다시 검사하므로
+	//   여기서 같은 답을 미리 주는 편이 UI 가 흔들리지 않는다.
+	struct RoomMemberListBody
+	{
+		uint32_t RoomId;
+		uint8_t  Count;
+		uint8_t  bAllReady;
+	};
+
+	struct RoomReadyReqBody
+	{
+		uint8_t bReady;
+	};
+
+	struct RoomClosedBody
+	{
+		uint32_t RoomId;
+		uint8_t  Reason;                       // ERoomCloseReason
+	};
+
+	// 게임이 시작됐다. 참여자는 이 주소로 ClientTravel 하면 된다.
+	//
+	// 방을 만들 때가 아니라 여기서 주소를 다시 내려주는 이유:
+	//   참여 시점과 시작 시점 사이에 호스트가 포트를 바꿨을 수도 있고,
+	//   무엇보다 "지금 떠나도 된다" 는 신호가 주소와 함께 오는 편이 명확하다.
+	struct RoomStartBody
+	{
+		uint32_t RoomId;
+		char     HostAddress[kMaxAddressLen];
+		uint16_t HostPort;
 	};
 
 #pragma pack(pop)
@@ -282,8 +366,15 @@ namespace MOU
 	static_assert(sizeof(RoomJoinReqBody)   ==  8, "RoomJoinReqBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomJoinAckBody)   == 24, "RoomJoinAckBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomStateUpdateBody) == 6, "RoomStateUpdateBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomMemberInfo)     == 42, "RoomMemberInfo 에 패딩이 끼었다");
+	static_assert(sizeof(RoomMemberListBody) ==  6, "RoomMemberListBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomReadyReqBody)   ==  1, "RoomReadyReqBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomClosedBody)     ==  5, "RoomClosedBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomStartBody)      == 22, "RoomStartBody 에 패딩이 끼었다");
 
 	// 방 목록 한 번에 담을 수 있는지 확인한다. 넘치면 kMaxRoomsInList 를 줄여야 한다.
 	static_assert(sizeof(RoomListAckBody) + sizeof(RoomInfo) * kMaxRoomsInList <= kMaxBodySize,
 	              "방 목록이 kMaxBodySize 를 넘는다");
+	static_assert(sizeof(RoomMemberListBody) + sizeof(RoomMemberInfo) * kMaxPlayersInRoom <= kMaxBodySize,
+	              "대기실 멤버 목록이 kMaxBodySize 를 넘는다");
 }

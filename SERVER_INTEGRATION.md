@@ -1,7 +1,7 @@
 # MOU 서버 통합 문서
 
 담당: 서버/클라이언트 파트
-최종 갱신: 2026-08-10
+최종 갱신: 2026-08-11
 
 이 문서 하나만 보면 **새 PC 에서 처음부터 셋업하고, 빌드하고, 검증하고, 이어서 개발**할 수 있다.
 채팅뿐 아니라 계정(로그인)·로비(방 목록)까지 이 문서 하나로 다룬다.
@@ -38,7 +38,7 @@
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v4) |
+| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v5) |
 | 2 | 세션 구조체 (`Session.h/.cpp`) | 완료 |
 | 3 | 길이 프리픽스 프레이밍 (`Framing.h/.cpp`) | 완료 (split/merge/bad 3종 통과) |
 | 4 | 로그인 — 계정(아이디/비밀번호) 인증 | **완료** (PBKDF2 해시, UserId 영속) |
@@ -47,7 +47,11 @@
 | 7 | 언리얼 클라이언트 (소켓/스레드/서브시스템) | 완료 |
 | 7-UI | 언리얼 채팅 UI 위젯 | 완료 (WBP 불필요) |
 | 7-계정 | 로그인 / 계정 생성 UI 위젯 | 완료 (WBP 불필요) |
-| 로비 | 방 생성 / 목록 / 참여 (서버 + 클라이언트 API) | **완료** (UI 미착수) |
+| 로비 | 방 생성 / 목록 / 참여 (서버 + 클라이언트 API) | **완료** |
+| 로비-UI | 메인메뉴 / 방 생성창 / 방 목록·참여창 | **완료** (WBP 불필요) |
+| 대기실 | 방 멤버 추적 / 준비완료 / 게임시작 / 방장 이탈 처리 | **완료** (v5) |
+| 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 스위치만 있음 (기본 꺼짐, 맵 미정) |
+| 로비-보안 | `PreLogin` 에서 방 비밀번호 재검사 | **미착수** ← 진짜 관문 |
 | 8 | 리슨서버 → 채팅서버 신원 미러링 | **미착수** |
 | 9 | 귓속말 | **미착수** |
 
@@ -235,17 +239,78 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
 **같은 계정으로 다시 로그인하면 UserId 가 그대로 유지된다.** (예전에는 접속마다 새 번호를
 받았는데, 계정 시스템 도입으로 `UserId = accounts.id` 가 되어 재접속·서버 재시작에도 유지된다.)
 
-### 4-2. 로비(방) 흐름
+### 4-2. 로비(방) 흐름 — UI
+
+**로그인에 성공하면 로비 메인메뉴가 자동으로 뜬다.**
+(`ULoginWidgetBase::bShowLobbyWidgetOnSuccess` 가 기본 켜짐. 콘솔로 직접 띄우려면 `MOU.Lobby.Show`)
+
+**메인메뉴**
+
+| 버튼 | 하는 일 |
+|---|---|
+| **방 만들기** | 방 생성창을 연다. 제목(필수) + 비번 숫자 4자리(선택, 비우면 공개방) |
+| **참여하기** | 방 목록창을 연다. 3초마다 자동 새로고침, 비번 방은 4자리를 물어본 뒤 참여 |
+| **게임 종료** | `QuitGame` |
+
+로그인 전에는 앞의 두 버튼이 잠긴다 (눌러봐야 서버가 `NotAuthed` 로 거부한다).
+
+**방을 만들거나 참여하면 같은 화면이 대기실로 바뀐다.** 버튼 세 개의 라벨만 달라진다.
+
+| 버튼 자리 | 참여자 | 방장 |
+|---|---|---|
+| 1번 | **준비하기** / 준비 해제 | **게임 시작** (전원 준비 시에만 켜짐) |
+| 2번 | 커스터마이징 *(미구현)* | 커스터마이징 *(미구현)* |
+| 3번 | **나가기** | **나가기** |
+
+- 대기실에는 **명단이 보인다.** `★ 방장` / `● 준비완료` / `○ 대기중`
+- 준비 상태는 **서버가 진실을 갖는다.** 버튼을 눌러도 화면을 먼저 바꾸지 않고,
+  서버가 갱신된 명단을 돌려주면 그때 라벨이 바뀐다. 두 클라이언트가 다른 그림을 볼 일이 없다.
+- **나가기는 게임 종료가 아니다.** 방에서 빠져나와 메인메뉴로 돌아간다.
+
+**방장이 나가면 방이 사라진다 — 이양하지 않는다.**
+호스트가 곧 리슨서버라서, 호스트 프로세스가 죽으면 게임 세션 자체가 없어진다.
+남은 사람을 새 호스트로 세우려면 리슨서버를 다시 열고 전원이 새 주소로 재접속해야
+하는데 UE 가 이를 기본 지원하지 않는다. 그래서 서버가 남은 멤버에게 `RoomClosed` 를
+보내고, 그들은 "방장이 나가서 방이 사라졌습니다" 안내와 함께 메인메뉴로 돌아간다.
+**정상 종료든 랜선이 뽑혔든 같은 경로로 처리된다.**
+
+**여행(리슨서버 접속)은 게임 시작 때만 일어나고, 아직 스위치가 꺼져 있다.**
+
+| 프로퍼티 | 기본값 | 켜면 |
+|---|---|---|
+| `HostMapName` | (비어있음) | 방장이 `OpenLevel(맵, "listen?RoomPassword=…")` 로 리슨서버를 연다 |
+| `bAutoTravelOnGameStart` | false | 참여자가 `ClientTravel(호스트주소?RoomPassword=…)` |
+| `GuestTravelDelay` | 3초 | 방장이 리슨서버를 다 열 때까지 참여자가 기다리는 시간 |
+
+기본값을 꺼둔 이유: 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 된다.
+맵이 정해지면 채우거나 `OnGameStarted` 훅에서 직접 처리하면 된다.
+
+### 4-2-1. 로비 흐름 — 콘솔 (UI 없이)
 
 ```bash
+MOU.Lobby.Show                      # 로비 띄우기 / MOU.Lobby.Hide 로 제거
 MOU.Room.Host 우리팀 방 1234       # 방 만들기 (비번 1234, 리슨서버 포트 기본 7777)
 MOU.Room.List                       # 대기 중인 방 목록
 MOU.Room.Join 1 1234                # 방번호 1에 비번 1234로 참여
-MOU.Room.Close                      # 내 방 닫기
+MOU.Room.Ready 1                    # 준비완료 (0 이면 해제). 참여자만 의미 있음
+MOU.Room.Start                      # 게임 시작. 방장만, 전원 준비 완료일 때만
+MOU.Room.Leave                      # 방에서 나가기. 방장이 나가면 방이 사라진다
 ```
 
-방 참여에 성공하면 로그에 호스트 주소가 찍힌다 — 이 주소로 `ClientTravel` 하면 된다
-(자동 여행 연결은 아직 미구현, [12절](#12-다음-단계) 참고).
+방 참여에 성공하면 로그에 호스트 주소가 찍힌다 — 이 주소로 `ClientTravel` 하면 된다.
+
+**두 창(또는 두 프로세스)으로 대기실 전체를 검증한 결과** (2026-08-11, 헤드리스 2클라이언트):
+
+```
+[방 생성] #1 "테스트방" 방장=호스트(1) 주소=127.0.0.1:7777
+[방 참여] #1 <- 게스트(2), 주소 127.0.0.1:7777 전달
+[준비]   #1 게스트(2) -> 준비완료
+[게임 시작] #1 방장=호스트, 호스트 127.0.0.1:7777, 인원 2명
+[방 삭제] #1 방장 호스트(1) 가 나갔다. 남은 1명에게 통보. 남은 방 0개
+```
+
+게스트 쪽 로그에서 `대기실 #1 명단 2명 (전원준비 X)` → `(전원준비 O)` →
+`게임 시작 (나는 참여자)` → `방 #1 이(가) 닫혔다. 방장이 나갔다.` 까지 확인했다.
 
 ### 4-3. 다중 클라이언트 테스트
 
@@ -295,7 +360,11 @@ TestClient.exe 127.0.0.1 9000 아이디 비밀번호 --register 닉네임
 | `MOU.Room.Host <방제목> [비번4자리] [포트]` | 방 만들기 (포트 기본 7777) |
 | `MOU.Room.List` | 대기 중인 방 목록 요청 |
 | `MOU.Room.Join <방번호> [비번4자리]` | 방 참여 |
-| `MOU.Room.Close` | 내가 만든 방 닫기 |
+| `MOU.Room.Leave` | 지금 있는 방에서 나간다. **방장이 나가면 방이 사라진다** |
+| `MOU.Room.Ready [0\|1]` | 준비 상태를 바꾼다 (생략하면 1). 참여자만 의미가 있다 |
+| `MOU.Room.Start` | 게임 시작. 방장만, 전원 준비 완료일 때만 |
+| `MOU.Lobby.Show` | 로비 위젯을 띄운다 (PIE 창마다 따로 뜬다) |
+| `MOU.Lobby.Hide` | 로비를 화면에서 제거한다 |
 
 **테스트 보조**
 
@@ -350,6 +419,9 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
   │ UChatSubsystem        (게임 스레드)              │  패킷 조립 / 델리게이트
   │        ↓ OnChatMessageReceived 등                │
   │ UChatWidgetBase / ULoginWidgetBase   (UMG)      │  로그·입력창 / 로그인·가입
+  │ ULobbyWidgetBase                     (UMG)      │  메인메뉴 + 대기실
+  │   ├ URoomCreateWidgetBase                       │  방 만들기
+  │   └ URoomListWidgetBase                         │  방 목록 + 참여
   └────────────────────────────────────────────────┘
 
   [리슨서버(게임)] ── UE 기본 리플리케이션 ── [게임 클라이언트]
@@ -430,7 +502,10 @@ Server RPC / Multicast 를 타지 않고 `ChatServer.exe` 로 가는 별도 TCP 
 | `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱 (채팅/로그인/가입/로비 전부) |
 | `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다** |
 | `Public/Chat/ChatWidgetBase.h`<br>`Private/Chat/ChatWidgetBase.cpp` | `UUserWidget`. 채팅 로그 + 입력창. PIE 다중 창 지원(`TMap<World, Widget>`) |
-| `Public/Chat/LoginWidgetBase.h`<br>`Private/Chat/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 채팅 위젯 자동 생성 |
+| `Public/Chat/LoginWidgetBase.h`<br>`Private/Chat/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 채팅 위젯 + 로비 자동 생성 |
+| `Public/Chat/LobbyWidgetBase.h`<br>`Private/Chat/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
+| `Public/Chat/RoomCreateWidgetBase.h`<br>`Private/Chat/RoomCreateWidgetBase.cpp` | `UUserWidget`. 제목 + 비번 4자리로 방 생성. 리슨서버는 열지 않는다 |
+| `Public/Chat/RoomListWidgetBase.h`<br>`Private/Chat/RoomListWidgetBase.cpp` | `UUserWidget`. 방 목록 표시 + 참여. 줄 하나는 `URoomListEntryWidget`(같은 헤더) |
 
 ### 왜 프레이밍을 두 번 구현했나
 
@@ -495,12 +570,22 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 |---|---|
 | `CreateRoom(Title, RoomPassword, HostPort=7777)` | 방 생성. 로그인 후에만 가능. `RoomPassword` 를 비우면 공개방 |
 | `RequestRoomList()` | 대기 중인 방 목록 요청. 결과는 `OnRoomListReceived` |
-| `JoinRoom(RoomId, RoomPassword)` | 참여 시도. 성공해야만 호스트 주소를 받는다 (`OnRoomJoinCompleted`) |
-| `CloseMyRoom()` | 내가 만든 방을 닫는다 |
-| `UpdateRoomState(RoomId, CurrentPlayers, bInGame)` | 방장이 인원수/진행상태를 서버에 알린다. 목록에 보이는 인원수를 맞추려면 인원 변동마다 호출해야 한다 |
+| `JoinRoom(RoomId, RoomPassword)` | 방에 입장. 성공하면 **대기실 멤버가 된다** (`OnRoomJoinCompleted` → `OnRoomMembersChanged`) |
+| `LeaveRoom()` | 지금 있는 방에서 나간다. **방장이 나가면 방이 사라진다** |
+| `SetReady(bReady)` | 준비 상태 변경. 응답은 없고 갱신된 명단이 `OnRoomMembersChanged` 로 온다 |
+| `StartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만. 성공하면 멤버 전원에게 `OnRoomGameStarted` |
+| `UpdateRoomState(RoomId, CurrentPlayers, bInGame)` | 방 진행상태 통지. **v5 부터 인원수는 서버가 직접 세므로 무시된다** — 새로 쓸 일은 거의 없다 |
 | `IsValidRoomPassword(Pw)` *(static)* | 숫자 4자리 규칙 검사 |
 | `GetRoomResultText(Result)` *(static)* | 방 관련 실패 사유를 사용자 문구로 변환 |
-| `GetMyRoomId()` | 내가 방장인 방 번호. 0 이면 없음 |
+| `GetMyRoomId()` | 내가 **방장인** 방 번호. 0 이면 방장이 아님 (참여자일 수는 있다) |
+| `GetCurrentRoomId()` | 지금 **들어가 있는** 방 번호. 방장이든 참여자든. 0 이면 어느 방에도 없음 |
+| `IsRoomHost()` | 내가 지금 방의 방장인지 |
+| `GetRoomMembers()` | 마지막으로 받은 대기실 명단 (`TArray<FMOURoomMember>`) |
+| `AreAllMembersReady()` | 참여자 전원이 준비했는지. **서버가 판정해 내려준 값** |
+| `IsSelfReady()` | 내 준비 상태 |
+
+> `GetMyRoomId()` 와 `GetCurrentRoomId()` 를 나눠 둔 이유: 참여자는 방에 있어도 방장이 아니다.
+> 하나로 합치면 "방장인가" 와 "방에 있는가" 를 구분할 수 없어서 대기실 UI 가 갈라지지 않는다.
 
 **델리게이트**
 
@@ -513,6 +598,9 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `OnRoomCreated` | `(bool bSuccess, int32 RoomId, EMOURoomResultBP Result)` |
 | `OnRoomListReceived` | `(const TArray<FMOURoomInfo>& Rooms)` |
 | `OnRoomJoinCompleted` | `(const FMOURoomJoinResult& Result)` |
+| `OnRoomMembersChanged` | `(int32 RoomId, const TArray<FMOURoomMember>& Members, bool bAllReady)` |
+| `OnRoomClosed` | `(int32 RoomId, EMOURoomCloseReasonBP Reason)` |
+| `OnRoomGameStarted` | `(const FMOURoomJoinResult& Host, bool bIsHost)` |
 
 **`Connected` 와 `LoggedIn` 은 다르다.**
 `Connected` = TCP 는 붙었지만 아직 `UserId` 가 없다. 이 상태로 채팅/로비 요청을 보내면 서버가 거부한다.
@@ -548,9 +636,97 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `bRemoveOnSuccess` | true | 로그인 성공 시 자기 자신을 뷰포트에서 제거 |
 | `bShowChatWidgetOnSuccess` | true | 성공 시 채팅 위젯 자동 생성 |
 | `ChatWidgetClass` | (비어있으면 `UChatWidgetBase`) | 디자이너가 만든 WBP 를 대신 띄우고 싶을 때 |
+| `bShowLobbyWidgetOnSuccess` | true | 성공 시 로비 메인메뉴 자동 생성 |
+| `LobbyWidgetClass` | (비어있으면 `ULobbyWidgetBase`) | 디자이너가 만든 WBP_Lobby 를 대신 띄우고 싶을 때 |
 
 비밀번호 입력칸은 항상 `IsPassword` 로 가려지고, 성공/실패 이후 입력값을 지운다.
 **로그(UE_LOG)에는 절대 비밀번호를 남기지 않는다** — 이 규칙은 서버·클라이언트 전 구간 동일.
+
+채팅 위젯을 먼저 띄우고 로비를 나중에 띄운다. 나중에 붙은 쪽이 위에 오므로 로비 버튼이 채팅창에 가리지 않는다.
+
+### `ULobbyWidgetBase` — 로비 메인메뉴 + 대기실
+
+**화면 하나가 상태에 따라 세 얼굴을 갖는다.** 버튼 세 개의 라벨과 동작만 바뀐다.
+
+| 상태 | 1번 (`PrimaryButton`) | 2번 (`SecondaryButton`) | 3번 (`TertiaryButton`) |
+|---|---|---|---|
+| 메인메뉴 | 방 만들기 | 참여하기 | 게임 종료 |
+| 대기실(참여자) | 준비하기 / 준비 해제 | 커스터마이징 | 나가기 |
+| 대기실(방장) | 게임 시작 * | 커스터마이징 | 나가기 |
+
+\* 참여자가 전원 준비해야 켜진다. 판정은 서버가 한다(`RoomMemberList.bAllReady`).
+
+버튼을 상태마다 새로 만들지 않는 이유: 위젯이 하나면 WBP 배치가 한 번으로 끝나고,
+"지금 무엇을 할 수 있는가" 가 늘 같은 자리에 있어 눈이 헤매지 않는다.
+그래서 바인딩 이름도 `HostButton` 이 아니라 `PrimaryButton` 이다 — 대기실에서
+"준비하기" 를 담당할 때 `HostButton` 은 거짓말이 된다.
+
+**화면을 바꾸는 곳은 `RefreshUI()` 하나뿐이다.** 여기저기서 `SetText` 를 부르면
+"준비하기" 라고 적힌 버튼이 방을 만드는 식의 어긋남이 반드시 생긴다.
+
+| 함수 | 설명 |
+|---|---|
+| `GetUIState()` | `EMOULobbyUIState` (`MainMenu` / `WaitingRoom`) |
+| `OpenRoomCreate()` / `OpenRoomList()` | 자식 창을 연다. 메인메뉴에서만 동작 |
+| `ToggleReady()` | 내 준비 상태를 뒤집는다. 참여자만 |
+| `RequestStartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만 |
+| `LeaveRoom()` | 대기실에서 나가 메인메뉴로. 방장이 나가면 방이 사라진다 |
+| `OpenCustomize()` | 커스터마이징. **아직 미구현** — 훅만 부르고 안내 문구를 띄운다 |
+| `QuitGame()` | 게임 종료. 메인메뉴에서만 |
+| `GetMyRoomPassword()` | 내 방의 비밀번호. **임시 보관소** — `PreLogin` 을 붙일 때 GameMode 로 옮길 것 |
+| `OnEnteredWaitingRoom(RoomId, bIsHost)` *(BP 이벤트)* | 대기실에 들어갔다 |
+| `OnLeftWaitingRoom(bRoomClosed)` *(BP 이벤트)* | 메인메뉴로 돌아왔다. `bRoomClosed` 면 방장이 나가서 쫓겨난 것 |
+| `OnGameStarted(Host, bIsHost, RoomPassword)` *(BP 이벤트)* | **여기서 여행한다** |
+| `OnCustomizeRequested()` *(BP 이벤트)* | 커스터마이징 화면이 생기면 여기서 띄운다 |
+
+| 프로퍼티 | 기본값 | 설명 |
+|---|---|---|
+| `RoomCreateWidgetClass` / `RoomListWidgetClass` | (비어있음) | 디자이너 WBP 로 갈아끼울 때 |
+| `HostPort` | 7777 | 방 생성창에 그대로 넘어간다. **게임의 리슨서버 포트와 같아야 한다** |
+| `HostMapName` | (비어있음) | 채우면 **게임 시작 시** 방장이 `OpenLevel(맵, "listen")` |
+| `bAutoTravelOnGameStart` | false | 켜면 게임 시작 시 참여자가 호스트로 `ClientTravel` |
+| `GuestTravelDelay` | 3초 | 참여자가 떠나기 전 대기. 방장이 리슨서버를 다 열기 전에 붙으면 튕긴다 |
+| `bHideWhileChildOpen` | true | 자식 창이 열려 있는 동안 이 화면을 접는다 |
+| `bManageMouseCursor` | true | 로비가 커서/입력 모드를 관리한다. **자식 창은 자동으로 false 가 된다** |
+
+> **여행 시점이 v5 에서 바뀌었다.** 예전에는 방을 만들거나 참여하는 즉시 떠났다.
+> 이제는 **게임 시작 때만** 떠난다. 그 사이가 대기실이다.
+
+### `URoomCreateWidgetBase` — 방 생성창
+
+| 함수 | 설명 |
+|---|---|
+| `TryCreateRoom()` | 입력값 검사 후 `CreateRoom()` 호출 |
+| `CancelCreate()` | 닫는다 |
+| `OnRoomCreateSucceeded(RoomId, RoomPassword)` *(BlueprintImplementableEvent)* | 성공 훅 |
+
+보내기 전에 클라이언트가 먼저 거르는 것: 로그인 여부, 이미 방장인지, 빈 제목,
+제목 UTF-8 바이트 상한(48), **비번을 적었다면 반드시 숫자 4자리**.
+(비었으면 공개방. 형식이 틀린 값을 조용히 무시하면 "1234 를 넣었는데 공개방이더라" 가 된다.)
+
+### `URoomListWidgetBase` — 방 목록 / 참여창
+
+| 함수 | 설명 |
+|---|---|
+| `RefreshRoomList()` | 목록 재요청 |
+| `BeginJoin(RoomId)` | 참여 시작. **비번 방이면 바로 보내지 않고 입력창을 먼저 연다** |
+| `ConfirmJoinWithPassword()` / `CancelPasswordPrompt()` | 비번 입력 확정 / 취소 |
+| `CloseList()` | 닫는다 |
+| `OnRoomJoinApproved(Result, RoomPassword)` *(BlueprintImplementableEvent)* | 승인 훅 |
+
+| 프로퍼티 | 기본값 | 설명 |
+|---|---|---|
+| `EntryWidgetClass` | (비어있으면 `URoomListEntryWidget`) | 목록 한 줄의 위젯 |
+| `AutoRefreshInterval` | 3초 | 0 이하면 새로고침 버튼으로만. **방은 호스트가 끊기면 조용히 사라지므로 주기 갱신이 필요하다** |
+| `bRemoveOnSuccess` | true | 참여 승인 시 스스로 닫는다 |
+
+동작상 알아둘 것:
+
+- 목록을 다시 받을 때 줄을 **통째로 다시 만든다.** 방 개수 상한이 20 이라 부담이 없고,
+  재사용 로직을 두면 "사라진 방의 버튼이 남아있는" 버그가 생긴다.
+- 비번 입력 중에 새로고침이 돌아 **그 방이 사라졌으면 입력창을 닫고 알려준다.**
+- 참여 실패가 `WrongPassword` 일 때만 입력창을 열어둔다. 정원 초과·없는 방이면
+  비번을 고쳐봐야 소용없으므로 목록으로 돌려보낸다.
 
 ### 게임에 정식으로 붙이기
 
@@ -589,6 +765,42 @@ LoginWidget->AddToViewport();
 | `NicknameBox` | Editable Text Box | 선택 (없으면 아이디를 닉네임으로 사용) |
 | `MessageText` / `TitleText` | Text Block | 선택 |
 
+**`WBP_Lobby`** (부모: `ULobbyWidgetBase`)
+
+| 위젯 이름 | 타입 | 필수 |
+|---|---|---|
+| `PrimaryButton` / `SecondaryButton` / `TertiaryButton` | Button | **필수** |
+| `PrimaryButtonLabel` / `SecondaryButtonLabel` / `TertiaryButtonLabel` | Text Block (각 버튼 안에) | **필수** (없으면 라벨이 상태에 따라 안 바뀐다) |
+| `MemberListBox` | Vertical Box | 권장 (대기실 명단이 여기 쌓인다) |
+| `StatusText` / `MessageText` / `TitleText` | Text Block | 선택 |
+
+**`WBP_RoomCreate`** (부모: `URoomCreateWidgetBase`)
+
+| 위젯 이름 | 타입 | 필수 |
+|---|---|---|
+| `RoomTitleBox` | Editable Text Box | **필수** |
+| `CreateButton` / `CancelButton` | Button | **필수** |
+| `RoomPasswordBox` | Editable Text Box | 권장 (없으면 공개방만 만들 수 있다) |
+| `MessageText` / `TitleText` | Text Block | 선택 |
+
+**`WBP_RoomList`** (부모: `URoomListWidgetBase`)
+
+| 위젯 이름 | 타입 | 필수 |
+|---|---|---|
+| `RoomListBox` | Vertical Box | **필수** (여기에 줄이 쌓인다) |
+| `RoomListScrollBox` | Scroll Box | 권장 (`RoomListBox` 를 감싸야 함) |
+| `PasswordPromptPanel` | 아무 Panel | 권장 (비번 방 참여에 필요) |
+| `JoinPasswordBox` | Editable Text Box | 권장 (`PasswordPromptPanel` 안에) |
+| `JoinConfirmButton` / `JoinCancelButton` | Button | 권장 |
+| `RefreshButton` / `CloseButton` / `StatusText` / `TitleText` | Button / Text Block | 선택 |
+
+**`WBP_RoomListEntry`** (부모: `URoomListEntryWidget`, `EntryWidgetClass` 에 지정)
+
+| 위젯 이름 | 타입 | 필수 |
+|---|---|---|
+| `EntryJoinButton` | Button | **필수** (또는 BP 에서 `Request Join` 호출) |
+| `EntryTitleText` / `EntryHostText` / `EntryPlayersText` / `EntryLockText` | Text Block | 선택 |
+
 WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 (`WidgetTree->RootWidget` 이 비어있을 때만 조립하기 때문).
 
@@ -596,7 +808,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 
 ## 8. 프로토콜 레퍼런스
 
-원본: `MOU_ChatServer/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v4**.
+원본: `MOU_ChatServer/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v5**.
 
 ### 버전 이력
 
@@ -606,6 +818,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 | 2 | `LoginReqBody` 에 `Version`, `LoginAckBody` 에 `Result`/`ServerVersion` 추가 (버전 핸드셰이크) |
 | 3 | 계정 시스템. `LoginReqBody` 가 이름 대신 아이디/비밀번호를 보낸다. `RegisterReq/Ack` 추가. `UserId` 가 접속 일련번호에서 계정 고유번호로 바뀜 |
 | 4 | 로비(방 목록). `RoomCreateReq/Ack`, `RoomListReq/Ack`, `RoomJoinReq/Ack`, `RoomLeaveReq`, `RoomStateUpdate` 추가 |
+| 5 | 대기실. **서버가 방 멤버를 추적한다.** `RoomMemberList`, `RoomReadyReq`, `RoomClosed`, `RoomStartReq/RoomStart` 추가. `RoomJoin` 이 "주소 조회" 에서 "실제 입장" 으로, `RoomLeaveReq` 가 방장 전용에서 전원용으로 바뀜. 인원수는 호스트 신고값이 아니라 서버가 센 값 |
 
 ### 패킷 헤더 (6바이트 고정, `#pragma pack(1)`)
 
@@ -640,8 +853,13 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 | 15 | `RoomListAck` | S → C | 사용 중 |
 | 16 | `RoomJoinReq` | C → S | 사용 중 |
 | 17 | `RoomJoinAck` | S → C | 사용 중 |
-| 18 | `RoomLeaveReq` | C → S | 사용 중 (호스트가 보내면 방 삭제) |
-| 19 | `RoomStateUpdate` | C → S | 사용 중 (방장만 유효) |
+| 18 | `RoomLeaveReq` | C → S | 사용 중 (누구나. **호스트가 보내면 방 삭제**) |
+| 19 | `RoomStateUpdate` | C → S | 사용 중 (방장만 유효. v5 부터 인원수 필드는 무시) |
+| 20 | `RoomMemberList` | S → C | 사용 중 (멤버/준비상태가 바뀔 때마다 방 전원에게) |
+| 21 | `RoomReadyReq` | C → S | 사용 중 |
+| 22 | `RoomClosed` | S → C | 사용 중 (방장이 나갔을 때 남은 멤버에게) |
+| 23 | `RoomStartReq` | C → S | 사용 중 (방장만) |
+| 24 | `RoomStart` | S → C | 사용 중 (방 전원에게 호스트 주소와 함께) |
 
 ### 로그인 / 가입 실패 사유 (`ELoginResult`)
 
@@ -755,10 +973,18 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   Source/TeamProject_MOU/Public/Chat/   ChatTypes.h  LobbyTypes.h  ChatFraming.h
                                          ChatClientRunnable.h  ChatSubsystem.h
                                          ChatWidgetBase.h  LoginWidgetBase.h
+                                         LobbyWidgetBase.h  RoomCreateWidgetBase.h
+                                         RoomListWidgetBase.h
   Source/TeamProject_MOU/Private/Chat/  ChatFraming.cpp  ChatClientRunnable.cpp
                                          ChatSubsystem.cpp  ChatWidgetBase.cpp
-                                         LoginWidgetBase.cpp
+                                         LoginWidgetBase.cpp  LobbyWidgetBase.cpp
+                                         RoomCreateWidgetBase.cpp  RoomListWidgetBase.cpp
 ```
+
+> 로비 UI 3종을 추가할 때 **팀 공용 파일은 하나도 건드리지 않았다.** `Build.cs` 도 그대로다
+> (필요한 모듈 `UMG`/`Slate`/`SlateCore` 가 이미 들어 있다). `.uasset` 추가도 0개다.
+> 기존 파일 중 바뀐 것은 `LoginWidgetBase.h/.cpp` 하나뿐이고,
+> 로그인 성공 시 로비를 띄우는 옵션(`bShowLobbyWidgetOnSuccess`)이 늘어난 것이 전부다.
 
 ### 커밋하면 안 되는 것 / `.gitignore` 로 옮긴 것
 
@@ -857,7 +1083,20 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 - **방은 SQLite 에 저장하지 않는다 (의도적).** 서버가 재시작되면 호스트들의 리슨서버도
   이미 죽어 있으므로, 방을 복원해봤자 "들어갈 수 없는 방"만 보여주게 된다. 메모리에만 두고
   호스트 접속이 끊기면(정상 종료든 강제 종료든) 세션 정리 시점에 자동으로 지운다.
-- **한 사람당 방 하나.** 이미 방이 있는 상태에서 또 만들면 `AlreadyHosting` 으로 거부된다.
+- **한 사람당 방 하나.** 이미 방이 있거나 남의 방에 들어가 있으면 `AlreadyHosting` 으로 거부된다.
+  UI 에서는 방에 들어가는 순간 화면이 대기실로 바뀌어 애초에 두 번 만들 수 없다.
+- **방장이 나가면 방이 사라진다. 호스트 이양은 하지 않는다.** 호스트가 곧 리슨서버라
+  이양하려면 리슨서버 재개설 + 전원 재접속 + 상태 복원이 필요한데 UE 가 기본 지원하지 않는다.
+  남은 멤버는 `RoomClosed` 를 받고 메인메뉴로 돌아간다.
+- **로비 UI 는 여행을 하지 않는다(기본값).** 게임을 시작해도 호스트 주소만 화면에 뜬다.
+  맵이 정해지면 `ULobbyWidgetBase` 의 `HostMapName` / `bAutoTravelOnGameStart` 로 켠다.
+- **게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다.** 방장이 `OpenLevel` 로 리슨서버를
+  여는 데 시간이 걸리는데, 서버는 양쪽에 `RoomStart` 를 동시에 보낸다. 지금은
+  `GuestTravelDelay`(기본 3초)로 시차를 두어 때운다. 제대로 하려면 호스트가
+  "리슨서버 준비 완료" 를 서버에 알리고 그때 참여자에게 출발 신호를 보내야 한다.
+- **방을 나갔다 다른 방에 들어갈 때 순서가 꼬일 수 있다.** 이전 방의 명단이 늦게 도착하는
+  경우가 있어 클라이언트가 `RoomId` 를 확인하고 버린다. 서버는 다른 방에 있는 사람의
+  `Join` 을 `InvalidRequest` 로 거부한다 — 조용히 옮겨주면 원래 방에 알릴 기회를 놓친다.
 
 ### 채팅 로그 DB
 
@@ -894,17 +1133,30 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 우선순위 순으로 정리했다.
 
-### 로비 마무리 (권장 1순위 — 서버/클라이언트 API 는 이미 완료)
+### 로비 마무리 (권장 1순위 — 서버/클라이언트 API 와 UI 는 완료)
 
-1. **UI 위젯 3종**: 메인메뉴(방만들기/참여하기/게임종료), 방 생성창(제목+비번4자리 입력),
-   방 목록창(대기 중인 방 나열, 클릭 시 비번 입력 후 참여)
-2. **여행 연결**: 방장은 `ServerTravel("맵?listen")`, 참여자는
-   `ClientTravel(JoinResult.MakeTravelURL(RoomPassword))` — `LobbyTypes.h` 에 헬퍼가 이미 있다
-3. **`AGameModeBase::PreLogin` 에서 `RoomPassword` URL 옵션 재검사** ← **진짜 관문.**
-   로비 서버 검사는 UX 용이고, 이게 없으면 목록을 안 거치고 IP 직접 접속으로 뚫린다
-4. **대기실 준비/시작 버튼**: `APlayerState::bIsReady` 복제, 방장 여부로 같은 버튼의
-   라벨/동작만 다르게(준비 ↔ 게임 시작). 게임 시작은 방장만 호출 가능한 Server RPC 로 검증
-5. 인원 변동마다 `UpdateRoomState()` 호출 — 안 하면 방 목록의 인원수가 실제와 어긋난다
+1. ~~**UI 위젯 3종**~~ → **완료.** 메인메뉴(`ULobbyWidgetBase`), 방 생성창(`URoomCreateWidgetBase`),
+   방 목록창(`URoomListWidgetBase`). WBP 없이 동작하고, WBP 로 갈아끼울 수도 있다. [7절](#7-api-레퍼런스) 참고
+2. **여행 연결** — 코드는 있고 **스위치가 꺼져 있다.** 맵 이름이 정해지면
+   `ULobbyWidgetBase::HostMapName` 을 채우고 `bAutoTravelOnGameStart` 를 켠다.
+   그 전까지는 게임을 시작해도 화면에 호스트 주소만 뜬다.
+   결정해야 할 것: **게임 맵으로 바로 갈 것인가, 인게임 로딩 맵을 따로 둘 것인가.**
+   같이 고칠 것: 참여자가 호스트보다 먼저 붙는 경쟁 상태(11절 참고).
+   `GuestTravelDelay` 로 때우고 있는데, 호스트가 "리슨서버 준비 완료" 를 서버에 알리고
+   그때 참여자에게 출발 신호를 보내는 쪽이 옳다
+3. **`AGameModeBase::PreLogin` 에서 `RoomPassword` URL 옵션 재검사** ← **진짜 관문. 다음 할 일.**
+   로비 서버 검사는 UX 용이고, 이게 없으면 목록을 안 거치고 IP 직접 접속으로 뚫린다.
+   지금 방 비밀번호는 `ULobbyWidgetBase::GetMyRoomPassword()` 에 임시로만 들고 있다 —
+   여행 URL 에 실려 가므로(`OpenLevel(맵, "listen?RoomPassword=…")`) 새 레벨의 GameMode 가
+   `InitGame` 에서 그 옵션을 읽어 보관하고, `PreLogin` 에서 참여자의 옵션과 비교하면 된다
+4. ~~**대기실 준비/시작 버튼**~~ → **완료.** 다만 `APlayerState::bIsReady` 복제가 아니라
+   **채팅 서버가 방 멤버와 준비 상태를 들고 있다.** 그래야 맵 없이도 대기실이 돌아가고,
+   방장 이탈을 남은 사람에게 즉시 알릴 수 있다
+5. ~~인원 변동마다 `UpdateRoomState()` 호출~~ → **불필요해졌다.** 서버가 멤버를 직접 세므로
+   방 목록의 인원수가 항상 정확하다. `UpdateRoomState()` 는 진행 상태 통지용으로만 남아 있고
+   인원수 필드는 무시된다
+6. **게임 시작 후 인게임 연동**: 팀 배정과 생사 여부를 리슨서버가 채팅 서버에 미러링해야
+   한다(8단계). 지금은 클라이언트가 `SetDeadForTest` 로 직접 알려서 위조가 가능하다
 
 ### 8단계 — 리슨서버 → 채팅서버 신원 미러링
 
@@ -983,6 +1235,27 @@ VS 가 UE5 솔루션(59개 프로젝트) 을 열어둔 채 IntelliSense 를 돌�
 이전에 띄운 `ChatServer.exe` 가 아직 실행 중이라 파일이 잠긴 것이다.
 작업 관리자에서 종료하거나 `Get-Process ChatServer | Stop-Process -Force` 후 다시 빌드.
 
+### 프로토콜 버전 불일치인데 클라이언트 버전이 이상한 숫자로 찍힘
+
+```
+[거부] 프로토콜 버전 불일치. 클라이언트=28520, 서버=5
+```
+
+28520 은 `0x6F68` = `'h','o'` — **아이디 첫 두 글자**다. 즉 클라이언트가 `Version` 필드가
+없던 시절(v1)의 `LoginReqBody` 를 보내고 있다는 뜻이다. 원인은 십중팔구
+**빌드 구성이 달라서 낡은 DLL 이 로드된 것**이다.
+
+`Binaries/Win64/` 를 보면 구성마다 DLL 이 따로 있다:
+
+| 파일 | 구성 |
+|---|---|
+| `UnrealEditor-TeamProject_MOU.dll` | Development Editor |
+| `UnrealEditor-TeamProject_MOU-Win64-DebugGame.dll` | DebugGame Editor |
+
+`UnrealEditor.exe` / `UnrealEditor-Cmd.exe` 를 플래그 없이 실행하면 **Development** 를 쓴다.
+DebugGame 만 빌드해두고 헤드리스 검증을 돌리면 몇 달 전 DLL 로 붙는다.
+**두 구성을 같이 빌드하거나, 팀에서 쓰는 구성 하나로 통일할 것.**
+
 ### VS 에 새 파일이 안 보임
 
 프로젝트 파일 재생성 후 VS 를 **완전히 껐다 켠다.** 열어둔 채 재생성하면 옛 정보를 들고 있다.
@@ -1019,5 +1292,5 @@ VS 가 UE5 솔루션(59개 프로젝트) 을 열어둔 채 IntelliSense 를 돌�
 체크리스트:
 1. 방을 만든 쪽의 TCP 연결이 아직 살아있나 (연결이 끊기면 서버가 방을 자동 삭제한다)
 2. 정원이 꽉 찼거나(`CurrentPlayers >= MaxPlayers`) 이미 `InGame` 상태인 방은 목록에서 빠진다
-   (`Rooms::ListWaiting` 이 필터링한다) — `MOU.Room.Close` 후 다시 만들어서 확인
+   (`Rooms::ListWaiting` 이 필터링한다) — `MOU.Room.Leave` 후 다시 만들어서 확인
 3. 로그인 상태인가 — 로그인 전에는 서버가 빈 목록만 돌려준다

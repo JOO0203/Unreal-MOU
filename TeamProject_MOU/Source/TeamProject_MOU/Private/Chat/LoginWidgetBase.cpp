@@ -3,6 +3,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Chat/ChatSubsystem.h"
 #include "Chat/ChatWidgetBase.h"
+#include "Chat/LobbyWidgetBase.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
@@ -323,9 +324,15 @@ void ULoginWidgetBase::HandleLoginCompleted(const FChatLoginResult& Result)
 
 	OnLoginSucceeded(Result);
 
+	// 채팅을 먼저 띄우고 로비를 나중에 띄운다. 나중에 붙은 쪽이 위에 오므로
+	// 로비 버튼이 채팅창에 가리지 않는다.
 	if (bShowChatWidgetOnSuccess)
 	{
 		ShowChatWidget();
+	}
+	if (bShowLobbyWidgetOnSuccess)
+	{
+		ShowLobbyWidget();
 	}
 	if (bRemoveOnSuccess)
 	{
@@ -358,6 +365,21 @@ void ULoginWidgetBase::ShowChatWidget()
 	if (UUserWidget* ChatWidget = CreateWidget<UUserWidget>(PC, WidgetClass))
 	{
 		ChatWidget->AddToViewport();
+	}
+}
+
+void ULoginWidgetBase::ShowLobbyWidget()
+{
+	APlayerController* PC = GetOwningPlayer();
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	UClass* WidgetClass = LobbyWidgetClass ? LobbyWidgetClass.Get() : ULobbyWidgetBase::StaticClass();
+	if (UUserWidget* LobbyWidget = CreateWidget<UUserWidget>(PC, WidgetClass))
+	{
+		LobbyWidget->AddToViewport();
 	}
 }
 

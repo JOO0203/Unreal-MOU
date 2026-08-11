@@ -399,6 +399,9 @@ FString UChatSubsystem::GetRoomResultText(EMOURoomResultBP Result)
 	case EMOURoomResultBP::Full:           return TEXT("정원이 가득 찼습니다.");
 	case EMOURoomResultBP::AlreadyStarted: return TEXT("이미 시작된 게임입니다.");
 	case EMOURoomResultBP::AlreadyHosting: return TEXT("이미 방을 만들었습니다. 기존 방을 먼저 닫으세요.");
+	case EMOURoomResultBP::NotInRoom:      return TEXT("방에 들어가 있지 않습니다.");
+	case EMOURoomResultBP::NotHost:        return TEXT("방장만 할 수 있습니다.");
+	case EMOURoomResultBP::NotAllReady:    return TEXT("아직 준비하지 않은 참여자가 있습니다.");
 	default:                               return TEXT("잘못된 요청입니다.");
 	}
 }
@@ -478,7 +481,7 @@ void UChatSubsystem::JoinRoom(int32 RoomId, const FString& RoomPassword)
 	}
 }
 
-void UChatSubsystem::CloseMyRoom()
+void UChatSubsystem::LeaveRoom()
 {
 	if (ChatClient == nullptr)
 	{
@@ -489,9 +492,67 @@ void UChatSubsystem::CloseMyRoom()
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomLeaveReq, nullptr, 0))
 	{
 		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("RoomLeaveReq 전송 (내 방 #%d 닫기)"), MyRoomId);
+		UE_LOG(LogMOUChat, Log, TEXT("RoomLeaveReq 전송 (방 #%d 에서 나감)"), CurrentRoomId);
 	}
-	MyRoomId = 0;
+
+	// 서버 응답을 기다리지 않고 즉시 비운다.
+	// 내가 나가는 것은 서버가 거부할 수 있는 일이 아니고, UI 가 바로 메인메뉴로
+	// 돌아가야 사용자가 버튼을 두 번 누르지 않는다.
+	ClearRoomState();
+}
+
+void UChatSubsystem::SetReady(bool bReady)
+{
+	if (ChatClient == nullptr || CurrentRoomId == 0)
+	{
+		return;
+	}
+
+	MOU::RoomReadyReqBody Request{};
+	Request.bReady = bReady ? 1 : 0;
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomReadyReq, &Request, sizeof(Request)))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RoomReadyReq 전송: %s"), bReady ? TEXT("준비완료") : TEXT("준비해제"));
+	}
+}
+
+void UChatSubsystem::StartGame()
+{
+	if (ChatClient == nullptr || CurrentRoomId == 0)
+	{
+		return;
+	}
+
+	TArray<uint8> Packet;
+	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomStartReq, nullptr, 0))
+	{
+		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUChat, Log, TEXT("RoomStartReq 전송 (방 #%d)"), CurrentRoomId);
+	}
+}
+
+bool UChatSubsystem::IsSelfReady() const
+{
+	const int64 SelfId = LoginResult.UserId;
+	for (const FMOURoomMember& Member : RoomMembers)
+	{
+		if (Member.UserId == SelfId)
+		{
+			return Member.bReady;
+		}
+	}
+	return false;
+}
+
+void UChatSubsystem::ClearRoomState()
+{
+	MyRoomId      = 0;
+	CurrentRoomId = 0;
+	RoomMembers.Reset();
+	bAllMembersReady = false;
 }
 
 void UChatSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
@@ -502,7 +563,8 @@ void UChatSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bI
 	}
 
 	MOU::RoomStateUpdateBody Request{};
-	Request.RoomId         = static_cast<uint32>(RoomId);
+	Request.RoomId = static_cast<uint32>(RoomId);
+	// v5 부터 서버는 이 값을 무시한다. 구조체 크기를 맞추려고 채워 보낼 뿐이다.
 	Request.CurrentPlayers = static_cast<uint8>(FMath::Clamp(CurrentPlayers, 0, 255));
 	Request.State          = static_cast<uint8>(bInGame ? MOU::ERoomState::InGame : MOU::ERoomState::Waiting);
 
@@ -611,7 +673,8 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 		case EChatClientEventType::RoomCreateAck:
 			if (Event.bRoomSuccess)
 			{
-				MyRoomId = Event.RoomId;
+				MyRoomId      = Event.RoomId;
+				CurrentRoomId = Event.RoomId;   // 방장도 그 방의 멤버다
 				UE_LOG(LogMOUChat, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
 			}
 			else
@@ -630,8 +693,9 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 		case EChatClientEventType::RoomJoinAck:
 			if (Event.Join.bSuccess)
 			{
-				UE_LOG(LogMOUChat, Log, TEXT("방 참여 승인. 호스트 %s:%d 로 접속하면 된다"),
-					*Event.Join.HostAddress, Event.Join.HostPort);
+				CurrentRoomId = Event.Join.RoomId;   // 대기실 입장. 방장은 아니다
+				UE_LOG(LogMOUChat, Log, TEXT("방 #%d 입장. 호스트는 %s:%d"),
+					Event.Join.RoomId, *Event.Join.HostAddress, Event.Join.HostPort);
 			}
 			else
 			{
@@ -641,10 +705,42 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 			OnRoomJoinCompleted.Broadcast(Event.Join);
 			break;
 
+		case EChatClientEventType::RoomMemberList:
+			// 늦게 도착한 이전 방의 명단이 현재 대기실을 덮어쓰지 않게 방 번호를 확인한다.
+			// 빠르게 나갔다 다른 방에 들어가면 실제로 이런 순서가 나온다.
+			if (Event.RoomId == CurrentRoomId)
+			{
+				RoomMembers      = Event.Members;
+				bAllMembersReady = Event.bAllReady;
+				UE_LOG(LogMOUChat, Verbose, TEXT("대기실 #%d 명단 %d명 (전원준비 %s)"),
+					Event.RoomId, RoomMembers.Num(), bAllMembersReady ? TEXT("O") : TEXT("X"));
+				OnRoomMembersChanged.Broadcast(Event.RoomId, RoomMembers, bAllMembersReady);
+			}
+			break;
+
+		case EChatClientEventType::RoomClosed:
+			UE_LOG(LogMOUChat, Log, TEXT("방 #%d 이(가) 닫혔다. 방장이 나갔다."), Event.RoomId);
+			ClearRoomState();
+			OnRoomClosed.Broadcast(Event.RoomId, Event.CloseReason);
+			break;
+
+		case EChatClientEventType::RoomStart:
+		{
+			// bIsHost 를 여기서 계산해 넘긴다. 받는 쪽은 호스트냐 참여자냐에 따라
+			// OpenLevel(listen) 과 ClientTravel 로 갈리는데, 그 판단 근거가
+			// 이미 여기 있으므로 UI 가 다시 따지게 하지 않는다.
+			const bool bIsHost = (MyRoomId != 0 && MyRoomId == Event.RoomId);
+			UE_LOG(LogMOUChat, Log, TEXT("방 #%d 게임 시작. 호스트 %s:%d (나는 %s)"),
+				Event.RoomId, *Event.Join.HostAddress, Event.Join.HostPort,
+				bIsHost ? TEXT("방장") : TEXT("참여자"));
+			OnRoomGameStarted.Broadcast(Event.Join, bIsHost);
+			break;
+		}
+
 		case EChatClientEventType::Disconnected:
 			LoginResult = FChatLoginResult();
 			// 연결이 끊기면 서버가 내 방을 지운다. 클라이언트 쪽 기억도 같이 비운다.
-			MyRoomId = 0;
+			ClearRoomState();
 			SetConnectionState(EChatConnectionState::Disconnected, Event.Detail);
 			break;
 		}
@@ -842,15 +938,40 @@ namespace
 				}
 			}));
 
-	FAutoConsoleCommandWithWorldAndArgs GRoomCloseCommand(
-		TEXT("MOU.Room.Close"),
-		TEXT("내가 만든 방을 닫는다."),
+	FAutoConsoleCommandWithWorldAndArgs GRoomLeaveCommand(
+		TEXT("MOU.Room.Leave"),
+		TEXT("지금 있는 방에서 나간다. 방장이 나가면 방이 사라진다."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>&, UWorld* World)
 			{
 				if (UChatSubsystem* Chat = FindChatSubsystem(World))
 				{
-					Chat->CloseMyRoom();
+					Chat->LeaveRoom();
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomReadyCommand(
+		TEXT("MOU.Room.Ready"),
+		TEXT("준비 상태를 바꾼다. 사용법: MOU.Room.Ready [0|1] (생략하면 1)"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					const bool bReady = !Args.IsValidIndex(0) || Args[0] != TEXT("0");
+					Chat->SetReady(bReady);
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GRoomStartCommand(
+		TEXT("MOU.Room.Start"),
+		TEXT("게임을 시작한다. 방장만, 전원 준비 완료일 때만 된다."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>&, UWorld* World)
+			{
+				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				{
+					Chat->StartGame();
 				}
 			}));
 

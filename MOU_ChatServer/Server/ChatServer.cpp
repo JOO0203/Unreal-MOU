@@ -11,6 +11,7 @@
 #include "Session.h"
 #include "Framing.h"
 
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -304,11 +305,110 @@ namespace
 	}
 
 	// ------------------------------------------------------------------
-	// 로비
+	// 로비 / 대기실
 	//
-	// 서버는 방 주소록 역할만 한다. 게임 트래픽은 여기를 지나가지 않고
-	// 참가자가 호스트의 리슨서버에 직접 붙는다.
+	// 게임 트래픽은 여기를 지나가지 않는다. 참가자는 호스트의 리슨서버에 직접 붙는다.
+	// 이 서버가 관리하는 것은 "누가 어느 방에 있고 준비했는가" 까지다.
+	//
+	// [락 순서] Rooms:: 함수는 세션 락을 잡지 않고 대상 UserId 목록만 돌려준다.
+	//   전송은 여기서, 방 락이 풀린 뒤에 한다. 두 락을 겹쳐 잡지 않기 위해서다.
 	// ------------------------------------------------------------------
+
+	/** UserId 목록에 해당하는 세션에만 패킷을 보낸다. */
+	void SendToUsers(const std::vector<uint64_t>& UserIds, EOpcode Op,
+	                 const void* Head, uint32_t HeadSize,
+	                 const void* Tail, uint32_t TailSize)
+	{
+		if (UserIds.empty())
+		{
+			return;
+		}
+
+		GSessions.ForEach([&](const SessionPtr& Target)
+		{
+			if (!Target->bAuthed)
+			{
+				return;
+			}
+			if (std::find(UserIds.begin(), UserIds.end(), Target->UserId) == UserIds.end())
+			{
+				return;
+			}
+			SendPacket2(Target->Sock, Op, Head, HeadSize, Tail, TailSize);
+		});
+	}
+
+	/**
+	 * 방의 현재 명단을 멤버 전원에게 보낸다.
+	 * 누가 들어오고 나가고 준비를 누를 때마다 부른다 — 대기실 UI 는 이것만 보고 그린다.
+	 */
+	void BroadcastRoomMembers(uint32_t RoomId)
+	{
+		std::vector<RoomMemberInfo> Members;
+		std::vector<uint64_t>       Recipients;
+		bool bAllReady = false;
+
+		if (!Rooms::GetMembers(RoomId, Members, bAllReady, Recipients))
+		{
+			return;   // 이미 사라진 방
+		}
+
+		RoomMemberListBody Head{};
+		Head.RoomId    = RoomId;
+		Head.Count     = static_cast<uint8_t>(Members.size());
+		Head.bAllReady = bAllReady ? 1 : 0;
+
+		SendToUsers(Recipients, EOpcode::RoomMemberList,
+		            &Head, sizeof(Head),
+		            Members.empty() ? nullptr : Members.data(),
+		            static_cast<uint32_t>(Members.size() * sizeof(RoomMemberInfo)));
+	}
+
+	/** 방이 사라졌음을 남은 멤버에게 알린다. 이들은 메인메뉴로 돌아가야 한다. */
+	void NotifyRoomClosed(const std::vector<uint64_t>& Recipients,
+	                      uint32_t RoomId, ERoomCloseReason Reason)
+	{
+		RoomClosedBody Body{};
+		Body.RoomId = RoomId;
+		Body.Reason = static_cast<uint8_t>(Reason);
+
+		SendToUsers(Recipients, EOpcode::RoomClosed, &Body, sizeof(Body), nullptr, 0);
+	}
+
+	/**
+	 * 이 사람을 지금 속한 방에서 빼고, 남은 사람들에게 알린다.
+	 * 방장이면 방이 사라지고 남은 사람 전원에게 RoomClosed 가 간다.
+	 *
+	 * 접속 종료 경로에서도 그대로 부른다 — 정상 종료든 랜선이 뽑혔든 처리가 같아야 한다.
+	 */
+	void LeaveRoomAndNotify(const SessionPtr& Session)
+	{
+		uint32_t RoomId = 0;
+		bool bRoomClosed = false;
+		std::vector<uint64_t> Recipients;
+
+		Rooms::Leave(Session->UserId, RoomId, bRoomClosed, Recipients);
+		if (RoomId == 0)
+		{
+			return;   // 어느 방에도 없었다
+		}
+
+		if (bRoomClosed)
+		{
+			std::printf("[방 삭제] #%u 방장 %s(%llu) 가 나갔다. 남은 %zu명에게 통보. 남은 방 %zu개\n",
+			            RoomId, Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId),
+			            Recipients.size(), Rooms::Count());
+			NotifyRoomClosed(Recipients, RoomId, ERoomCloseReason::HostLeft);
+		}
+		else
+		{
+			std::printf("[방 퇴장] #%u 에서 %s(%llu) 가 나갔다\n",
+			            RoomId, Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId));
+			BroadcastRoomMembers(RoomId);
+		}
+	}
 
 	bool HandleRoomCreateReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
 	{
@@ -355,7 +455,15 @@ namespace
 			std::printf("[거부] 방 생성 실패: %s (사유 %u)\n", Title.c_str(), static_cast<unsigned>(R));
 		}
 
-		return Reply(R, NewRoomId);
+		const bool bSent = Reply(R, NewRoomId);
+
+		// Ack 를 먼저 보내고 명단을 보낸다. 그래야 클라이언트가 RoomId 를 알게 된 뒤에
+		// 명단이 도착해서, 어느 방 명단인지 헷갈릴 일이 없다.
+		if (R == ERoomResult::Success)
+		{
+			BroadcastRoomMembers(NewRoomId);
+		}
+		return bSent;
 	}
 
 	bool HandleRoomListReq(const SessionPtr& Session, const char*, uint32_t)
@@ -408,7 +516,8 @@ namespace
 
 		std::string HostAddress;
 		uint16_t    HostPort = 0;
-		const ERoomResult R = Rooms::Join(Req.RoomId, Password, HostAddress, HostPort);
+		const ERoomResult R = Rooms::Join(Req.RoomId, Session->UserId, Session->Name,
+		                                  Password, HostAddress, HostPort);
 
 		Ack.RoomId = Req.RoomId;
 		if (R == ERoomResult::Success)
@@ -426,7 +535,15 @@ namespace
 			            Req.RoomId, Session->Name.c_str(), static_cast<unsigned>(R));
 		}
 
-		return Reply(R);
+		const bool bSent = Reply(R);
+
+		// 들어온 사람에게도, 이미 있던 사람에게도 갱신된 명단이 필요하다.
+		// Ack 다음에 보내야 새 참여자가 RoomId 를 안 상태로 명단을 받는다.
+		if (R == ERoomResult::Success)
+		{
+			BroadcastRoomMembers(Req.RoomId);
+		}
+		return bSent;
 	}
 
 	bool HandleRoomStateUpdate(const SessionPtr& Session, const char* Body, uint32_t BodySize)
@@ -439,14 +556,13 @@ namespace
 		RoomStateUpdateBody Req{};
 		std::memcpy(&Req, Body, sizeof(Req));
 
+		// Req.CurrentPlayers 는 읽지 않는다. v5 부터 인원은 서버가 직접 센다.
 		const ERoomResult R = Rooms::UpdateState(
-			Req.RoomId, Session->UserId, Req.CurrentPlayers,
-			static_cast<ERoomState>(Req.State));
+			Req.RoomId, Session->UserId, static_cast<ERoomState>(Req.State));
 
 		if (R == ERoomResult::Success)
 		{
-			std::printf("[방 갱신] #%u 인원 %u명, 상태 %s\n",
-			            Req.RoomId, Req.CurrentPlayers,
+			std::printf("[방 갱신] #%u 상태 %s\n", Req.RoomId,
 			            Req.State == static_cast<uint8_t>(ERoomState::InGame) ? "게임중" : "대기중");
 		}
 		return true;
@@ -456,11 +572,67 @@ namespace
 	{
 		if (Session->bAuthed)
 		{
-			Rooms::RemoveByHost(Session->UserId);
-			std::printf("[방 삭제] 방장 %s(%llu) 가 방을 닫았다. 남은 방 %zu개\n",
-			            Session->Name.c_str(),
-			            static_cast<unsigned long long>(Session->UserId), Rooms::Count());
+			// v4 까지는 방장 전용이었다. 이제 참여자도 이걸로 대기실에서 나간다.
+			LeaveRoomAndNotify(Session);
 		}
+		return true;
+	}
+
+	bool HandleRoomReadyReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		if (!Session->bAuthed || BodySize < sizeof(RoomReadyReqBody))
+		{
+			return true;   // 준비 토글도 응답 없는 단방향이다. 결과는 명단으로 돌아온다
+		}
+
+		RoomReadyReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		uint32_t RoomId = 0;
+		const ERoomResult R = Rooms::SetReady(Session->UserId, Req.bReady != 0, RoomId);
+
+		if (R == ERoomResult::Success)
+		{
+			std::printf("[준비] #%u %s(%llu) -> %s\n", RoomId, Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId),
+			            Req.bReady ? "준비완료" : "준비해제");
+			// 방장의 "게임 시작" 버튼이 켜질지 말지가 여기서 갈린다.
+			// 명단에 bAllReady 가 실려 나가므로 전원이 같은 판정을 본다.
+			BroadcastRoomMembers(RoomId);
+		}
+		return true;
+	}
+
+	bool HandleRoomStartReq(const SessionPtr& Session, const char*, uint32_t)
+	{
+		if (!Session->bAuthed)
+		{
+			return true;
+		}
+
+		uint32_t    RoomId = 0;
+		std::string HostAddress;
+		uint16_t    HostPort = 0;
+		std::vector<uint64_t> Recipients;
+
+		const ERoomResult R = Rooms::StartGame(Session->UserId, RoomId,
+		                                       HostAddress, HostPort, Recipients);
+		if (R != ERoomResult::Success)
+		{
+			std::printf("[거부] 게임 시작 실패: %s(%llu) (사유 %u)\n", Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId), static_cast<unsigned>(R));
+			return true;
+		}
+
+		std::printf("[게임 시작] #%u 방장=%s, 호스트 %s:%u, 인원 %zu명\n",
+		            RoomId, Session->Name.c_str(), HostAddress.c_str(), HostPort, Recipients.size());
+
+		RoomStartBody Start{};
+		Start.RoomId   = RoomId;
+		Start.HostPort = HostPort;
+		CopyFixedString(Start.HostAddress, kMaxAddressLen, HostAddress);
+
+		SendToUsers(Recipients, EOpcode::RoomStart, &Start, sizeof(Start), nullptr, 0);
 		return true;
 	}
 
@@ -527,6 +699,8 @@ namespace
 		case EOpcode::RoomJoinReq:     return HandleRoomJoinReq(Session, Data, Size);
 		case EOpcode::RoomLeaveReq:    return HandleRoomLeaveReq(Session, Data, Size);
 		case EOpcode::RoomStateUpdate: return HandleRoomStateUpdate(Session, Data, Size);
+		case EOpcode::RoomReadyReq:    return HandleRoomReadyReq(Session, Data, Size);
+		case EOpcode::RoomStartReq:    return HandleRoomStartReq(Session, Data, Size);
 		case EOpcode::ChatSend:  return HandleChatSend(Session, Data, Size);
 		case EOpcode::SetDead:   return HandleSetDead(Session, Data, Size);
 		case EOpcode::Heartbeat: return true;
@@ -589,11 +763,14 @@ namespace
 		}
 
 		// 방장이 나가면 그 방은 이미 들어갈 수 없는 곳이 된다(리슨서버가 죽었으므로).
-		// 목록에 유령 방이 남지 않도록 여기서 반드시 지운다.
+		// 목록에 유령 방이 남지 않도록 여기서 반드시 정리한다.
 		// 정상 종료든 랜선이 뽑혔든 이 자리를 지나가므로 한 곳에서 처리된다.
+		//
+		// 남은 멤버에게 통보하는 것까지 같은 함수가 처리한다. 이게 없으면
+		// 게스트는 방장이 사라진 줄도 모르고 대기실에 영영 앉아있게 된다.
 		if (Session->bAuthed)
 		{
-			Rooms::RemoveByHost(Session->UserId);
+			LeaveRoomAndNotify(Session);
 		}
 
 		std::printf("[종료] %s (UserId=%llu) 연결 해제\n",

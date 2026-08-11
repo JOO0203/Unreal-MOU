@@ -61,8 +61,12 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EMOURoomResultBP::AlreadyStarted) == static_cast<uint8>(MOU::ERoomResult::AlreadyStarted), "EMOURoomResultBP::AlreadyStarted 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomResultBP::AlreadyHosting) == static_cast<uint8>(MOU::ERoomResult::AlreadyHosting), "EMOURoomResultBP::AlreadyHosting 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomResultBP::InvalidRequest) == static_cast<uint8>(MOU::ERoomResult::InvalidRequest), "EMOURoomResultBP::InvalidRequest 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotInRoom)      == static_cast<uint8>(MOU::ERoomResult::NotInRoom),      "EMOURoomResultBP::NotInRoom 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotHost)        == static_cast<uint8>(MOU::ERoomResult::NotHost),        "EMOURoomResultBP::NotHost 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotAllReady)    == static_cast<uint8>(MOU::ERoomResult::NotAllReady),    "EMOURoomResultBP::NotAllReady 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomStateBP::Waiting)         == static_cast<uint8>(MOU::ERoomState::Waiting),         "EMOURoomStateBP::Waiting 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomStateBP::InGame)          == static_cast<uint8>(MOU::ERoomState::InGame),          "EMOURoomStateBP::InGame 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomCloseReasonBP::HostLeft)  == static_cast<uint8>(MOU::ERoomCloseReason::HostLeft),  "EMOURoomCloseReasonBP::HostLeft 가 서버 정의와 다르다");
 
 	/** TryExtractPacket 의 결과. 서버 MOU::EFrameResult 와 같은 의미다. */
 	enum class EFrameResult : uint8

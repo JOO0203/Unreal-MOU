@@ -27,7 +27,24 @@ enum class EMOURoomResultBP : uint8
 	Full           = 4 UMETA(DisplayName = "정원 초과"),
 	AlreadyStarted = 5 UMETA(DisplayName = "이미 시작된 방"),
 	AlreadyHosting = 6 UMETA(DisplayName = "이미 방을 만들었음"),
-	InvalidRequest = 7 UMETA(DisplayName = "잘못된 요청")
+	InvalidRequest = 7 UMETA(DisplayName = "잘못된 요청"),
+
+	// --- 대기실 (v5) ---
+	NotInRoom      = 8 UMETA(DisplayName = "방에 있지 않음"),
+	NotHost        = 9 UMETA(DisplayName = "방장만 가능"),
+	NotAllReady    = 10 UMETA(DisplayName = "준비하지 않은 사람이 있음")
+};
+
+/**
+ * 방이 사라진 이유. MOU::ERoomCloseReason 의 블루프린트 미러.
+ *
+ * 호스트 이양은 하지 않는다 — 호스트가 곧 리슨서버라서, 호스트가 나가면
+ * 게임 세션 자체가 사라진다. 남은 사람은 메인메뉴로 돌아가야 한다.
+ */
+UENUM(BlueprintType)
+enum class EMOURoomCloseReasonBP : uint8
+{
+	HostLeft = 0 UMETA(DisplayName = "방장이 나감")
 };
 
 /** 방의 진행 상태. MOU::ERoomState 의 블루프린트 미러. */
@@ -75,6 +92,32 @@ struct FMOURoomInfo
 
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
 	EMOURoomStateBP State = EMOURoomStateBP::Waiting;
+};
+
+/**
+ * 대기실에 앉아 있는 사람 하나. MOU::RoomMemberInfo 의 블루프린트 미러.
+ *
+ * 이 목록은 서버가 진실을 갖고 있고, 바뀔 때마다 통째로 다시 내려온다.
+ * 클라이언트가 들고 있는 것은 마지막으로 받은 스냅샷일 뿐이다.
+ */
+USTRUCT(BlueprintType)
+struct FMOURoomMember
+{
+	GENERATED_BODY()
+
+	/** 계정 번호. 원본은 uint64 지만 블루프린트가 못 다뤄 int64 로 받는다. */
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	int64 UserId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	FString Name;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	bool bIsHost = false;
+
+	/** 방장은 항상 true 다. 자기가 시작 버튼을 누르는 사람이라 준비를 묻지 않는다. */
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	bool bReady = false;
 };
 
 /**

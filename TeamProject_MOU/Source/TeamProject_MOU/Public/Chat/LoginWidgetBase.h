@@ -4,7 +4,7 @@
 //   콘솔 명령(MOU.Chat.Connect / MOU.Chat.Login)으로 하던 일을 화면에서 한다.
 //     1. 채팅 서버에 접속
 //     2. 아이디/비밀번호로 로그인, 또는 계정 생성
-//     3. 성공하면 스스로 사라지고 채팅 위젯을 띄운다
+//     3. 성공하면 스스로 사라지고 채팅 위젯과 로비 메인메뉴(ULobbyWidgetBase)를 띄운다
 //
 // [ChatWidgetBase 와 같은 규약]
 //   WBP 없이 CreateWidget 만 해도 C++ 이 기본 레이아웃을 조립한다.
@@ -88,6 +88,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
 	TSubclassOf<UUserWidget> ChatWidgetClass;
 
+	/**
+	 * 로그인 성공 시 로비 메인메뉴(ULobbyWidgetBase)를 자동으로 띄울지.
+	 *
+	 * 로그인 다음에 올 화면은 보통 "방 만들기 / 참여하기" 다. 따로 붙이지 않아도
+	 * 로그인 -> 로비 -> 방 흐름이 이어지도록 기본값을 켜뒀다.
+	 * 타이틀 화면이 따로 있는 흐름이라면 꺼두고 OnLoginSucceeded 에서 직접 처리한다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
+	bool bShowLobbyWidgetOnSuccess = true;
+
+	/**
+	 * 띄울 로비 위젯 클래스. 비워두면 ULobbyWidgetBase 를 그대로 쓴다.
+	 * 디자이너가 만든 WBP_Lobby 가 있으면 여기에 지정한다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
+	TSubclassOf<UUserWidget> LobbyWidgetClass;
+
 	// --- 블루프린트 API ---------------------------------------------------
 
 	/** 입력된 아이디/비밀번호로 로그인한다. 서버에 연결되어 있지 않으면 먼저 연결한다. */
@@ -164,6 +181,8 @@ private:
 	void SetBusy(bool bBusy);
 
 	void ShowChatWidget();
+
+	void ShowLobbyWidget();
 
 	UChatSubsystem* GetChatSubsystem() const;
 
