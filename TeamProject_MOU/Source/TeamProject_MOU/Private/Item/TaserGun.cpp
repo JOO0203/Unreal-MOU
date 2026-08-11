@@ -2,6 +2,8 @@
 #include "Base/CharacterBase.h"
 #include "Components/StatusComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/Controller.h"
 #include "GameplayTagContainer.h"
 #include "TimerManager.h"
 
@@ -10,6 +12,10 @@ ATaserGun::ATaserGun()
 	// 테이저건은 최대 3회 사용 (요청 사양)
 	MaxUseCount = 3;
 	CurrentUseCount = 3;
+
+	// 총구 지점 컴포넌트 (VFX 시작 위치용). BP에서 메시 총구로 이동시킴
+	MuzzlePoint = CreateDefaultSubobject<USceneComponent>(TEXT("MuzzlePoint"));
+	MuzzlePoint->SetupAttachment(MeshComponent);
 }
 
 // [TASER-001] 좌클릭: 사용 횟수 차감 후 트레이스 발사
@@ -41,25 +47,27 @@ void ATaserGun::ServerFire_Implementation()
 	PerformTrace();
 }
 
-// [TASER-003] 총구 위치/방향으로 Line Trace, 맞은 캐릭터에 기절 부여
+// [TASER-003] 카메라 시점(화면 중앙) 기준 Line Trace, 맞은 캐릭터에 기절 부여
 void ATaserGun::PerformTrace()
 {
-	// 총구 소켓이 있으면 그 위치/방향, 없으면 액터 위치+전방 사용
-	FVector Start;
-	FVector Forward;
-	if (MeshComponent && MeshComponent->DoesSocketExist(MuzzleSocketName))
+	// 트레이스는 든 플레이어의 카메라 시점(화면 정중앙) 기준으로 발사한다.
+	// 총구 방향이 아니라 조준 방향이므로 메시 회전과 무관하게 정확히 조준된다.
+	FVector ViewLocation = GetActorLocation();
+	FRotator ViewRotation = GetActorRotation();
+
+	APawn* OwnerPawn = Cast<APawn>(LastOwner);
+	if (OwnerPawn && OwnerPawn->GetController())
 	{
-		const FTransform SocketTM = MeshComponent->GetSocketTransform(MuzzleSocketName);
-		Start = SocketTM.GetLocation();
-		Forward = SocketTM.GetRotation().GetForwardVector();
+		OwnerPawn->GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
 	}
-	else
+	else if (LastOwner)
 	{
-		Start = GetActorLocation();
-		Forward = GetActorForwardVector();
+		// 컨트롤러가 없으면 액터 시점으로 폴백
+		LastOwner->GetActorEyesViewPoint(ViewLocation, ViewRotation);
 	}
 
-	const FVector End = Start + Forward * TraceDistance;
+	const FVector TraceStart = ViewLocation;
+	const FVector TraceEnd = TraceStart + ViewRotation.Vector() * TraceDistance;
 
 	FHitResult Hit;
 	FCollisionQueryParams Params;
@@ -70,16 +78,17 @@ void ATaserGun::PerformTrace()
 		Params.AddIgnoredActor(LastOwner);
 	}
 
-	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Pawn, Params);
+	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Pawn, Params);
 
 	if (bHit && Hit.GetActor())
 	{
 		ApplyStun(Hit.GetActor());
 	}
 
-	// 모든 클라이언트에서 전기 이펙트 재생 (히트면 히트지점까지, 아니면 End까지)
-	const FVector FxEnd = bHit ? Hit.ImpactPoint : End;
-	MulticastPlayFireEffect(Start, FxEnd, bHit);
+	// VFX 시작점은 총구(MuzzlePoint), 끝점은 트레이스 도착지점(히트면 히트, 아니면 최대거리)
+	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : TraceStart;
+	const FVector FxEnd = bHit ? Hit.ImpactPoint : TraceEnd;
+	MulticastPlayFireEffect(FxStart, FxEnd, bHit);
 }
 
 // [TASER-004] 대상 캐릭터에 기절 태그 부여 + 타이머로 해제 예약

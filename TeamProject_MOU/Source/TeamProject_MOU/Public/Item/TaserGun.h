@@ -4,6 +4,8 @@
 #include "Base/ItemBase.h"
 #include "TaserGun.generated.h"
 
+class USceneComponent;
+
 /**
  * ATaserGun
  * 전투 아이템 - 테이저건. 좌클릭(OnUse) 시 총구에서 Line Trace를 발사해
@@ -18,18 +20,21 @@ class TEAMPROJECT_MOU_API ATaserGun : public AItemBase
 public:
 	ATaserGun();
 
+#pragma region [TASER] 컴포넌트
+	// 총구 지점. BP에서 메시의 총구 위치로 옮겨두면 VFX가 여기서 시작한다.
+	// (StaticMesh라 소켓이 없어 별도 컴포넌트로 총구 위치를 잡음)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Taser")
+	TObjectPtr<USceneComponent> MuzzlePoint;
+#pragma endregion
+
 #pragma region [TASER] 설정값
-	// 트레이스 사거리 (cm)
+	// 트레이스 사거리 (cm) - 카메라 시점 기준 전방
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Taser")
 	float TraceDistance = 1500.0f;
 
 	// 맞은 대상의 기절 지속 시간 (초)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Taser")
 	float StunDuration = 3.0f;
-
-	// 트레이스 시작 소켓 이름 (총구). 없으면 액터 위치+전방 사용
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Taser")
-	FName MuzzleSocketName = TEXT("Muzzle");
 #pragma endregion
 
 #pragma region [TASER] 사용/발사
