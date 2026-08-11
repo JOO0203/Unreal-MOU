@@ -20,13 +20,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "NPC 시작 상태"))
     ENPCStartState StartState;
 
-    /* NPC가 복귀할 홈 위치 */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "NPC가 타깃을 잃거나 행동을 마친 뒤 복귀할 월드 위치"))
-    FVector HomePosition = FVector::ZeroVector;
-
     /* 정찰 사용 여부 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "정찰 사용 여부"))
     bool UsePatrol;
+
+    /* NPC 정찰 위치를 선택하는 방식 */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Patrol", meta = (EditCondition = "UsePatrol", EditConditionHides, ToolTip = "근처 반경, 스플라인, 영역 중 정찰 방식을 선택합니다."))
+    ENPCPatrolType PatrolType;
+
+    /* 근처 반경 정찰에서 사용할 탐색 반경 */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Patrol", meta = (EditCondition = "UsePatrol && PatrolType == ENPCPatrolType::RandomRadius", EditConditionHides, ClampMin = "0.0", Units = "cm", ToolTip = "NPC 현재 위치를 기준으로 정찰 지점을 찾을 반경입니다."))
+    float PatrolRadius;
+
+    /* 스플라인 정찰 지점 주변에서 허용할 무작위 반경 */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Patrol", meta = (EditCondition = "UsePatrol && PatrolType == ENPCPatrolType::Spline", EditConditionHides, ClampMin = "0.0", Units = "cm", ToolTip = "스플라인 위 임의 지점을 기준으로 주변 정찰 지점을 찾을 반경입니다."))
+    float SplinePatrolRadius;
 
     /* NPC 행동 후 정책 */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Behavior", meta = (ToolTip = "행동 후 정책"))
@@ -84,4 +92,5 @@ public:
     FGameplayTag PatrolTag() const;
     FGameplayTag TrackingTag() const;
     FGameplayTag StayTag() const;
+    FGameplayTag HomeTag() const;
 };
