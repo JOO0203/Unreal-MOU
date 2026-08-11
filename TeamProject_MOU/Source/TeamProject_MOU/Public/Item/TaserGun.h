@@ -1,19 +1,20 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Base/ItemBase.h"
+#include "Item/WeaponItemBase.h"
 #include "TaserGun.generated.h"
 
 class USceneComponent;
 
 /**
  * ATaserGun
- * 전투 아이템 - 테이저건. 좌클릭(OnUse) 시 총구에서 Line Trace를 발사해
- * 맞은 캐릭터(NPC/플레이어)를 일정 시간 기절(State.Stunned) 상태로 만든다.
+ * 전투 아이템 - 테이저건 (원거리 즉발 무기). 좌클릭(OnUse) 시 카메라 조준 방향으로
+ * 피아식별 트레이스(WeaponItemBase::FireHitscan)를 발사해 맞은 캐릭터를
+ * 일정 시간 기절(State.Stunned) 상태로 만든다.
  * 전기 이펙트(VFX)는 블루프린트에서 BlueprintImplementableEvent로 처리.
  */
 UCLASS()
-class TEAMPROJECT_MOU_API ATaserGun : public AItemBase
+class TEAMPROJECT_MOU_API ATaserGun : public AWeaponItemBase
 {
 	GENERATED_BODY()
 
@@ -38,8 +39,12 @@ public:
 #pragma endregion
 
 #pragma region [TASER] 사용/발사
-	// [TASER-001] 좌클릭: 사용 횟수 차감 후 트레이스 발사
-	virtual void OnUse_Implementation() override;
+	// [TASER-001] 발사 override: 카메라 조준 방향으로 피아식별 트레이스 + VFX
+	// (좌클릭→횟수차감→서버권한 분기는 부모 WeaponItemBase가 처리)
+	virtual void Fire() override;
+
+	// [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 기절 부여
+	virtual void ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit) override;
 #pragma endregion
 
 #pragma region [TASER] 연출 훅 (Blueprint VFX)
@@ -52,16 +57,4 @@ public:
 	void OnFireEffect(FVector Start, FVector End, bool bHit);
 #pragma endregion
 
-private:
-#pragma region [TASER] 내부 로직
-	// [TASER-002] 서버에서 실제 트레이스 + 기절 부여 (권한 처리)
-	UFUNCTION(Server, Reliable)
-	void ServerFire();
-
-	// [TASER-003] 총구 위치/방향으로 Line Trace, 맞은 캐릭터에 기절 부여
-	void PerformTrace();
-
-	// [TASER-004] 대상 캐릭터에 기절 태그 부여 + 타이머로 해제 예약
-	void ApplyStun(AActor* HitActor);
-#pragma endregion
 };
