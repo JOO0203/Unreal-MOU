@@ -3,12 +3,22 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "Abilities/GameplayAbility.h"
+#include "AIController.h"
+#include "BehaviorTree/BlackboardComponent.h"
+#include "GameFramework/Pawn.h"
 #include "StatusEffect/StatusEffectAbilitySetDataAsset.h"
 #include "StatusEffect/StatusEffectDataAsset.h"
 
 UStatusComponent::UStatusComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	const FGameplayTag NPCActionTag = FGameplayTag::RequestGameplayTag(
+		FName(TEXT("Ability.NPC.Action")), false);
+	if (NPCActionTag.IsValid())
+	{
+		AbilityTagsToCancelOnMovementBlockingCC.AddTag(NPCActionTag);
+	}
 }
 
 void UStatusComponent::BeginPlay()
@@ -17,6 +27,22 @@ void UStatusComponent::BeginPlay()
 
 	AbilitySystemComponent = FindOwnerAbilitySystemComponent();
 	GrantStatusEffectAbilities();
+	BindMovementBlockingCCTagEvents();
+}
+
+void UStatusComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (AbilitySystemComponent)
+	{
+		for (const FGameplayTag& Tag : MovementBlockingCCTags)
+		{
+			AbilitySystemComponent
+				->RegisterGameplayTagEvent(Tag, EGameplayTagEventType::NewOrRemoved)
+				.RemoveAll(this);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 UAbilitySystemComponent* UStatusComponent::FindOwnerAbilitySystemComponent() const
@@ -90,6 +116,96 @@ UStatusEffectDataAsset* UStatusComponent::GetStatusEffectData(EStatusEffectType 
 	}
 
 	return nullptr;
+}
+
+void UStatusComponent::BindMovementBlockingCCTagEvents()
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	for (const FGameplayTag& Tag : MovementBlockingCCTags)
+	{
+		if (Tag.IsValid())
+		{
+			AbilitySystemComponent
+				->RegisterGameplayTagEvent(Tag, EGameplayTagEventType::NewOrRemoved)
+				.AddUObject(this, &UStatusComponent::HandleMovementBlockingCCTagChanged);
+		}
+	}
+
+	RefreshCrowdControlledBlackboard();
+}
+
+int32 UStatusComponent::GetMovementBlockingCCTagCount() const
+{
+	if (!AbilitySystemComponent)
+	{
+		return 0;
+	}
+
+	int32 TotalTagCount = 0;
+	for (const FGameplayTag& Tag : MovementBlockingCCTags)
+	{
+		if (Tag.IsValid())
+		{
+			TotalTagCount += AbilitySystemComponent->GetTagCount(Tag);
+		}
+	}
+
+	return TotalTagCount;
+}
+
+void UStatusComponent::HandleMovementBlockingCCTagChanged(FGameplayTag ChangedTag, int32 NewCount)
+{
+	RefreshCrowdControlledBlackboard();
+}
+
+void UStatusComponent::RefreshCrowdControlledBlackboard()
+{
+	const bool bIsMovementBlocked = GetMovementBlockingCCTagCount() > 0;
+	const bool bCrowdControlStateChanged = bIsMovementBlocked != bWasMovementBlockedByCC;
+	const bool bJustBecameMovementBlocked = bIsMovementBlocked && !bWasMovementBlockedByCC;
+
+	if (bJustBecameMovementBlocked)
+	{
+		CancelAbilitiesBlockedByCrowdControl();
+	}
+
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	AAIController* AIController = OwnerPawn ? Cast<AAIController>(OwnerPawn->GetController()) : nullptr;
+	if (AIController)
+	{
+		if (UBlackboardComponent* BlackboardComponent = AIController->GetBlackboardComponent())
+		{
+			BlackboardComponent->SetValueAsBool(CrowdControlledBlackboardKey, bIsMovementBlocked);
+		}
+
+		if (bStopAIMovementWhenCrowdControlled && bJustBecameMovementBlocked)
+		{
+			AIController->StopMovement();
+		}
+	}
+
+	bWasMovementBlockedByCC = bIsMovementBlocked;
+
+	if (bCrowdControlStateChanged)
+	{
+		OnCrowdControlChanged.Broadcast(bIsMovementBlocked);
+	}
+}
+
+void UStatusComponent::CancelAbilitiesBlockedByCrowdControl()
+{
+	const AActor* OwnerActor = GetOwner();
+	if (!AbilitySystemComponent || !OwnerActor || !OwnerActor->HasAuthority()
+		|| AbilityTagsToCancelOnMovementBlockingCC.IsEmpty())
+	{
+		return;
+	}
+
+	AbilitySystemComponent->CancelAbilities(&AbilityTagsToCancelOnMovementBlockingCC);
 }
 
 bool UStatusComponent::HasStatusTag(FGameplayTag Tag) const

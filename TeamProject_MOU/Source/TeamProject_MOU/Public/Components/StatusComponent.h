@@ -10,6 +10,8 @@
 class UAbilitySystemComponent;
 class UStatusEffectAbilitySetDataAsset;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCrowdControlChanged, bool, bIsCrowdControlled);
+
 /*
  * GAS 기반 상태이상 컴포넌트입니다.
  * 상태 태그의 실제 보관과 복제는 AbilitySystemComponent가 담당하고,
@@ -22,6 +24,10 @@ class TEAMPROJECT_MOU_API UStatusComponent : public UActorComponent
 
 public:
 	UStatusComponent();
+
+	/* 이동 불가 CC 상태가 시작되거나 완전히 종료됐을 때 한 번 호출됩니다. */
+	UPROPERTY(BlueprintAssignable, Category = "Status Effect|Crowd Control")
+	FOnCrowdControlChanged OnCrowdControlChanged;
 
 	/* 데이터 에셋에 등록된 상태이상 GA를 Owner ASC에 중복 없이 지급합니다. */
 	UFUNCTION(BlueprintCallable, Category = "Status Effect")
@@ -62,8 +68,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Status Effect")
 	UStatusEffectDataAsset* GetStatusEffectData(EStatusEffectType EffectType) const;
 
+	/* 현재 적용 중인 이동 불가 CC 태그의 총 스택 수를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "Status Effect|Crowd Control")
+	int32 GetMovementBlockingCCTagCount() const;
+
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/* Owner에게 자동 지급할 상태이상 GA 목록 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Status Effect")
@@ -77,6 +88,28 @@ protected:
 	UPROPERTY(Transient)
 	TArray<FGameplayAbilitySpecHandle> GrantedAbilityHandles;
 
+	/* 이 중 하나라도 ASC에 존재하면 AI Blackboard의 CC 상태를 활성화합니다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Status Effect|Crowd Control", meta = (Categories = "State"))
+	FGameplayTagContainer MovementBlockingCCTags;
+
+	/* BT에서 이동 불가 CC 여부를 확인할 Blackboard Bool 키 이름 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Status Effect|Crowd Control")
+	FName CrowdControlledBlackboardKey = TEXT("IsCrowdControlled");
+
+	/* 이동 불가 CC가 처음 적용될 때 진행 중인 AI 이동을 즉시 중단할지 여부 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Status Effect|Crowd Control")
+	bool bStopAIMovementWhenCrowdControlled = true;
+
+	/* 이동 불가 CC가 처음 적용될 때 취소할 실행 중 Ability의 태그 목록입니다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Status Effect|Crowd Control", meta = (Categories = "Ability"))
+	FGameplayTagContainer AbilityTagsToCancelOnMovementBlockingCC;
+
 private:
 	UAbilitySystemComponent* FindOwnerAbilitySystemComponent() const;
+	void BindMovementBlockingCCTagEvents();
+	void HandleMovementBlockingCCTagChanged(FGameplayTag ChangedTag, int32 NewCount);
+	void RefreshCrowdControlledBlackboard();
+	void CancelAbilitiesBlockedByCrowdControl();
+
+	bool bWasMovementBlockedByCC = false;
 };
