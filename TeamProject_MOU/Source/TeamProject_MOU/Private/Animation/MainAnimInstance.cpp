@@ -1,0 +1,81 @@
+#include "Animation/MainAnimInstance.h"
+#include "Player/MainCharacter.h"
+#include "Components/CarryingComponent.h"
+#include "Components/StatusComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+
+UMainAnimInstance::UMainAnimInstance()
+{
+}
+
+void UMainAnimInstance::NativeInitializeAnimation()
+{
+	Super::NativeInitializeAnimation();
+
+	// 소유자 Pawn을 MainCharacter로 캐스팅 및 무브먼트 컴포넌트 저장
+	MainCharacter = Cast<AMainCharacter>(TryGetPawnOwner());
+	if (MainCharacter)
+	{
+		MovementComponent = MainCharacter->GetCharacterMovement();
+	}
+}
+
+void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
+{
+	Super::NativeUpdateAnimation(DeltaSeconds);
+
+	// 캐릭터 참조가 없으면 재시도
+	if (!MainCharacter)
+	{
+		MainCharacter = Cast<AMainCharacter>(TryGetPawnOwner());
+		if (MainCharacter)
+		{
+			MovementComponent = MainCharacter->GetCharacterMovement();
+		}
+	}
+
+	if (!MainCharacter || !MovementComponent)
+	{
+		return;
+	}
+
+	// 1. 수평 이동 속도 계산 (XY 평면 속도)
+	FVector Velocity = MainCharacter->GetVelocity();
+	GroundSpeed = Velocity.Size2D();
+
+	// 2. 가속도 입력 및 이동 여부 판단
+	bool bHasAcceleration = MovementComponent->GetCurrentAcceleration().SizeSquared() > 0.0f;
+	
+	// 시뮬레이트 프록시(다른 플레이어)는 가속도가 기본적으로 동기화되지 않으므로 속도만으로 판단
+	bool bIsProxy = !MainCharacter->IsLocallyControlled();
+	bShouldMove = (GroundSpeed > 3.0f) && (bHasAcceleration || bIsProxy);
+
+	// 3. 점프/낙하 공중 체류 여부
+	bIsFalling = MovementComponent->IsFalling();
+
+	// 4. 달리기(Sprint) 중인지 여부
+	bIsSprinting = MainCharacter->IsSprinting();
+
+	// 5. 물품 들고 있는지(Carrying) 여부
+	UCarryingComponent* CarryingComp = MainCharacter->GetCarryingComponent();
+	bIsCarrying = (CarryingComp != nullptr) && CarryingComp->IsCarrying();
+
+	// 6. 물체 밀기(Pushing) 및 상태 이상(기절 / 잡힘) 여부
+	UStatusComponent* StatusComp = MainCharacter->GetStatusComponent();
+	if (StatusComp)
+	{
+		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Pushing"), false);
+		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
+		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
+
+		bIsPushing = (PushingTag.IsValid() && StatusComp->HasStatusTag(PushingTag));
+		bIsStunned = (StunTag.IsValid() && StatusComp->HasStatusTag(StunTag));
+		bIsHeld = (HeldTag.IsValid() && StatusComp->HasStatusTag(HeldTag));
+	}
+	else
+	{
+		bIsPushing = false;
+		bIsStunned = false;
+		bIsHeld = false;
+	}
+}

@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -8,55 +6,83 @@
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
 #include "GameplayAbilitySpecHandle.h"
+#include "Interfaces/PushableInterface.h"
 #include "CharacterBase.generated.h"
 
 class AController;
 class UAbilitySystemComponent;
 class UBaseAttributeSet;
 class UGameplayAbility;
-struct FOnAttributeChangeData; // GAS attribute °ªÀÌ º¯°æ½Ã Àü´ŞµÇ´Â µ¥ÀÌÅÍÅ¸ÀÔ, º¯°æ °¨Áö¿ë Äİ¹éÀ¸·Î »ç¿ë
+class UStatusComponent;
+struct FOnAttributeChangeData;
 
+/**
+ * ACharacterBase
+ * í”Œë ˆì´ì–´ ë° ë°©í•´ NPC/ì ëŒ€ ì„¸ë ¥ì˜ ìµœìƒìœ„ ê³µí†µ ë² ì´ìŠ¤ ìºë¦­í„° í´ë˜ìŠ¤.
+ * GAS(Gameplay Ability System) ë° ê³µí†µ ìƒíƒœ ê´€ë¦¬(StatusComponent)ë¥¼ ë‚´ì¥í•©ë‹ˆë‹¤.
+ */
 UCLASS()
-class TEAMPROJECT_MOU_API ACharacterBase : public ATeamProject_MOUCharacter, public IAbilitySystemInterface
+class TEAMPROJECT_MOU_API ACharacterBase : public ATeamProject_MOUCharacter, public IAbilitySystemInterface, public IPushableInterface
 {
 	GENERATED_BODY()
-
-
 
 public:
 	ACharacterBase();
 
-	/*¾îºô¸®Æ¼ ½Ã½ºÅÛ ÄÄÆ÷³ÍÆ®*/
+	// ---------------------------------------------------------
+	// [GAS ë° ìƒíƒœ ê´€ë¦¬ ì»´í¬ë„ŒíŠ¸]
+	// ---------------------------------------------------------
+
+	// ì–´ë¹Œë¦¬í‹° ì‹œìŠ¤í…œ ì»´í¬ë„ŒíŠ¸ (GAS í•µì‹¬ ê¸°ëŠ¥ ê´€ë¦¬)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AbilitySystem")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
 
-	/*´É·ÂÄ¡ ¾îºô¸®Æ¼ Å¬·¡½º*/
+	// ì–´íŠ¸ë¦¬ë·°íŠ¸ ì„¸íŠ¸ ë°°ì—´ (GAS ì–´íŠ¸ë¦¬ë·°íŠ¸ ë³´ê´€í•¨)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AbilitySystem")
-	TArray<TObjectPtr<UAttributeSet>>  BaseAttributeSet;
+	TArray<TObjectPtr<UAttributeSet>> BaseAttributeSet;
 
-	/*°ø¿ë ´É·ÂÄ¡*/
+	// ê¸°ë³¸ ì–´íŠ¸ë¦¬ë·°íŠ¸ ì„¸íŠ¸ (ì²´ë ¥, ìŠ¤íƒœë¯¸ë‚˜, ì´ë™ì†ë„ ì†ì„± ì†Œìœ )
 	UPROPERTY(EditAnywhere, Category = "Attributes")
 	TObjectPtr<UBaseAttributeSet> BaseAttribute;
 
-	/*Ä³¸¯ÅÍ°¡ º¸À¯ÇÒ¼öÀÖ´Â ½ºÅ³ ¹è¿­*/
+	// ìƒíƒœ ì´ìƒ ë° ë””ë²„í”„ ê´€ë¦¬ ì»´í¬ë„ŒíŠ¸ (í”Œë ˆì´ì–´ ë° NPC ê³µí†µ ì‚¬ìš©)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Status")
+	TObjectPtr<UStatusComponent> StatusComponent;
+
+	// ìºë¦­í„° ìƒì„± ì‹œ ê¸°ë³¸ ë¶€ì—¬í•  Gameplay Ability ìŠ¤í‚¬ ë°°ì—´
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GASGamePlayAbility")
 	TArray<TSubclassOf<UGameplayAbility>> InitalAbilities;
 
-	// Health ¶Ç´Â MaxHealth°¡ º¯°æµÇ¾úÀ» ¶§ Blueprint·Î ¾Ë·ÁÁÖ´Â ÀÌº¥Æ®
-	// ÇÃ·¹ÀÌ¾î¿¡¼­ ÀÌ ÀÌº¥Æ®¸¦ ¹Ş¾Æ HP UI¸¦ °»½Å
+	// ---------------------------------------------------------
+	// [ê³µí†µ ìºë¦­í„° ìƒíƒœ íŒì • í•¨ìˆ˜] - AIController ë° PlayerController ê³µìœ 
+	// ---------------------------------------------------------
+
+	// ìºë¦­í„°ê°€ í˜„ì¬ ì´ë™ ê°€ëŠ¥í•œ ìƒíƒœì¸ì§€ í™•ì¸ (ê¸°ì ˆ/ì¡í˜/ë„‰ë°± ìƒíƒœ ì‹œ false)
+	UFUNCTION(BlueprintCallable, Category = "Status")
+	virtual bool CanMove() const;
+
+	// ìºë¦­í„°ê°€ í˜„ì¬ í–‰ë™(ê³µê²©, ìƒí˜¸ì‘ìš©, ìŠ¤í‚¬) ê°€ëŠ¥í•œ ìƒíƒœì¸ì§€ í™•ì¸
+	UFUNCTION(BlueprintCallable, Category = "Status")
+	virtual bool CanAct() const;
+
+	// ---------------------------------------------------------
+	// [Blueprint ì´ë²¤íŠ¸] - UI ë° ì—°ì¶œ ì—…ë°ì´íŠ¸ìš© ë¸ë¦¬ê²Œì´íŠ¸ ì•Œë¦¼
+	// ---------------------------------------------------------
+
+	// ì²´ë ¥(Health/MaxHealth) ë³€ê²½ ì‹œ í˜¸ì¶œë˜ëŠ” ì´ë²¤íŠ¸ (UI ë° AI ì—…ë°ì´íŠ¸ìš©)
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
 	void OnHealthUpdated(float CurrentHealth, float MaxHealth);
 
-	//stemina ¶Ç´Â MaxStemina°¡ º¯°æµÇ¾úÀ» ¶§ Blueprint·Î ¾Ë·ÁÁÖ´Â ÀÌº¥Æ®
+	// ìŠ¤íƒœë¯¸ë‚˜(Stemina/MaxStemina) ë³€ê²½ ì‹œ í˜¸ì¶œë˜ëŠ” ì´ë²¤íŠ¸
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
 	void OnSteminaupdated(float CurrentStemina, float MaxStemina);
 
-	//speed ¶Ç´Â MaxSpeed°¡ º¯°æµÇ¾úÀ» ¶§ Blueprint·Î ¾Ë·ÁÁÖ´Â ÀÌº¥Æ®
+	// ì´ë™ì†ë„(MoveSpeed/MaxMoveSpeed) ë³€ê²½ ì‹œ í˜¸ì¶œë˜ëŠ” ì´ë²¤íŠ¸
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
-	void OnSpeedUpdated (float CurrentSpeed, float MaxSpeed);
+	void OnSpeedUpdated(float CurrentSpeed, float MaxSpeed);
 
 protected:
-	/*¸ÖÆ¼ÇÃ·¹ÀÌ ¸ğµå GAS*/
+	// GAS ë¦¬í”Œë¦¬ì¼€ì´ì…˜ ëª¨ë“œ (ë©€í‹°í”Œë ˆì´ ë™ê¸°í™” ì„¤ì •)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AbilitySystem")
 	EGameplayEffectReplicationMode AscReplicationMode = EGameplayEffectReplicationMode::Mixed;
 
@@ -64,26 +90,50 @@ protected:
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
 
-	// AbilitySystemComponent¿¡ Attribute º¯°æ °¨Áö µ¨¸®°ÔÀÌÆ®¸¦ µî·Ï
-	// ÀÌ ÇÔ¼ö¸¦ È£Ãâ½Ã Health, MP °°Àº Attribute°¡ º¯°æµÉ ¶§ ÀÚµ¿À¸·Î Äİ¹é ÇÔ¼ö°¡ ½ÇÇà
+	// GAS Attribute ë³€ê²½ ê°ì§€ ë¸ë¦¬ê²Œì´íŠ¸ ë°”ì¸ë”© í•¨ìˆ˜
 	virtual void BindAttributeChangeDelegates();
 
+	// ì²´ë ¥ ë³€ê²½ ì½œë°± í•¸ë“¤ëŸ¬
 	void HandleHealthChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
+
+	// ìŠ¤íƒœë¯¸ë‚˜ ë³€ê²½ ì½œë°± í•¸ë“¤ëŸ¬
 	void HandleSteminaChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxSteminaChanged(const FOnAttributeChangeData& Data);
+
+	// ì´ë™ì†ë„ ë³€ê²½ ì½œë°± í•¸ë“¤ëŸ¬
 	void HandleMoveSpeedChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Data);
 
-	// BeginPlay, PossessedBy, OnRep_PlayerState µî ¿©·¯ Å¸ÀÌ¹Ö¿¡¼­ ¹ÙÀÎµùÀ» ½Ãµµ¸¦ ¸·±âÀ§ÇØ¼­
-	// °°Àº Attribute º¯°æ Äİ¹éÀÌ Áßº¹ µî·ÏµÇÁö ¾Êµµ·Ï ¸·´Â ÇÃ·¡±×
+	// ë¬´ê²Œ ë³€ê²½ ì½œë°± í•¸ë“¤ëŸ¬ (ê³¼ì  ì‹œìŠ¤í…œ ì—°ë™)
+	void HandleCurrentWeightChanged(const FOnAttributeChangeData& Data);
+	void HandleMaxWeightChanged(const FOnAttributeChangeData& Data);
+
+	// ê³¼ì (Encumbrance) ìƒíƒœ ì—…ë°ì´íŠ¸ ë° ì´ë™ì†ë„/ìƒíƒœ ë””ë²„í”„ ì ìš©
+	void UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight);
+
+	// ë¸ë¦¬ê²Œì´íŠ¸ ì¤‘ë³µ ë°”ì¸ë”© ë°©ì§€ í”Œë˜ê·¸
 	bool AttributeDelegatesBound = false;
 
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+	// IAbilitySystemInterface êµ¬í˜„: AbilitySystemComponent ë°˜í™˜
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	// StatusComponent ë°˜í™˜
+	UStatusComponent* GetStatusComponent() const { return StatusComponent; }
+
+	// ë‹¨ì¼ Gameplay Ability ë¶€ì—¬ í•¨ìˆ˜
 	FGameplayAbilitySpecHandle InitializeAbility(TSubclassOf<UGameplayAbility> AbilityToGet, int32 AbilityLevel);
+
+	// ë‹¤ìˆ˜ Gameplay Ability ì¼ê´„ ë¶€ì—¬ í•¨ìˆ˜
 	void InitializeAbilityMulti(TArray<TSubclassOf<UGameplayAbility>> AbilityToAcquire, int32 AbilityLevel);
+
+	// ---------------------------------------------------------
+	// [ë°€ê¸° ì¸í„°í˜ì´ìŠ¤ êµ¬í˜„ (IPushableInterface)]
+	// ---------------------------------------------------------
+	virtual float GetPushResistance_Implementation() const override;
+	virtual void Push_Implementation(AActor* Pusher, FVector PushDirection) override;
 };
