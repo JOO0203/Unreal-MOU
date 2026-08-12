@@ -72,7 +72,7 @@ public:
 	// 체력(Health/MaxHealth) 변경 시 호출되는 이벤트 (UI 및 AI 업데이트용)
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
 	void OnHealthUpdated(float CurrentHealth, float MaxHealth);
-
+	 
 	// 스태미나(Stemina/MaxStemina) 변경 시 호출되는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
 	void OnSteminaupdated(float CurrentStemina, float MaxStemina);
@@ -85,7 +85,7 @@ protected:
 	// GAS 리플리케이션 모드 (멀티플레이 동기화 설정)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AbilitySystem")
 	EGameplayEffectReplicationMode AscReplicationMode = EGameplayEffectReplicationMode::Mixed;
-
+	
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
@@ -96,7 +96,7 @@ protected:
 	// 체력 변경 콜백 핸들러
 	void HandleHealthChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
-
+	 
 	// 스태미나 변경 콜백 핸들러
 	void HandleSteminaChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxSteminaChanged(const FOnAttributeChangeData& Data);
