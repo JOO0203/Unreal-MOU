@@ -32,20 +32,7 @@ public class TeamProject_MOU : ModuleRules
         PrivateDependencyModuleNames.AddRange(new string[] { });
 
         PublicIncludePaths.AddRange(new string[] {
-            "TeamProject_MOU",
-            "TeamProject_MOU/Variant_Platforming",
-            "TeamProject_MOU/Variant_Platforming/Animation",
-            "TeamProject_MOU/Variant_Combat",
-            "TeamProject_MOU/Variant_Combat/AI",
-            "TeamProject_MOU/Variant_Combat/Animation",
-            "TeamProject_MOU/Variant_Combat/Gameplay",
-            "TeamProject_MOU/Variant_Combat/Interfaces",
-            "TeamProject_MOU/Variant_Combat/UI",
-            "TeamProject_MOU/Variant_SideScrolling",
-            "TeamProject_MOU/Variant_SideScrolling/AI",
-            "TeamProject_MOU/Variant_SideScrolling/Gameplay",
-            "TeamProject_MOU/Variant_SideScrolling/Interfaces",
-            "TeamProject_MOU/Variant_SideScrolling/UI"
+            "TeamProject_MOU"
         });
 
         PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "..", "MOU_ChatServer", "Shared")));

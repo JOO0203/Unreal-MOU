@@ -17,6 +17,7 @@ Saved/
 .vscode/
 .idea/
 *.sln
+*.slnx
 *.suo
 *.opensdf
 *.sdf
@@ -25,6 +26,7 @@ Saved/
 *.user
 *.userosscache
 *.sln.docstates
+*.Daily_Work_Log
 
 # Unreal generated project files
 *.xcodeproj
@@ -55,7 +57,8 @@ Saved/
 .claude/
 CLAUDE.md
 Claude.md
-
+TeamProject_MOU/Automation_TeamProject_MOU.slnx
+TeamProject_MOU/TeamProject_MOU.slnx
 
 
 # Automation / local machine files
@@ -76,6 +79,7 @@ Desktop.ini
 
 !*.md
 CLAUDE.md
+Daily_Work_Log.md
 
 # 채팅 서버가 실행 중에 만드는 로그 DB (6단계).
 # -wal / -shm 은 WAL 모드에서 함께 생기는 곁다리 파일이다.
