@@ -26,7 +26,15 @@ public class TeamProject_MOU : ModuleRules
             "GameplayTasks",
             "Niagara",
             "Sockets",
-            "Networking"
+            "Networking",
+
+            // --- 음성 시스템 (VOICE_INTEGRATION.md 4절) ------------------
+            // 마이크 캡처와 Opus 코덱은 엔진 것을 그대로 쓴다.
+            // 직접 만드는 것은 그 위의 라우팅/재생뿐이다.
+            "Voice",             // IVoiceCapture / IVoiceEncoder / IVoiceDecoder
+            "AudioMixer",        // USynthComponent (음성 재생의 출구)
+            "SignalProcessing",  // Audio::TCircularAudioBuffer (게임 스레드 -> 오디오 렌더 스레드)
+            "AudioExtensions"    // 소스 이펙트 체인 (무전기 필터)
         });
 
         PrivateDependencyModuleNames.AddRange(new string[] { });
