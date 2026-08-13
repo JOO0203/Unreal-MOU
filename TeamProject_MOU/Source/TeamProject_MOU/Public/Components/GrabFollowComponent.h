@@ -56,8 +56,21 @@ protected:
 	void OnRep_GrabState();
 
 private:
+	/* 잡히기 전 이동 모드 (서버에서 잡기 해제 시 복원) */
+	uint8 PreviousMovementMode = 0;
+
+	/* 잡히기 전 커스텀 이동 모드 */
+	uint8 PreviousCustomMovementMode = 0;
+
+	/* 이동 모드를 저장했는지 여부 */
+	bool bHasSavedMovementMode = false;
+
 	/*그랩 위치 동기화*/
 	void SyncGrabTransform();
+	/*잡힌 동안 클라이언트 이동 예측 정지*/
+	void DisableGrabbedMovement();
+	/*그랩 해제 시 기존 이동 모드 복원*/
+	void RestoreGrabbedMovement();
 	/*그랩 상태 태그 적용*/
 	void ApplyHeldTag(bool bAdd) const;
 };

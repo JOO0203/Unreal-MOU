@@ -1,6 +1,7 @@
 #include "Components/StatusComponent.h"
 
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemInterface.h"
 #include "Abilities/GameplayAbility.h"
 #include "AIController.h"
@@ -225,17 +226,23 @@ FGameplayTagContainer UStatusComponent::GetActiveStatusTags() const
 
 void UStatusComponent::AddStatusTag(FGameplayTag Tag)
 {
-	if (AbilitySystemComponent && Tag.IsValid())
+	AActor* OwnerActor = GetOwner();
+	if (AbilitySystemComponent && OwnerActor && OwnerActor->HasAuthority() && Tag.IsValid())
 	{
-		AbilitySystemComponent->AddLooseGameplayTag(Tag);
+		FGameplayTagContainer Tags;
+		Tags.AddTag(Tag);
+		UAbilitySystemBlueprintLibrary::AddLooseGameplayTags(OwnerActor, Tags, true);
 	}
 }
 
 void UStatusComponent::RemoveStatusTag(FGameplayTag Tag)
 {
-	if (AbilitySystemComponent && Tag.IsValid())
+	AActor* OwnerActor = GetOwner();
+	if (AbilitySystemComponent && OwnerActor && OwnerActor->HasAuthority() && Tag.IsValid())
 	{
-		AbilitySystemComponent->RemoveLooseGameplayTag(Tag);
+		FGameplayTagContainer Tags;
+		Tags.AddTag(Tag);
+		UAbilitySystemBlueprintLibrary::RemoveLooseGameplayTags(OwnerActor, Tags, true);
 	}
 }
 

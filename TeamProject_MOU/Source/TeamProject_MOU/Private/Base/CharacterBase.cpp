@@ -52,6 +52,14 @@ void ACharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// ASC가 Character에 있으므로 서버와 모든 클라이언트에서 ActorInfo를 초기화합니다.
+	// AI NPC는 클라이언트에서 PlayerState가 없어 OnRep_PlayerState가 호출되지 않을 수 있습니다.
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+		AbilitySystemComponent->SetReplicationMode(AscReplicationMode);
+	}
+
 	// Attribute 변경 감지 델리게이트 바인딩
 	BindAttributeChangeDelegates();
 }
