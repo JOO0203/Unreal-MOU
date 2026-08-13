@@ -20,14 +20,14 @@
 ## 구조
 
 ```
-MOU_ChatServer/
+MOU_Server/
   Shared/
     ChatProtocol.h   패킷 정의. 언리얼 클라이언트에서도 그대로 include 한다.
     Net.h            플랫폼별 소켓 API 래퍼
     Framing.h/.cpp   길이 프리픽스 프레이밍 (핵심)
   Server/
     Session.h/.cpp   ClientSession + SessionManager
-    ChatServer.cpp   accept 루프, 패킷 핸들러, 채널 라우팅
+    Server.cpp       accept 루프, 패킷 핸들러, 채널 라우팅
   TestClient/
     TestClient.cpp   검증용 콘솔 클라이언트
 ```
@@ -46,7 +46,7 @@ cmake -S . -B build && cmake --build build --config Debug
 CMake 없이 직접 컴파일하려면 개발자 명령 프롬프트에서:
 
 ```bash
-cl /std:c++17 /EHsc /utf-8 /Fe:ChatServer.exe Server\ChatServer.cpp Server\Session.cpp Shared\Framing.cpp /IShared /IServer
+cl /std:c++17 /EHsc /utf-8 /Fe:Server.exe Server\Server.cpp Server\Session.cpp Shared\Framing.cpp /IShared /IServer
 ```
 
 `/utf-8` 은 소스에 한글 문자열이 있으므로 필수다.
@@ -54,7 +54,7 @@ cl /std:c++17 /EHsc /utf-8 /Fe:ChatServer.exe Server\ChatServer.cpp Server\Sessi
 ## 실행
 
 ```bash
-ChatServer.exe 9000
+Server.exe 9000
 ```
 
 ```bash

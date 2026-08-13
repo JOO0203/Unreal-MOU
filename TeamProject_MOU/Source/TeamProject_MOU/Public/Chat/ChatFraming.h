@@ -1,7 +1,7 @@
 ﻿// MOU 채팅 - 길이 프리픽스 프레이밍의 언리얼(TArray) 버전.
 //
 // [왜 서버 코드를 그대로 안 쓰고 다시 짜는가]
-//   서버의 MOU_ChatServer/Shared/Framing.cpp 와 로직이 완전히 동일하다.
+//   서버의 MOU_Server/Shared/Framing.cpp 와 로직이 완전히 동일하다.
 //   다만 서버는 std::vector<char> 를, 언리얼은 TArray<uint8> 을 쓴다.
 //   Framing.h 를 그대로 include 하면 같은 폴더의 Net.h 가 딸려 들어오고,
 //   Net.h 는 winsock2.h / windows.h 를 포함하기 때문에 언리얼 매크로와 충돌한다.
@@ -22,7 +22,7 @@
 #include "Chat/LobbyTypes.h"   // 아래 static_assert 가 EMOURoomResultBP 를 쓴다
 
 // 서버와 공유하는 프로토콜 정의.
-// 실제 파일 위치: <저장소 루트>/MOU_ChatServer/Shared/ChatProtocol.h
+// 실제 파일 위치: <저장소 루트>/MOU_Server/Shared/ChatProtocol.h
 // TeamProject_MOU.Build.cs 의 PublicIncludePaths 에 그 폴더가 등록되어 있어야 컴파일된다.
 //
 // 같은 폴더에 있는 Net.h / Framing.h 는 절대 include 하지 말 것 (winsock2.h 충돌).

@@ -14,8 +14,8 @@
 //   서버와 직접 대화하지 않는다. UChatSubsystem 하고만 대화한다.
 //     보낼 때: UChatSubsystem::RequestRoomList() / JoinRoom()
 //     받을 때: UChatSubsystem::OnRoomListReceived / OnRoomJoinCompleted
-//   대응하는 서버 코드: MOU_ChatServer/Server/ChatServer.cpp 의 RoomListReq/RoomJoinReq 핸들러,
-//                       MOU_ChatServer/Server/Rooms.cpp 의 Rooms::ListWaiting() / Rooms::Join()
+//   대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 RoomListReq/RoomJoinReq 핸들러,
+//                       MOU_Server/Server/Rooms.cpp 의 Rooms::ListWaiting() / Rooms::Join()
 //
 // [이 위젯은 ClientTravel 하지 않는다]
 //   참여가 승인되면 호스트 주소를 받지만, 실제로 여행하는 것은 소유자

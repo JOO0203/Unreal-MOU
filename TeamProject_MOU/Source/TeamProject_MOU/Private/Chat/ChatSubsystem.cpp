@@ -24,7 +24,7 @@ namespace
 {
 	/**
 	 * 로그 표시용 채널 이름.
-	 * 서버 ChatServer.cpp 의 ChannelName() 과 같은 문자열을 쓴다.
+	 * 서버 Server.cpp 의 ChannelName() 과 같은 문자열을 쓴다.
 	 * 서버 콘솔 로그와 에디터 로그를 나란히 놓고 대조할 때 편하다.
 	 */
 	const TCHAR* ToChannelName(EChatChannelBP Channel)
@@ -630,7 +630,7 @@ bool UChatSubsystem::Tick(float /*DeltaTime*/)
 				// 재시도해도 계속 실패한다. 원인을 바로 알 수 있게 상세히 남긴다.
 				UE_LOG(LogMOUChat, Error,
 					TEXT("프로토콜 버전 불일치로 로그인이 거부됐다. 클라이언트=%d, 서버=%d. ")
-					TEXT("ChatServer.exe 와 언리얼 프로젝트를 같은 커밋으로 다시 빌드할 것."),
+					TEXT("Server.exe 와 언리얼 프로젝트를 같은 커밋으로 다시 빌드할 것."),
 					static_cast<int32>(MOU::kProtocolVersion), LoginResult.ServerVersion);
 			}
 			else

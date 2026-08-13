@@ -2,7 +2,7 @@
 //
 // [이 파일의 위치]
 //   채팅 시스템은 3개 층으로 나뉜다.
-//     1) ChatProtocol.h        : 서버와 공유하는 원시 패킷 구조체 (MOU_ChatServer/Shared/)
+//     1) ChatProtocol.h        : 서버와 공유하는 원시 패킷 구조체 (MOU_Server/Shared/)
 //     2) ChatFraming / Runnable: 소켓 + 바이트 다루는 층. C++ 전용
 //     3) ChatTypes.h  <- 여기 : 위젯/블루프린트가 보는 층. UObject 시스템 타입
 //
@@ -29,7 +29,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogMOUChat, Log, All);
 /**
  * 채팅 채널. MOU::EChatChannel (ChatProtocol.h) 의 블루프린트 미러.
  *
- * 채널별로 "누가 받는가" 는 전적으로 채팅 서버가 결정한다 (ChatServer.cpp 의 RouteChat).
+ * 채널별로 "누가 받는가" 는 전적으로 채팅 서버가 결정한다 (Server.cpp 의 RouteChat).
  * 클라이언트는 채널 값을 붙여서 보낼 뿐이고, 자격이 없으면 서버가 조용히 버린다.
  *   - All  : 접속자 전원
  *   - Team : 나와 TeamId 가 같은 사람
@@ -55,7 +55,7 @@ enum class EChatChannelBP : uint8
  *
  * 주의: Connected 와 LoggedIn 은 다르다.
  *   Connected = TCP 는 붙었지만 아직 내 UserId 가 없다. 이 상태에서 채팅을 보내면
- *               서버가 무시한다 (ChatServer.cpp HandleChatSend 의 bAuthed 검사).
+ *               서버가 무시한다 (Server.cpp HandleChatSend 의 bAuthed 검사).
  *   LoggedIn  = LoginAck 를 받아 UserId 가 확정됐다. 이때부터 채팅 가능.
  */
 UENUM(BlueprintType)

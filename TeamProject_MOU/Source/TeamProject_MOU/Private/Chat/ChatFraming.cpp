@@ -1,5 +1,5 @@
 ﻿// MOU 채팅 - 프레이밍 구현.
-// 대응하는 서버 코드: MOU_ChatServer/Shared/Framing.cpp
+// 대응하는 서버 코드: MOU_Server/Shared/Framing.cpp
 // 둘 중 하나만 고치면 프로토콜이 깨진다. 반드시 같이 본다.
 
 #include "Chat/ChatFraming.h"

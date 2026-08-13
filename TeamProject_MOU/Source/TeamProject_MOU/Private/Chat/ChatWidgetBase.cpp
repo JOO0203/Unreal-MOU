@@ -547,7 +547,7 @@ UChatSubsystem* UChatWidgetBase::GetChatSubsystem() const
 
 const TCHAR* UChatWidgetBase::GetChannelName(EChatChannelBP Channel)
 {
-	// 서버 ChatServer.cpp 의 ChannelName() 과 같은 문자열을 쓴다.
+	// 서버 Server.cpp 의 ChannelName() 과 같은 문자열을 쓴다.
 	switch (Channel)
 	{
 	case EChatChannelBP::All:     return TEXT("전체");

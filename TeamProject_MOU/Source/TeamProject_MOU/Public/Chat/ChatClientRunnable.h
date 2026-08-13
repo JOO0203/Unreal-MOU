@@ -24,7 +24,7 @@
 //   게임 스레드의 UChatSubsystem::Tick 이 꺼내서 그때 델리게이트를 쏜다.
 //
 // [대응하는 서버 코드]
-//   MOU_ChatServer/Server/ChatServer.cpp 의 ClientThread() 와 대칭이다.
+//   MOU_Server/Server/Server.cpp 의 ClientThread() 와 대칭이다.
 //   서버는 클라이언트 1명당 스레드 1개, 클라이언트는 서버 연결 1개당 스레드 1개.
 
 #pragma once
@@ -111,7 +111,7 @@ struct FChatClientEvent
 };
 
 /**
- * 채팅 서버(ChatServer.exe)와 붙어있는 TCP 클라이언트 스레드.
+ * 채팅 서버(Server.exe)와 붙어있는 TCP 클라이언트 스레드.
  *
  * 소유자는 UChatSubsystem 하나뿐이다. 직접 생성하지 말고 서브시스템을 통해 쓴다.
  * 수명: UChatSubsystem::ConnectToChatServer() 에서 생성,

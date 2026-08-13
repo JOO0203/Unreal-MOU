@@ -3,7 +3,7 @@
 // 리슨서버와 별개의 프로세스로 상시 가동된다.
 // 호스트가 게임을 종료해도 이 프로세스는 살아있으므로 채팅 로그가 유지된다.
 //
-// 사용법: ChatServer <port> [db경로]
+// 사용법: Server <port> [db경로]
 
 #include "Accounts.h"
 #include "ChatLog.h"

@@ -35,7 +35,7 @@ public class TeamProject_MOU : ModuleRules
             "TeamProject_MOU"
         });
 
-        PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "..", "MOU_ChatServer", "Shared")));
+        PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "..", "MOU_Server", "Shared")));
 
         // Uncomment if you are using Slate UI
         // PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

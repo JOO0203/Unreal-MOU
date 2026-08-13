@@ -13,8 +13,8 @@
 //   서버와 직접 대화하지 않는다. UChatSubsystem 하고만 대화한다.
 //     보낼 때: UChatSubsystem::CreateRoom()
 //     받을 때: UChatSubsystem::OnRoomCreated
-//   대응하는 서버 코드: MOU_ChatServer/Server/ChatServer.cpp 의 RoomCreateReq 핸들러,
-//                       MOU_ChatServer/Server/Rooms.cpp 의 Rooms::Create()
+//   대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 RoomCreateReq 핸들러,
+//                       MOU_Server/Server/Rooms.cpp 의 Rooms::Create()
 //
 // [이 위젯은 리슨서버를 열지 않는다]
 //   방을 만드는 것과 리슨서버를 여는 것은 별개다. 여기서는 로비 서버에 "방 하나 등록해줘"

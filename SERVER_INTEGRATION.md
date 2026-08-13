@@ -55,7 +55,7 @@
 | 8 | 리슨서버 → 채팅서버 신원 미러링 | **미착수** |
 | 9 | 귓속말 | **미착수** |
 
-> 단계 번호는 원래 `MOU_ChatServer/README.md` 의 로드맵을 따르되, 계정·로비처럼
+> 단계 번호는 원래 `MOU_Server/README.md` 의 로드맵을 따르되, 계정·로비처럼
 > 로드맵에 없던 작업은 별도 이름을 붙였다.
 
 ### 오늘(2026-08-10) 처리한 문제 3가지
@@ -89,14 +89,14 @@ git clone <저장소 URL> Unreal-MOU
 ```
 
 > **`TeamProject_MOU` 폴더만 따로 복사하면 빌드가 깨진다.**
-> `Build.cs` 가 저장소 루트의 `MOU_ChatServer/Shared` 를 참조하기 때문이다. 반드시 전체를 받을 것.
+> `Build.cs` 가 저장소 루트의 `MOU_Server/Shared` 를 참조하기 때문이다. 반드시 전체를 받을 것.
 
 받은 뒤 저장소 구조:
 
 ```
 Unreal-MOU/
 ├─ SERVER_INTEGRATION.md        이 문서
-├─ MOU_ChatServer/              채팅/계정/로비 서버 (엔진 없는 순수 C++)
+├─ MOU_Server/                  채팅/계정/로비 서버 (엔진 없는 순수 C++)
 │   ├─ CMakeLists.txt
 │   ├─ README.md                서버 자체 설계 문서
 │   ├─ Shared/                  서버·클라이언트 공용
@@ -105,7 +105,7 @@ Unreal-MOU/
 │   │   └─ Framing.h/.cpp       프레이밍 (언리얼에서 include 금지)
 │   ├─ ThirdParty/sqlite/       SQLite 3.47.1 앰알가메이션 (외부 코드, 수정 금지)
 │   ├─ Server/
-│   │   ├─ ChatServer.cpp       accept 루프 / 패킷 핸들러 / 채널 라우팅
+│   │   ├─ Server.cpp           accept 루프 / 패킷 핸들러 / 채널 라우팅
 │   │   ├─ Session.h/.cpp       ClientSession + SessionManager
 │   │   ├─ Accounts.h/.cpp      계정 DB (아이디/비밀번호/닉네임). 동기 커밋
 │   │   ├─ Crypto.h/.cpp        SHA-256 / PBKDF2 / HMAC 자체 구현 (외부 의존성 없음)
@@ -164,14 +164,14 @@ VS 2022 는 2026 의 툴셋(`v145`, `ToolsVersion 18.0`)을 모르기 때문이�
 
 ## 3. 빌드하기
 
-### 3-1. 서버 (`ChatServer.exe`)
+### 3-1. 서버 (`Server.exe`)
 
 엔진과 무관한 순수 C++ 콘솔 프로그램이다. **CMake 로만 빌드한다** (SQLite 앰알가메이션이
 C 파일이라 `project()` 에 `C` 언어가 켜져 있어야 한다).
 
 ```bash
-cmake -S MOU_ChatServer -B MOU_ChatServer/out/build/x64-Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build MOU_ChatServer/out/build/x64-Debug
+cmake -S MOU_Server -B MOU_Server/out/build/x64-Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build MOU_Server/out/build/x64-Debug
 ```
 
 Visual Studio 개발자 명령 프롬프트(`vcvars64.bat` 실행 후) 안에서 돌려야
@@ -182,7 +182,7 @@ C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtens
 C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe
 ```
 
-빌드 결과물 두 개가 나온다: `ChatServer.exe`, `TestClient.exe`.
+빌드 결과물 두 개가 나온다: `Server.exe`, `TestClient.exe`.
 
 ### 3-2. 언리얼 프로젝트
 
@@ -207,10 +207,10 @@ C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtens
 **1) 서버를 먼저 켠다** (별도 콘솔 창)
 
 ```bash
-ChatServer.exe 9000
+Server.exe 9000
 ```
 
-DB 경로를 지정하고 싶으면 두 번째 인자로: `ChatServer.exe 9000 chat_log.db`
+DB 경로를 지정하고 싶으면 두 번째 인자로: `Server.exe 9000 chat_log.db`
 (계정과 채팅 로그가 같은 파일에 테이블만 나눠서 들어간다.)
 
 **2) 에디터에서 PIE 실행 → `` ` `` 키로 콘솔을 열고, 로그인 UI 를 띄운다**
@@ -407,7 +407,7 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
 ## 5. 구조
 
 ```
-   [ChatServer.exe :9000]   ← 엔진 없는 별도 프로세스. 게임과 무관하게 상시 가동
+   [Server.exe :9000]       ← 엔진 없는 별도 프로세스. 게임과 무관하게 상시 가동
      │  accounts.db / chat_log.db (SQLite)   ← 계정은 동기 커밋, 채팅 로그는 비동기
      │  방 목록 (메모리만, 휘발성)
             ▲
@@ -432,7 +432,7 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
 ### 핵심 원칙 4가지
 
 **1. 채팅·계정·로비는 UE 리플리케이션을 쓰지 않는다.**
-Server RPC / Multicast 를 타지 않고 `ChatServer.exe` 로 가는 별도 TCP 소켓으로 간다.
+Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소켓으로 간다.
 그래서 호스트가 게임을 나가도 채팅이 유지되고, 로비 서버 하나로 모든 방을 관리할 수 있다.
 
 **2. 워커 스레드에서 UObject 를 절대 건드리지 않는다.**
@@ -476,7 +476,7 @@ Server RPC / Multicast 를 타지 않고 `ChatServer.exe` 로 가는 별도 TCP 
 
 ## 6. 파일별 역할
 
-### 서버 (`MOU_ChatServer/`)
+### 서버 (`MOU_Server/`)
 
 | 파일 | 역할 |
 |---|---|
@@ -485,7 +485,7 @@ Server RPC / Multicast 를 타지 않고 `ChatServer.exe` 로 가는 별도 TCP 
 | `Shared/Framing.h/.cpp` | 길이 프리픽스 프레이밍. **언리얼에서 include 금지** |
 | `ThirdParty/sqlite/` | SQLite 3.47.1 앰알가메이션. 언리얼 5.8 동봉본 그대로 복사, 수정 없음 |
 | `Server/Session.h/.cpp` | `ClientSession` + `SessionManager`. 세션의 `PeerAddress` 를 방 생성 시 호스트 주소로 쓴다 |
-| `Server/ChatServer.cpp` | accept 루프, 패킷 핸들러, `RouteChat()` 채널 라우팅, 로비 핸들러 |
+| `Server/Server.cpp` | accept 루프, 패킷 핸들러, `RouteChat()` 채널 라우팅, 로비 핸들러 |
 | `Server/Accounts.h/.cpp` | 계정 DB. `login_id`/`pw_salt`/`pw_hash`/`nickname`. **동기 커밋** — 가입/로그인은 지연을 감수하고 무손실을 택한다 |
 | `Server/Crypto.h/.cpp` | SHA-256 / HMAC-SHA256 / PBKDF2 자체 구현. 외부 라이브러리(OpenSSL 등) 없이 비밀번호 해시만 목적 |
 | `Server/ChatLog.h/.cpp` | 채팅 로그 DB. MPSC 큐 + 라이터 스레드 1개. **비동기** — 채팅 지연보다 유실 허용을 택한다 |
@@ -808,7 +808,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 
 ## 8. 프로토콜 레퍼런스
 
-원본: `MOU_ChatServer/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v5**.
+원본: `MOU_Server/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v5**.
 
 ### 버전 이력
 
@@ -940,17 +940,17 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 | `using System.IO;` 추가 | `Path` 클래스 사용 | 없음 |
 | `"Sockets"`, `"Networking"` 추가 | 엔진 소켓 API | 없음 |
 | `"SlateCore"` 추가 | UMG 위젯의 `ETextCommit` 리플렉션 링크에 필요 | 없음. 원래 주석으로 추천돼 있던 모듈 |
-| `PublicIncludePaths` 에 `MOU_ChatServer/Shared` 추가 | 서버와 프로토콜 헤더 공유 | **저장소 전체를 받아야 함** |
+| `PublicIncludePaths` 에 `MOU_Server/Shared` 추가 | 서버와 프로토콜 헤더 공유 | **저장소 전체를 받아야 함** |
 
-### `MOU_ChatServer/CMakeLists.txt` (수정)
+### `MOU_Server/CMakeLists.txt` (수정)
 
 | 변경 | 내용 |
 |---|---|
-| `project(MOU_ChatServer C CXX)` | SQLite 앰알가메이션이 C 파일이라 C 언어를 켰다 (이전엔 `CXX` 만) |
-| `sqlite3` 정적 라이브러리 타깃 추가 | `ThirdParty/sqlite/sqlite3.c` 를 빌드해서 `ChatServer` 에 링크 |
-| `ChatServer` 소스에 `Accounts.cpp`/`Crypto.cpp`/`ChatLog.cpp`/`Rooms.cpp` 추가 | |
+| `project(MOU_Server C CXX)` | SQLite 앰알가메이션이 C 파일이라 C 언어를 켰다 (이전엔 `CXX` 만) |
+| `sqlite3` 정적 라이브러리 타깃 추가 | `ThirdParty/sqlite/sqlite3.c` 를 빌드해서 `Server` 에 링크 |
+| `Server` 소스에 `Accounts.cpp`/`Crypto.cpp`/`ChatLog.cpp`/`Rooms.cpp` 추가 | |
 
-**서버 실행 인자가 바뀌었다.** `ChatServer.exe <port>` → `ChatServer.exe <port> [db경로]`
+**서버 실행 인자가 바뀌었다.** `Server.exe <port>` → `Server.exe <port> [db경로]`
 (두 번째 인자는 선택이라 기존 실행 스크립트는 그대로 동작한다).
 
 ### 바뀌지 않은 것 (확인용)
@@ -964,10 +964,10 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 ```
 서버:
-  MOU_ChatServer/Server/Accounts.h  Accounts.cpp  Crypto.h  Crypto.cpp
-  MOU_ChatServer/Server/ChatLog.h   ChatLog.cpp
-  MOU_ChatServer/Server/Rooms.h     Rooms.cpp
-  MOU_ChatServer/ThirdParty/sqlite/ sqlite3.h  sqlite3.c  README.md
+  MOU_Server/Server/Accounts.h  Accounts.cpp  Crypto.h  Crypto.cpp
+  MOU_Server/Server/ChatLog.h   ChatLog.cpp
+  MOU_Server/Server/Rooms.h     Rooms.cpp
+  MOU_Server/ThirdParty/sqlite/ sqlite3.h  sqlite3.c  README.md
 
 언리얼:
   Source/TeamProject_MOU/Public/Chat/   ChatTypes.h  LobbyTypes.h  ChatFraming.h
@@ -1120,7 +1120,7 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   8단계에서 리슨서버가 신원을 미러링하도록 바꿀 것이므로, **게임플레이 코드에서
   `SetDeadForTest` 호출을 늘리지 말 것.**
 
-### 서버 (`MOU_ChatServer/README.md` 에서 그대로)
+### 서버 (`MOU_Server/README.md` 에서 그대로)
 
 - **`send()` 를 세션 락 안에서 호출한다.** 느린 클라이언트가 있으면 락을 오래 잡아 전체 채팅이 지연된다.
   인원이 늘면 세션별 송신 큐 + 전용 송신 스레드로 바꿔야 한다.
@@ -1227,13 +1227,13 @@ VS 가 UE5 솔루션(59개 프로젝트) 을 열어둔 채 IntelliSense 를 돌�
 
 ### CMake 설정(configure) 단계에서 `sqlite3.c` 관련 오류 / C 컴파일러를 못 찾음
 
-`project()` 선언이 `CXX` 만 있고 `C` 가 빠졌을 때 난다. 이미 `project(MOU_ChatServer C CXX)` 로
+`project()` 선언이 `CXX` 만 있고 `C` 가 빠졌을 때 난다. 이미 `project(MOU_Server C CXX)` 로
 고쳐져 있다. 혹시 캐시가 꼬였으면 `out/build/x64-Debug` 를 지우고 다시 configure.
 
-### `ChatServer.exe` 를 실행했는데 `LINK : fatal error LNK1168` 로 재빌드가 안 됨
+### `Server.exe` 를 실행했는데 `LINK : fatal error LNK1168` 로 재빌드가 안 됨
 
-이전에 띄운 `ChatServer.exe` 가 아직 실행 중이라 파일이 잠긴 것이다.
-작업 관리자에서 종료하거나 `Get-Process ChatServer | Stop-Process -Force` 후 다시 빌드.
+이전에 띄운 `Server.exe` 가 아직 실행 중이라 파일이 잠긴 것이다.
+작업 관리자에서 종료하거나 `Get-Process Server | Stop-Process -Force` 후 다시 빌드.
 
 ### 프로토콜 버전 불일치인데 클라이언트 버전이 이상한 숫자로 찍힘
 
@@ -1281,7 +1281,7 @@ DebugGame 만 빌드해두고 헤드리스 검증을 돌리면 몇 달 전 DLL �
 ### 채팅을 보냈는데 아무 일도 안 일어남
 
 체크리스트:
-1. `ChatServer.exe` 가 켜져 있나
+1. `Server.exe` 가 켜져 있나
 2. 상태가 `LoggedIn` 인가 (`Connected` 만으로는 서버가 버린다)
 3. 사망 채널로 보내고 있는데 살아있는 상태 아닌가 (서버가 **무응답으로 폐기**한다)
 4. 메시지가 512바이트를 넘지 않나

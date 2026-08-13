@@ -1,5 +1,5 @@
 ﻿// MOU 채팅 - 워커 스레드 구현.
-// 대응하는 서버 코드: MOU_ChatServer/Server/ChatServer.cpp 의 ClientThread()
+// 대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 ClientThread()
 
 #include "Chat/ChatClientRunnable.h"
 

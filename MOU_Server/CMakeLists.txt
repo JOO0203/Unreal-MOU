@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 # sqlite3 앰알가메이션이 C 파일이라 C 도 켜야 한다 (CXX 만 두면 설정 단계에서 실패).
-project(MOU_ChatServer C CXX)
+project(MOU_Server C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,16 +44,16 @@ else()
     target_compile_options(sqlite3 PRIVATE -w)
 endif()
 
-add_executable(ChatServer
-    Server/ChatServer.cpp
+add_executable(Server
+    Server/Server.cpp
     Server/ChatLog.cpp
     Server/Accounts.cpp
     Server/Crypto.cpp
     Server/Rooms.cpp
     Server/Session.cpp
 )
-target_include_directories(ChatServer PRIVATE Server)
-target_link_libraries(ChatServer PRIVATE mou_shared sqlite3)
+target_include_directories(Server PRIVATE Server)
+target_link_libraries(Server PRIVATE mou_shared sqlite3)
 
 add_executable(TestClient
     TestClient/TestClient.cpp

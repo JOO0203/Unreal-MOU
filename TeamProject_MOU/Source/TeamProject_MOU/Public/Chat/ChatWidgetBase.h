@@ -2,7 +2,7 @@
 //
 // [이 위젯이 채팅 시스템에서 차지하는 위치]
 //
-//   ChatServer.exe
+//   Server.exe
 //        ↕ TCP
 //   FChatClientRunnable  (워커 스레드)
 //        ↕ TQueue

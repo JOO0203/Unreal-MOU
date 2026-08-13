@@ -88,7 +88,7 @@ chat_log.db
 chat_log.db-wal
 chat_log.db-shm
 
-# ChatServer / TestClient 를 CMake 로 빌드한 산출물 (ChatServer.exe, TestClient.exe,
+# Server / TestClient 를 CMake 로 빌드한 산출물 (Server.exe, TestClient.exe,
 # CMakeCache.txt, build.ninja 등). *.exe 는 이미 위에서 걸러지지만 CMakeFiles/ 등
 # 확장자 없는 중간 파일까지 한 번에 막으려고 out/ 디렉터리를 통째로 무시한다.
-MOU_ChatServer/out/
+MOU_Server/out/
