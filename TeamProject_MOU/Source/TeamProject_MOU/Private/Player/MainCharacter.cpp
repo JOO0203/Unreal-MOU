@@ -554,7 +554,7 @@ void AMainCharacter::OnUse()
 			HandItem->OnUse();
 		}
 		return;
-	
+	}
 
 	// TODO: 장착 중인 아이템 사용 로직 (인벤토리 시스템 연동 시 구현)
 	if (CarryingComponent && !CarryingComponent->IsCarrying())
