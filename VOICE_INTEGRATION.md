@@ -2,7 +2,7 @@
 
 작성: 2026-08-12
 최종 갱신: 2026-08-13 (요구사항 반영 — 무전 채널 삭제, 전원/송신 키 분리, 사망자 처리)
-상태: **V0·V1 구현 완료** (2026-08-13). 나머지는 설계만.
+상태: **V0·V1 구현 완료 + 실사용 검증됨** (2026-08-13). 마이크 음소거(C) UI 도 구현. 나머지는 설계만.
 
 이 문서는 `SERVER_INTEGRATION.md` 와 같은 규칙을 따른다 — 무엇을 하는지보다 **왜 그렇게 했는지**를 남긴다.
 
@@ -112,10 +112,10 @@ C 를 A/B 와 엮으면 규칙 하나로 게임이 만들어진다.
    마이크
      │ IVoiceCapture (16kHz mono PCM16)
      ▼
-   VoiceCaptureRunnable  (워커 스레드)     ← UObject 금지. 기존 채팅 규칙과 동일
+   VoiceCaptureSource  (★게임 스레드 - 6절 각주 참고)
      │  20ms 프레이밍 + RMS(음량) 계산 + VAD(무음 컷, 감도는 옵션에서 조절)
-     │  Opus 인코딩 (~40~80바이트/프레임)
-     ▼ TQueue (SPSC)
+     │  Opus 인코딩 (~40~80바이트/프레임, V2 예정)
+     ▼ (직접 호출)
    VoiceSubsystem (게임 스레드)
      │  근접 음소거(C) 여부 / X=무전 송신 중인지, 발화 모드(속삭임·보통·외침)
      ▼
@@ -255,8 +255,9 @@ bEnabled=true
 Source/TeamProject_MOU/
   Public/Voice/                     Private/Voice/
     VoiceTypes.h                      (헤더 전용)
-    VoiceCaptureRunnable.h            VoiceCaptureRunnable.cpp
+    VoiceCaptureSource.h              VoiceCaptureSource.cpp
     VoiceSubsystem.h                  VoiceSubsystem.cpp
+    VoiceStatusWidget.h               VoiceStatusWidget.cpp
     VoiceComponent.h                  VoiceComponent.cpp
     VoiceRouter.h                     VoiceRouter.cpp
     VoicePlaybackComponent.h          VoicePlaybackComponent.cpp
@@ -266,13 +267,23 @@ Source/TeamProject_MOU/
 
 | 클래스 | 부모 | 어디 사는가 | 역할 |
 |---|---|---|---|
-| `FVoiceCaptureRunnable` | `FRunnable` | 클라 워커 스레드 | 마이크 폴링 → 20ms 프레이밍 → RMS/VAD → Opus 인코딩 → `TQueue` |
-| `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 워커 생명주기, 근접 음소거(C)/무전 송신(X) 키 상태, 발화 모드, 마이크 감도 옵션 |
-| `UVoiceComponent` | `UActorComponent` | `APlayerController` | RPC 창구. **양쪽에 존재** |
-| `UVoiceRouter` | `UWorldSubsystem` | **서버 전용** | 무전기 레지스트리, 수신자 결정, 반이중 중재, 레이트 리밋, 소음 이벤트 |
-| `UVoicePlaybackComponent` | `UActorComponent` | 클라 (내 PC) | 지터버퍼 + 디코더 풀. 스트림마다 Synth 를 만들고 붙인다 |
+| `FVoiceCaptureSource` | (없음, 순수 클래스) | **클라 게임 스레드** ← 아래 ★ | 마이크 폴링 → 20ms 프레이밍 → RMS/VAD |
+| `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 캡처 생명주기, 음소거(C)/루프백 상태, 마이크 감도 옵션 |
+| `UVoiceStatusWidget` | `UUserWidget` | 클라 게임 스레드 | 마이크 상태 상시 표시(15절 프라이버시 요구) + `C` 키 바인딩 |
+| `UVoiceComponent` | `UActorComponent` | `APlayerController` | RPC 창구. **양쪽에 존재** (V3 이후) |
+| `UVoiceRouter` | `UWorldSubsystem` | **서버 전용** | 무전기 레지스트리, 수신자 결정, 반이중 중재, 레이트 리밋, 소음 이벤트 (V6 이후) |
+| `UVoicePlaybackComponent` | `UActorComponent` | 클라 (내 PC) | 지터버퍼 + 디코더 풀. 스트림마다 Synth 를 만들고 붙인다 (V3 이후) |
 | `UVoiceSynthComponent` | `USynthComponent` | 클라 (폰/무전기에 부착) | 링버퍼에서 PCM 을 꺼내 오디오 렌더 스레드에 공급 |
-| **`URadioComponent`** | `UActorComponent` | **무전기 아이템 액터** | 전원 상태, 소리 반경. **아이템 파트가 붙여줄 인터페이스** |
+| **`URadioComponent`** | `UActorComponent` | **무전기 아이템 액터** | 전원 상태, 소리 반경. **아이템 파트가 붙여줄 인터페이스** (V6 이후) |
+
+> **★ `FVoiceCaptureSource` 가 워커 스레드가 아니라 게임 스레드인 이유.**
+> 처음에는 `FRunnable` 워커로 설계했다가 구현 중 되돌렸다. 엔진의 Windows 캡처
+> 구현(`FVoiceCaptureWindows`)이 `FTSTickerObjectBase` 로 **게임 스레드 티커에서
+> 자기 내부 버퍼를 채우는데, 그 버퍼에 뮤텍스가 없다.** 워커 스레드에서
+> `GetVoiceData()` 를 부르면 게임 스레드와 데이터 레이스가 난다. 자세한 것은
+> `VoiceCaptureSource.h` 상단 주석. 비용은 문제되지 않는다 - memcpy 와 320샘플
+> RMS 산술뿐이다. **진짜 스레드 경계는 재생 쪽**(게임 → 오디오 렌더)이고
+> 그건 `UVoiceSynthComponent` 의 링버퍼가 그대로 담당한다.
 
 ### 왜 `UVoiceComponent` 를 폰이 아니라 `PlayerController` 에 두는가
 
@@ -724,11 +735,15 @@ APlayerState* GetHolder() const;
 
 | 하는 곳 | 해도 되는 것 | 하면 안 되는 것 | 어기면 |
 |---|---|---|---|
-| `FVoiceCaptureRunnable` (워커) | `IVoiceCapture`, 바이트 배열, Opus 인코딩, `TQueue` 넣기 | UObject, 델리게이트, 액터 접근 | 랜덤 크래시 |
-| `UVoiceSubsystem::Tick` (게임) | 큐 비우기, RPC 호출, UI 갱신 | — | |
+| `FVoiceCaptureSource` (★게임 스레드 - 아래 이유) | `IVoiceCapture` 폴링, 바이트 배열, RMS/VAD | — | — |
+| `UVoiceSubsystem::Tick` (게임) | 캡처 폴링, 재생 버퍼 push, RPC 호출, UI 갱신 | — | |
 | `UVoiceRouter` (서버 게임 스레드) | 라우팅, 소음 이벤트, 레지스트리 | 블로킹 I/O | 호스트 프레임 드랍 |
 | `UVoicePlaybackComponent` (게임) | 디코딩, 지터버퍼, 링버퍼에 **push** | 링버퍼에서 **pop**, `SetCapacity()` | **use-after-free** (아래 ★) |
 | `UVoiceSynthComponent::OnGenerateAudio` (**오디오 렌더**) | 링버퍼에서 **pop**, float 산술 | **UObject / 락 / 메모리 할당 / UE_LOG** | 오디오 끊김 → 크래시 |
+
+> **★ 캡처가 워커 스레드가 아니라 게임 스레드인 이유는 6절 표 아래 각주를 볼 것.**
+> 이 시스템의 스레드 경계는 딱 하나뿐이다: **게임 스레드 → 오디오 렌더 스레드**
+> (재생 링버퍼). 캡처 쪽은 스레드 경계가 아니다.
 
 > **★ 게임 스레드는 링버퍼를 "비울" 수도 없다.**
 > 비우기는 결국 pop 이고, `TCircularAudioBuffer::SetCapacity()` 는 내부 `TArray` 를
@@ -832,7 +847,7 @@ APlayerState* GetHolder() const;
 | 단계 | 내용 | 검증 방법 | 상태 |
 |---|---|---|---|
 | **V0** | **`MOU.Voice.FakeNoise` 콘솔 명령만 먼저** | **NPC 팀원이 즉시 병렬 작업 시작 가능** ← 최우선 | **✅ 완료** |
-| **V1** | `Voice` 모듈 활성화, 캡처 → **로컬 루프백 재생** (네트워크 없음) | 내 목소리가 내 헤드폰에 0.1초 뒤 들린다 | **✅ 완료**(빌드 검증, 실제 청취 확인 필요) |
+| **V1** | `Voice` 모듈 활성화, 캡처 → **로컬 루프백 재생** (네트워크 없음) | 내 목소리가 내 헤드폰에 0.1초 뒤 들린다 | **✅ 완료 + 실사용 확인**(PIE 에서 말하니 실제로 들림) |
 | **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | 다음 |
 | **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 |
 | **V4** | 지터버퍼 + PLC + `MOU.Voice.Stat` | `Net PktLoss=10` 넣어도 알아듣는다 |
@@ -853,9 +868,10 @@ V8 은 서버 부하가 처음 문제 되는 곳이다. 이 둘에 일정을 넉
 | 파일 | 역할 |
 |---|---|
 | `Public/Voice/VoiceTypes.h` | 로그 카테고리 + 상수(샘플레이트/프레임/VAD/버퍼) |
-| `Public/Voice/VoiceCaptureRunnable.h`<br>`Private/Voice/VoiceCaptureRunnable.cpp` | 마이크 캡처 워커 스레드. 20ms 프레이밍 + RMS + VAD |
+| `Public/Voice/VoiceCaptureSource.h`<br>`Private/Voice/VoiceCaptureSource.cpp` | 마이크 캡처. **게임 스레드**(★, 아래 참고). 20ms 프레이밍 + RMS + VAD |
 | `Public/Voice/VoiceSynthComponent.h`<br>`Private/Voice/VoiceSynthComponent.cpp` | 재생 출구. 락 프리 링버퍼 → 오디오 렌더 스레드 |
-| `Public/Voice/VoiceSubsystem.h`<br>`Private/Voice/VoiceSubsystem.cpp` | 진입점 + 콘솔 명령 4종 |
+| `Public/Voice/VoiceSubsystem.h`<br>`Private/Voice/VoiceSubsystem.cpp` | 진입점 + 콘솔 명령 7종 |
+| `Public/Voice/VoiceStatusWidget.h`<br>`Private/Voice/VoiceStatusWidget.cpp` | 마이크 상태 상시 표시 위젯 + `C` 키 바인딩(음소거 토글) |
 
 **설계 대비 달라진 것**
 
@@ -885,10 +901,58 @@ V8 은 서버 부하가 처음 문제 되는 곳이다. 이 둘에 일정을 넉
    **V8 에서 소음 이벤트를 붙이면 "말을 멈췄는데 NPC 가 영원히 쫓아오는" 버그**가 된다.
    → 마지막 프레임 시각을 기록해 hangover 를 넘기면 강제로 내린다.
 
+### 14-2. 캡처를 워커 스레드 → 게임 스레드로 되돌림 (2026-08-13, 실사용 중 발견)
+
+**실제로 PIE 에서 루프백을 들어보니 "마이크가 준비되지 않았다" 는 문제가 났다.**
+원인을 추적하면서 설계를 하나 뒤집었다.
+
+**증상의 직접 원인**: `FVoiceCaptureRunnable::Init()` 에서
+`FVoiceModule::IsAvailable() || FVoiceModule::Get().IsVoiceEnabled()` 순서로 검사했는데,
+`IsAvailable()` 은 `IsModuleLoaded("Voice")` 라서 **아무도 모듈을 로드한 적이 없으면
+false** 다. `||` 단락 평가로 실제 로드를 수행하는 `Get()` 에 영원히 도달하지 못했다.
+Build.cs 의존성은 **링크**만 보장하고 런타임 로드는 별개라는 걸 놓쳤다.
+
+**원인을 파다가 더 심각한 걸 발견했다**: 엔진 Windows 캡처 구현을 열어보니
+
+```cpp
+class FVoiceCaptureWindows : public IVoiceCapture, public FTSTickerObjectBase
+```
+
+**엔진의 캡처 객체는 게임 스레드 티커로 자기 내부 버퍼를 채우고, 그 버퍼에
+뮤텍스가 없다.** 워커 스레드에서 `GetVoiceData()` 를 폴링한 애초의 설계(6절 옛 표,
+11절 옛 표) 자체가 **데이터 레이스**였다. 기존 채팅(`FChatClientRunnable`)의 패턴을
+그대로 따라간 게 여기서는 틀렸다 — 채팅은 우리가 소켓을 직접 다루니 워커가 맞지만,
+음성 캡처는 엔진이 이미 게임 스레드에 묶어놓은 리소스다.
+
+**조치**: `FVoiceCaptureRunnable`(워커) 를 폐기하고 `FVoiceCaptureSource`(순수
+클래스, 게임 스레드 전용)로 교체했다. `UVoiceSubsystem::Initialize()` 에서
+`FModuleManager::Get().LoadModule(TEXT("Voice"))` 를 명시적으로 호출해 모듈을
+로드한 뒤 캡처를 연다. 구조가 오히려 단순해졌다 — 큐도, 원자적 타입도 필요 없다.
+**진짜 스레드 경계는 재생 쪽 하나뿐**이라는 게 이번에 명확해졌다.
+
+**진단 명령 추가**: `MOU.Voice.Diag` — "마이크가 준비되지 않았다" 는 증상의 원인이
+네 단계(모듈 로드/ini/서브시스템/장치)나 되는데 증상이 같아서, 단계별로 O/X 를
+찍어주는 명령을 만들었다. 다음에 같은 증상이 나면 이걸로 먼저 좁힌다.
+
+### 14-3. 마이크 음소거 UI (2026-08-13)
+
+**7-1절에서 이미 정의했던 대로** 구현했다. 설계와 실제 구현 사이에 편차는 없었다.
+
+- `UVoiceSubsystem::SetMuted()` / `ToggleMute()` — 켜면 **`FVoiceCaptureSource::Poll()`
+  결과를 버린다.** 단 Poll 자체는 계속 부른다 - 안 부르면 엔진 내부 버퍼가 우리가
+  통제 못 하는 만큼 쌓였다가, 음소거를 풀 때 몰아서 쏟아지는 걸 배제할 수 없어서다.
+  "말하는 상태가 밖으로 전혀 안 나간다" 는 결과는 Poll 을 부르든 안 부르든 동일하다.
+- `UVoiceStatusWidget` — 15절 프라이버시 요구("마이크가 열려 있는 동안 화면에 항상
+  표시") 를 채우는 상시 인디케이터. WBP 없이 C++ 로 조립(기존 `ChatWidgetBase` 와
+  같은 원칙). `C` 키를 `PlayerController::InputComponent` 에 직접 바인딩한다
+  (역시 `ChatWidgetBase::bBindToggleKeyToOwningPlayer` 와 같은 패턴).
+- 마이크 없음 / 음소거 / 켜짐(말하는 중이면 강조색) 세 상태만 구분한다.
+  감도 슬라이더 등은 V9 몫이라 여기 안 넣었다.
+
 **아직 확인하지 못한 것**
 
-- **실제 소리가 나는지 귀로 듣지 못했다.** 빌드와 코드 검증까지만 했다.
-  에디터에서 PIE → `` ` `` → `MOU.Voice.Loopback 1` 로 확인해야 한다.
+- **실제 소리가 나는지, 그리고 `C` 로 음소거가 실제로 걸리는지 귀로 확인.**
+  에디터에서 PIE → `` ` `` → `MOU.Voice.ShowUI` → `MOU.Voice.Loopback 1` 로 확인해야 한다.
   **반드시 헤드폰을 쓸 것 — 스피커로 들으면 하울링이 난다.**
 - 지연이 실제로 얼마인지(설계 목표 0.1초 이내). `MOU.Voice.Stat` 의
   `재생버퍼=...ms` 로 본다.
@@ -896,13 +960,35 @@ V8 은 서버 부하가 처음 문제 되는 곳이다. 이 둘에 일정을 넉
 **콘솔 명령 (기존 `MOU.Chat.*` 규칙과 통일)**
 
 ```
-MOU.Voice.FakeNoise <반경>    마이크 없이 소음만 발생 ← ★ V0. NPC 팀원용
-MOU.Voice.Loopback 1          로컬 루프백 켜기/끄기 (V1 검증용)
-MOU.Voice.Stat                초당 프레임/스트림/드랍 수
-MOU.Voice.Mode <0|1|2>        발화 모드 강제 (속삭임/보통/외침)
-MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키와 동일)
-MOU.Voice.Sensitivity <0~1>   마이크 감도 즉시 변경 (튜닝용)
+MOU.Voice.FakeNoise [반경] [음량] [태그]  마이크 없이 소음만 발생 ← ★ V0. NPC 팀원용
+                                          (인자 생략 시 현재 발화 모드의 실제 값 사용)
+MOU.Voice.ShowRadius <0|1>    ★ 말할 때 소리 도달 범위를 링으로 표시
+                                 초록=사람이 듣는 거리 / 빨강=NPC 가 듣는 거리
+MOU.Voice.Mode <0|1|2>        발화 모드 (0=속삭임 1=보통 2=외침)
+MOU.Voice.Loopback <0|1>      로컬 루프백 (V1 검증용. V3 이후엔 디버그 전용)
+MOU.Voice.Mute [0|1]          마이크 음소거 (C 키와 동일). 인자 없으면 토글
+MOU.Voice.ShowUI / HideUI     마이크 상태 표시 위젯 (VoiceStatusWidget)
+MOU.Voice.Diag                마이크가 안 잡힐 때 원인을 4단계로 진단
+MOU.Voice.Stat                프레임/버퍼/언더런/오버플로 통계
+MOU.Voice.Sensitivity <0~1>   마이크 감도(VAD 임계값) 즉시 변경
+
+(아직 없음 — 해당 기능 구현 시 추가)
+MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키와 동일)                     (V6)
 ```
+
+**★ `MOU.Voice.ShowRadius` 가 보여주는 원은 "그럴듯한 그림"이 아니라 실제 판정값이다.**
+반경 숫자가 `VoiceTypes.h` 의 `MOUVoice::GetHearRadius()` / `GetNoiseRange()` **한 곳에만**
+있고, 앞으로 세 곳이 전부 그 함수를 부르기 때문이다:
+
+| 읽는 곳 | 시점 | 용도 |
+|---|---|---|
+| `MOU.Voice.ShowRadius` 디버그 링 | 지금 | 눈으로 확인 |
+| 서버 근접 라우팅 (`GetHearRadius() * 1.2`) | V3 | 누구에게 전송할지 |
+| `ReportNoiseEvent(MaxRange)` | V8 | NPC 가 듣는 거리 |
+
+> 셋이 각자 숫자를 들고 있으면 **화면에 보이는 원과 NPC 가 실제로 듣는 거리가 조용히
+> 어긋난다.** 그러면 디버그 표시가 거짓말을 하게 되어 밸런싱 자체가 불가능해진다.
+> **숫자를 바꿀 일이 있으면 반드시 `VoiceTypes.h` 한 곳만 고친다.**
 
 ---
 

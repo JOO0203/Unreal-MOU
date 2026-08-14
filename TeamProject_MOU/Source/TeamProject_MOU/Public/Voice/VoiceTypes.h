@@ -11,16 +11,29 @@
 //   설계가 바뀔 때 같이 바꿔야 하는 짐만 된다.
 //
 // [수정 시 같이 고쳐야 하는 파일]
-//   SampleRate/FrameMs 를 바꾸면 VoiceCaptureRunnable.cpp 의 프레이밍과
+//   SampleRate/FrameMs 를 바꾸면 VoiceCaptureSource.cpp 의 프레이밍과
 //   VoiceSynthComponent 의 링버퍼 크기가 같이 영향을 받는다.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Logging/LogMacros.h"
+#include "VoiceTypes.generated.h"
 
 /** 음성 시스템 전용 로그 카테고리. 에디터 출력 로그에서 'LogMOUVoice' 로 필터링한다. */
 DECLARE_LOG_CATEGORY_EXTERN(LogMOUVoice, Log, All);
+
+/**
+ * 발화 모드. 목소리 크기에 따라 들리는 거리와 NPC 가 듣는 거리가 달라진다.
+ * VOICE_INTEGRATION.md 13절의 표가 이 enum 에 대응한다.
+ */
+UENUM(BlueprintType)
+enum class EVoiceMode : uint8
+{
+	Whisper UMETA(DisplayName = "속삭임"),
+	Normal  UMETA(DisplayName = "보통"),
+	Shout   UMETA(DisplayName = "외침"),
+};
 
 /**
  * 음성 파이프라인의 고정 상수.
@@ -84,4 +97,75 @@ namespace MOUVoice
 	 * "지금 말한 것이 3초 뒤에 들리는" 상태를 막는 안전장치다.
 	 */
 	inline constexpr int32 PlaybackDropThresholdFrames = 6;
+
+	// -----------------------------------------------------------------------
+	// 발화 모드별 거리 — ★ 단일 진실 공급원 (single source of truth)
+	//
+	// VOICE_INTEGRATION.md 13절 표의 숫자를 여기 한 곳에만 둔다.
+	//
+	// **이 값을 읽는 곳이 앞으로 세 군데가 된다:**
+	//   1. 디버그 시각화 (MOU.Voice.ShowRadius)          ← 지금
+	//   2. 서버 근접 라우팅: 이 반경 * 1.2 안의 사람에게만 전송  (V3)
+	//   3. NPC 소음: UAISense_Hearing::ReportNoiseEvent 의 MaxRange (V8)
+	//
+	// ★ 셋이 반드시 같은 함수를 불러야 한다.
+	//   각자 숫자를 따로 들고 있으면 "화면에 보이는 원"과 "NPC 가 실제로 듣는 거리"가
+	//   조용히 어긋난다. 그러면 디버그 표시가 거짓말을 하게 되고, 밸런싱이 불가능해진다.
+	//   숫자를 바꿀 일이 있으면 **반드시 여기만 고친다.**
+	// -----------------------------------------------------------------------
+
+	/**
+	 * 사람이 들을 수 있는 총 거리(cm).
+	 *
+	 * 이것은 감쇠 에셋의 `Radius + FalloffDistance` **합계**다.
+	 * 에셋에 이 숫자를 그대로 넣으면 사거리가 두 배가 된다 - 7-2절 참고.
+	 */
+	inline constexpr float GetHearRadius(EVoiceMode Mode)
+	{
+		switch (Mode)
+		{
+		case EVoiceMode::Whisper: return 500.f;   //  5m
+		case EVoiceMode::Shout:   return 3000.f;  // 30m
+		default:                  return 1500.f;  // 15m (보통)
+		}
+	}
+
+	/**
+	 * NPC 가 들을 수 있는 거리(cm). `ReportNoiseEvent` 의 MaxRange 로 그대로 들어간다.
+	 *
+	 * ★ 사람이 듣는 거리보다 **일부러 넓다.**
+	 *   "나한텐 안 들렸는데 NPC 는 들었다" 가 있어야 긴장이 생긴다.
+	 *   같게 만들면 안전 거리를 학습하기가 너무 쉬워진다(13절).
+	 */
+	inline constexpr float GetNoiseRange(EVoiceMode Mode)
+	{
+		switch (Mode)
+		{
+		case EVoiceMode::Whisper: return 700.f;
+		case EVoiceMode::Shout:   return 4000.f;
+		default:                  return 1800.f;
+		}
+	}
+
+	/** 소음 이벤트의 Loudness 배율. 측정된 RMS 에 곱해서 쓴다. */
+	inline constexpr float GetLoudnessScale(EVoiceMode Mode)
+	{
+		switch (Mode)
+		{
+		case EVoiceMode::Whisper: return 0.35f;
+		case EVoiceMode::Shout:   return 1.6f;
+		default:                  return 1.0f;
+		}
+	}
+
+	/** 로그/UI 표시용 이름. */
+	inline const TCHAR* GetVoiceModeName(EVoiceMode Mode)
+	{
+		switch (Mode)
+		{
+		case EVoiceMode::Whisper: return TEXT("속삭임");
+		case EVoiceMode::Shout:   return TEXT("외침");
+		default:                  return TEXT("보통");
+		}
+	}
 }

@@ -996,7 +996,9 @@ namespace
 
 	FAutoConsoleCommandWithWorldAndArgs GChatDeadCommand(
 		TEXT("MOU.Chat.Dead"),
-		TEXT("생사 상태를 바꾼다(테스트용). 사용법: MOU.Chat.Dead <0|1>"),
+		TEXT("[임시/8단계에서 제거 예정] 생사 상태를 바꾼다(테스트용). 사용법: MOU.Chat.Dead <0|1> ")
+		TEXT("- 클라이언트가 자기 생사를 마음대로 바꿀 수 있어 살아있는 사람이 사망 채널을 엿볼 수 있다. ")
+		TEXT("리슨서버 신원 미러링(8단계)이 붙으면 이 명령과 SetDeadForTest 를 함께 제거한다."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{

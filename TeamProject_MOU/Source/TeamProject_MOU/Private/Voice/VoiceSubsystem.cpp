@@ -3,19 +3,22 @@
 //
 // [스레드]
 //   이 파일의 코드는 전부 게임 스레드다.
-//   워커 스레드 코드는 VoiceCaptureRunnable.cpp, 오디오 렌더 스레드 코드는
-//   VoiceSynthComponent.cpp 에 있다. 셋을 섞지 말 것.
+//   마이크 캡처도 게임 스레드다(VoiceCaptureSource.h 상단 주석에 이유가 있다).
+//   유일한 다른 스레드는 오디오 렌더 스레드이고 VoiceSynthComponent.cpp 가 담당한다.
 
 #include "Voice/VoiceSubsystem.h"
 
-#include "Voice/VoiceCaptureRunnable.h"
+#include "Voice/VoiceCaptureSource.h"
 #include "Voice/VoiceSynthComponent.h"
 
+#include "DrawDebugHelpers.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
-#include "HAL/RunnableThread.h"
+#include "Modules/ModuleManager.h"
 #include "Perception/AISense_Hearing.h"
+#include "VoiceModule.h"
 
 // ---------------------------------------------------------------------------
 // 서브시스템 수명
@@ -25,29 +28,43 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
-	// 캡처 스레드는 여기서 바로 띄운다.
+	// ★ Voice 모듈을 여기(게임 스레드)에서 명시적으로 로드한다.
 	//
-	// 마이크가 없거나 [Voice] bEnabled 가 꺼져 있어도 스레드는 뜨고, 캡처만
-	// 비활성 상태가 된다(IsCaptureReady() == false). 이렇게 해야 마이크 없는
-	// 팀원의 게임이 죽지 않는다.
-	CaptureRunnable = new FVoiceCaptureRunnable();
-	CaptureThread = FRunnableThread::Create(
-		CaptureRunnable, TEXT("MOUVoiceCapture"), 0, TPri_AboveNormal);
+	//   Build.cs 에 의존성을 걸어도 그건 **링크**만 보장한다. 런타임에 모듈이
+	//   실제로 로드돼 있는지는 별개다. FVoiceModule::IsAvailable() 은
+	//   IsModuleLoaded("Voice") 라서, 아무도 안 불렀으면 false 를 돌려준다.
+	//   그 상태로 캡처를 만들려 하면 "마이크가 없다" 로 오진하게 된다.
+	//
+	//   모듈 로드는 게임 스레드에서만 해야 하므로 워커가 아니라 여기서 한다.
+	//   FVoiceModule::StartupModule() 이 ini 를 읽고 캡처 장치를 초기화한다.
+	FModuleManager::Get().LoadModule(TEXT("Voice"));
 
-	if (!CaptureThread)
+	if (!FVoiceModule::IsAvailable())
 	{
-		// 스레드 생성 자체가 실패한 경우. 러너블을 직접 지운다
-		// (스레드가 없으므로 ShutdownCapture 의 Kill 대기가 의미 없다).
-		UE_LOG(LogMOUVoice, Error, TEXT("음성 캡처 스레드를 만들지 못했다."));
-		delete CaptureRunnable;
-		CaptureRunnable = nullptr;
+		UE_LOG(LogMOUVoice, Error,
+			TEXT("Voice 모듈을 로드하지 못했다. 음성 기능을 사용할 수 없다."));
+	}
+	else if (!FVoiceModule::Get().IsVoiceEnabled())
+	{
+		// 여기 걸리면 십중팔구 ini 문제다. 진단 문구를 구체적으로 남긴다.
+		UE_LOG(LogMOUVoice, Error,
+			TEXT("Voice 모듈은 로드됐지만 비활성 상태다. ")
+			TEXT("Config/DefaultEngine.ini 에 [Voice] bEnabled=true 가 있는지, ")
+			TEXT("그리고 에디터를 재시작했는지 확인할 것(ini 는 시작 시 한 번만 읽는다)."));
+	}
+	else
+	{
+		// 마이크 열기. 실패해도 게임은 정상 진행된다(재생만 동작).
+		CaptureSource = MakeUnique<FVoiceCaptureSource>();
+		CaptureSource->Start();
 	}
 
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateUObject(this, &UVoiceSubsystem::Tick));
 
 	UE_LOG(LogMOUVoice, Log,
-		TEXT("음성 서브시스템 초기화 완료. 루프백을 켜려면 MOU.Voice.Loopback 1"));
+		TEXT("음성 서브시스템 초기화 완료 (마이크=%s). 루프백을 켜려면 MOU.Voice.Loopback 1"),
+		IsCaptureReady() ? TEXT("준비됨") : TEXT("없음"));
 }
 
 void UVoiceSubsystem::Deinitialize()
@@ -71,33 +88,11 @@ void UVoiceSubsystem::Deinitialize()
 	}
 	PlaybackComponent = nullptr;
 
-	ShutdownCapture();
+	// 마이크를 닫는다. 게임 스레드에서만 도는 객체라 스레드 종료 대기가 필요 없다.
+	// (워커 스레드였을 때는 Kill(true) 순서가 필수였지만 이제 해당 없음)
+	CaptureSource.Reset();
 
 	Super::Deinitialize();
-}
-
-void UVoiceSubsystem::ShutdownCapture()
-{
-	// ★ 이 순서를 지키지 않으면 PIE 를 껐다 켤 때 에디터가 통째로 죽는다.
-	//   기존 채팅의 UChatSubsystem::ShutdownClient 와 같은 이유다.
-	//   1) 종료 요청  2) 스레드가 Run() 을 빠져나올 때까지 대기  3) 그 다음에 해제
-	if (CaptureRunnable)
-	{
-		CaptureRunnable->Stop();
-	}
-
-	if (CaptureThread)
-	{
-		CaptureThread->Kill(/*bShouldWait=*/true); // true 필수
-		delete CaptureThread;
-		CaptureThread = nullptr;
-	}
-
-	if (CaptureRunnable)
-	{
-		delete CaptureRunnable;
-		CaptureRunnable = nullptr;
-	}
 }
 
 UVoiceSubsystem* UVoiceSubsystem::Get(const UObject* WorldContextObject)
@@ -118,18 +113,35 @@ UVoiceSubsystem* UVoiceSubsystem::Get(const UObject* WorldContextObject)
 
 bool UVoiceSubsystem::Tick(float DeltaTime)
 {
-	if (!CaptureRunnable)
+	if (!CaptureSource)
 	{
 		return true;
 	}
 
-	bool bReceivedAnyFrame = false;
+	// 마이크를 폴링한다. 게임 스레드에서 부르는 것이 필수다(헤더 주석 참고).
+	//
+	// ★ 음소거 중에도 Poll() 자체는 부른다.
+	//   설계 문서는 "캡처 자체를 중단한다" 고 적었지만, 여기서 아예 안 부르면
+	//   엔진의 내부 캡처 버퍼(우리가 안 가져가는 동안 계속 쌓인다)가 얼마나
+	//   쌓일지 우리가 통제할 수 없다 - 음소거를 오래 켜뒀다가 풀면 그동안
+	//   쌓인 오디오가 한꺼번에 쏟아지는 것을 배제할 수 없다.
+	//   그래서 Poll 은 계속 해서 엔진 버퍼를 비우되, **결과를 밑에서 버린다.**
+	//   "말하는 상태가 밖으로 전혀 안 나간다" 는 결과는 동일하게 보장된다.
+	PolledFrames.Reset();
+	CaptureSource->Poll(PolledFrames);
 
-	FMOUVoiceFrame Frame;
-	while (CaptureRunnable->DequeueFrame(Frame))
+	if (bMuted)
+	{
+		// 밖에서 보기엔 마이크가 꺼진 것과 같다: 발화 상태 강제 OFF, 재생/전송 없음.
+		bIsSpeaking = false;
+		return true;
+	}
+
+	const bool bReceivedAnyFrame = PolledFrames.Num() > 0;
+
+	for (const FMOUVoiceFrame& Frame : PolledFrames)
 	{
 		++FramesReceived;
-		bReceivedAnyFrame = true;
 		bIsSpeaking = Frame.bIsSpeaking;
 
 		if (!bLoopbackEnabled || !PlaybackComponent)
@@ -180,7 +192,63 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		bIsSpeaking = false;
 	}
 
+	DrawRadiusDebug();
+
 	return true; // 계속 틱
+}
+
+void UVoiceSubsystem::DrawRadiusDebug()
+{
+#if ENABLE_DRAW_DEBUG
+	// 말하고 있을 때만 그린다. 조용할 때도 계속 그리면 "지금 소리가 나가는가" 를
+	// 눈으로 구분할 수 없어서 시각화의 의미가 없어진다.
+	if (!bShowRadiusDebug || !bIsSpeaking)
+	{
+		return;
+	}
+
+	ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	UWorld* World = LocalPlayer ? LocalPlayer->GetWorld() : nullptr;
+	APlayerController* PC = (LocalPlayer && World) ? LocalPlayer->GetPlayerController(World) : nullptr;
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// 발 밑에서 살짝 띄운다. 바닥과 정확히 같은 높이면 지면에 파묻혀 잘 안 보인다.
+	const FVector Center = Pawn->GetActorLocation() - FVector(0.f, 0.f, Pawn->GetSimpleCollisionHalfHeight() - 2.f);
+
+	// XY 평면(바닥과 평행)에 그리기 위한 축. 기본값은 세로 원이라 바꿔줘야 한다.
+	const FVector AxisX(1.f, 0.f, 0.f);
+	const FVector AxisY(0.f, 1.f, 0.f);
+
+	constexpr int32 Segments = 48;
+	constexpr float LifeTime = -1.f;  // 한 프레임만. 매 틱 다시 그린다
+	constexpr uint8 Depth    = 0;
+
+	// ★ 이 두 값은 V8 의 ReportNoiseEvent 가 쓸 값과 같은 함수에서 나온다.
+	//   그래서 화면에 보이는 원이 곧 실제 판정 범위다(VoiceTypes.h 참고).
+	const float HearRadius = MOUVoice::GetHearRadius(VoiceMode);
+	const float NoiseRange = MOUVoice::GetNoiseRange(VoiceMode);
+
+	// 초록 = 사람이 듣는 거리
+	DrawDebugCircle(World, Center, HearRadius, Segments, FColor::Green,
+		false, LifeTime, Depth, 4.f, AxisX, AxisY, /*bDrawAxis=*/false);
+
+	// 빨강 = NPC 가 듣는 거리. 일부러 더 넓다(13절).
+	DrawDebugCircle(World, Center, NoiseRange, Segments, FColor::Red,
+		false, LifeTime, Depth, 4.f, AxisX, AxisY, /*bDrawAxis=*/false);
+
+	// 지금 어떤 모드로 말하는 중인지 머리 위에 띄운다.
+	// 링만 있으면 두 원 중 어느 쪽이 어느 모드인지 헷갈린다.
+	DrawDebugString(World, Pawn->GetActorLocation() + FVector(0.f, 0.f, 100.f),
+		FString::Printf(TEXT("%s  들림 %.0fm / NPC %.0fm  (음량 %.2f)"),
+			MOUVoice::GetVoiceModeName(VoiceMode),
+			HearRadius / 100.f, NoiseRange / 100.f, GetCurrentLoudness()),
+		nullptr, FColor::White, 0.f /*이번 프레임만*/);
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -270,28 +338,73 @@ void UVoiceSubsystem::SetLoopbackEnabled(bool bEnabled)
 	}
 }
 
+void UVoiceSubsystem::SetVoiceMode(EVoiceMode NewMode)
+{
+	if (VoiceMode == NewMode)
+	{
+		return;
+	}
+
+	VoiceMode = NewMode;
+
+	UE_LOG(LogMOUVoice, Log, TEXT("발화 모드 = %s (들림 %.0fcm / NPC %.0fcm)"),
+		MOUVoice::GetVoiceModeName(VoiceMode),
+		MOUVoice::GetHearRadius(VoiceMode),
+		MOUVoice::GetNoiseRange(VoiceMode));
+}
+
+void UVoiceSubsystem::SetShowRadiusDebug(bool bEnabled)
+{
+	bShowRadiusDebug = bEnabled;
+	UE_LOG(LogMOUVoice, Log, TEXT("소리 범위 표시 %s. %s"),
+		bEnabled ? TEXT("ON") : TEXT("OFF"),
+		bEnabled ? TEXT("말하는 동안에만 링이 보인다(초록=사람, 빨강=NPC).") : TEXT(""));
+}
+
+void UVoiceSubsystem::SetMuted(bool bInMuted)
+{
+	if (bMuted == bInMuted)
+	{
+		return;
+	}
+
+	bMuted = bInMuted;
+
+	if (bMuted)
+	{
+		// 즉시 조용해진다. 이미 재생 버퍼에 들어간 소리가 꼬리처럼 남는 것을 막는다.
+		bIsSpeaking = false;
+		if (PlaybackComponent)
+		{
+			PlaybackComponent->RequestFlush();
+		}
+	}
+
+	UE_LOG(LogMOUVoice, Log, TEXT("마이크 %s."), bMuted ? TEXT("음소거") : TEXT("음소거 해제"));
+}
+
 bool UVoiceSubsystem::IsCaptureReady() const
 {
-	return CaptureRunnable && CaptureRunnable->IsCaptureReady();
+	return CaptureSource.IsValid() && CaptureSource->IsReady();
 }
 
 float UVoiceSubsystem::GetCurrentLoudness() const
 {
-	return CaptureRunnable ? CaptureRunnable->GetCurrentLoudness() : 0.f;
+	return CaptureSource.IsValid() ? CaptureSource->GetCurrentLoudness() : 0.f;
 }
 
 void UVoiceSubsystem::SetMicSensitivity(float InThreshold)
 {
-	if (CaptureRunnable)
+	if (CaptureSource.IsValid())
 	{
-		CaptureRunnable->SetVadThreshold(InThreshold);
+		CaptureSource->SetVadThreshold(InThreshold);
 		UE_LOG(LogMOUVoice, Log, TEXT("마이크 감도(VAD 임계값) = %.4f"), InThreshold);
 	}
 }
 
 float UVoiceSubsystem::GetMicSensitivity() const
 {
-	return CaptureRunnable ? CaptureRunnable->GetVadThreshold() : MOUVoice::DefaultVadThreshold;
+	return CaptureSource.IsValid() ? CaptureSource->GetVadThreshold() : MOUVoice::DefaultVadThreshold;
 }
 
 FString UVoiceSubsystem::GetStatsString() const
@@ -301,11 +414,16 @@ FString UVoiceSubsystem::GetStatsString() const
 	const int32 Overflow = PlaybackComponent ? PlaybackComponent->GetOverflowCount() : 0;
 
 	return FString::Printf(
-		TEXT("마이크=%s 루프백=%s 발화=%s 감도=%.4f 음량=%.4f | 수신프레임=%d 버림=%d ")
+		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
+		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d"),
 		IsCaptureReady() ? TEXT("준비됨") : TEXT("없음"),
+		bMuted ? TEXT("ON") : TEXT("OFF"),
 		bLoopbackEnabled ? TEXT("ON") : TEXT("OFF"),
 		bIsSpeaking ? TEXT("O") : TEXT("X"),
+		MOUVoice::GetVoiceModeName(VoiceMode),
+		MOUVoice::GetHearRadius(VoiceMode),
+		MOUVoice::GetNoiseRange(VoiceMode),
 		GetMicSensitivity(),
 		GetCurrentLoudness(),
 		FramesReceived,
@@ -358,6 +476,74 @@ namespace
 				}
 			}));
 
+	FAutoConsoleCommandWithWorldAndArgs GVoiceMuteCommand(
+		TEXT("MOU.Voice.Mute"),
+		TEXT("마이크 음소거를 켜고 끈다(C 키와 동일). 인자 없이 부르면 토글. 사용법: MOU.Voice.Mute [0|1]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					if (Args.IsValidIndex(0))
+					{
+						Voice->SetMuted(FCString::Atoi(*Args[0]) != 0);
+					}
+					else
+					{
+						Voice->ToggleMute();
+					}
+				}
+				else
+				{
+					UE_LOG(LogMOUVoice, Warning, TEXT("음성 서브시스템을 찾지 못했다."));
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceShowRadiusCommand(
+		TEXT("MOU.Voice.ShowRadius"),
+		TEXT("말할 때 소리 도달 범위를 링으로 그린다(초록=사람, 빨강=NPC). 사용법: MOU.Voice.ShowRadius <0|1>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					const bool bEnable = Args.IsValidIndex(0) ? (FCString::Atoi(*Args[0]) != 0) : true;
+					Voice->SetShowRadiusDebug(bEnable);
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceModeCommand(
+		TEXT("MOU.Voice.Mode"),
+		TEXT("발화 모드를 바꾼다. 사용법: MOU.Voice.Mode <0=속삭임|1=보통|2=외침>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				UVoiceSubsystem* Voice = FindVoiceSubsystem(World);
+				if (!Voice)
+				{
+					return;
+				}
+
+				if (!Args.IsValidIndex(0))
+				{
+					UE_LOG(LogMOUVoice, Log, TEXT("현재 발화 모드 = %s"),
+						MOUVoice::GetVoiceModeName(Voice->GetVoiceMode()));
+					return;
+				}
+
+				// 범위를 벗어난 값은 조용히 뭉개지 말고 알려준다.
+				// 조용히 '보통'으로 떨어뜨리면 왜 안 바뀌는지 알 수 없다.
+				const int32 Raw = FCString::Atoi(*Args[0]);
+				if (Raw < 0 || Raw > 2)
+				{
+					UE_LOG(LogMOUVoice, Warning,
+						TEXT("모드는 0(속삭임) / 1(보통) / 2(외침) 중 하나여야 한다. 받은 값: %d"), Raw);
+					return;
+				}
+
+				Voice->SetVoiceMode(static_cast<EVoiceMode>(Raw));
+			}));
+
 	FAutoConsoleCommandWithWorldAndArgs GVoiceStatCommand(
 		TEXT("MOU.Voice.Stat"),
 		TEXT("음성 파이프라인 통계를 출력한다."),
@@ -368,6 +554,68 @@ namespace
 				{
 					UE_LOG(LogMOUVoice, Log, TEXT("%s"), *Voice->GetStatsString());
 				}
+			}));
+
+	/**
+	 * 마이크가 안 잡힐 때 원인을 단계별로 짚어주는 명령.
+	 *
+	 * "마이크가 준비되지 않았다" 는 원인이 네 가지나 되는데 증상이 똑같아서
+	 * 어디서 막혔는지 알기 어렵다. 각 단계를 따로 찍어준다.
+	 */
+	FAutoConsoleCommandWithWorldAndArgs GVoiceDiagCommand(
+		TEXT("MOU.Voice.Diag"),
+		TEXT("마이크가 안 잡힐 때 원인을 단계별로 진단한다."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World)
+			{
+				UE_LOG(LogMOUVoice, Log, TEXT("===== 음성 진단 ====="));
+
+				const bool bModuleLoaded = FVoiceModule::IsAvailable();
+				UE_LOG(LogMOUVoice, Log, TEXT("1) Voice 모듈 로드   : %s"),
+					bModuleLoaded ? TEXT("O") : TEXT("X  <- 모듈이 안 올라왔다"));
+
+				if (!bModuleLoaded)
+				{
+					UE_LOG(LogMOUVoice, Log, TEXT("   -> Build.cs 의 \"Voice\" 의존성을 확인할 것."));
+					return;
+				}
+
+				const bool bVoiceEnabled = FVoiceModule::Get().IsVoiceEnabled();
+				UE_LOG(LogMOUVoice, Log, TEXT("2) [Voice] bEnabled  : %s"),
+					bVoiceEnabled ? TEXT("true") : TEXT("false <- ini 설정 문제"));
+
+				if (!bVoiceEnabled)
+				{
+					UE_LOG(LogMOUVoice, Log,
+						TEXT("   -> Config/DefaultEngine.ini 에 [Voice] bEnabled=true 를 넣고 ")
+						TEXT("**에디터를 재시작**할 것. ini 는 시작 시 한 번만 읽는다."));
+					return;
+				}
+
+				UVoiceSubsystem* Voice = FindVoiceSubsystem(World);
+				UE_LOG(LogMOUVoice, Log, TEXT("3) 음성 서브시스템   : %s"),
+					Voice ? TEXT("O") : TEXT("X"));
+
+				if (!Voice)
+				{
+					return;
+				}
+
+				UE_LOG(LogMOUVoice, Log, TEXT("4) 마이크 열기       : %s"),
+					Voice->IsCaptureReady() ? TEXT("O") : TEXT("X  <- 장치 또는 권한 문제"));
+
+				if (!Voice->IsCaptureReady())
+				{
+					UE_LOG(LogMOUVoice, Log,
+						TEXT("   -> Windows 설정 > 개인 정보 및 보안 > 마이크 에서 ")
+						TEXT("'데스크톱 앱이 마이크에 액세스하도록 허용'이 켜져 있는지 확인할 것."));
+					UE_LOG(LogMOUVoice, Log,
+						TEXT("   -> 헤드셋을 꽂은 뒤 에디터를 켰다면, 장치 목록이 갱신되도록 ")
+						TEXT("에디터를 재시작해볼 것."));
+					return;
+				}
+
+				UE_LOG(LogMOUVoice, Log, TEXT("모두 정상. %s"), *Voice->GetStatsString());
 			}));
 
 	FAutoConsoleCommandWithWorldAndArgs GVoiceSensitivityCommand(
@@ -401,7 +649,8 @@ namespace
 	FAutoConsoleCommandWithWorldAndArgs GVoiceFakeNoiseCommand(
 		TEXT("MOU.Voice.FakeNoise"),
 		TEXT("마이크 없이 내 위치에 소음 이벤트를 발생시킨다(NPC 청각 테스트용). ")
-		TEXT("사용법: MOU.Voice.FakeNoise [반경=1500] [음량=1.0] [태그=Voice.Proximity]"),
+		TEXT("사용법: MOU.Voice.FakeNoise [반경] [음량] [태그=Voice.Proximity] ")
+		TEXT("(생략하면 현재 발화 모드의 실제 값을 쓴다)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
@@ -415,8 +664,16 @@ namespace
 					return;
 				}
 
-				const float MaxRange = Args.IsValidIndex(0) ? FCString::Atof(*Args[0]) : 1500.f;
-				const float Loudness = Args.IsValidIndex(1) ? FCString::Atof(*Args[1]) : 1.f;
+				// 기본값을 하드코딩하지 않고 실제 발화 모드 값에서 가져온다.
+				// 그래야 NPC 팀원이 이 명령으로 맞춰둔 반응이 V8 의 진짜 음성에도
+				// 그대로 유효하다(숫자가 다르면 다시 튜닝해야 한다).
+				const UVoiceSubsystem* Voice = FindVoiceSubsystem(World);
+				const EVoiceMode Mode = Voice ? Voice->GetVoiceMode() : EVoiceMode::Normal;
+
+				const float MaxRange = Args.IsValidIndex(0)
+					? FCString::Atof(*Args[0]) : MOUVoice::GetNoiseRange(Mode);
+				const float Loudness = Args.IsValidIndex(1)
+					? FCString::Atof(*Args[1]) : MOUVoice::GetLoudnessScale(Mode);
 				const FName Tag = Args.IsValidIndex(2) ? FName(*Args[2]) : FName(TEXT("Voice.Proximity"));
 
 				const FVector NoiseLocation = Pawn->GetActorLocation();

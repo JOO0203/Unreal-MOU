@@ -5,12 +5,14 @@
 //   콘솔에서:  MOU.Voice.Loopback 1   -> 내 목소리가 내 헤드폰으로 돌아온다
 //              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수
 //              MOU.Voice.FakeNoise 1500  -> 마이크 없이 NPC 소음만 발생
+//              MOU.Voice.Mute 1       -> 마이크 음소거 (C 키와 동일)
+//              MOU.Voice.ShowUI       -> 상태 표시 위젯 띄우기 (VoiceStatusWidget.h)
 //
 // [이 파일이 시스템 어디에 있나]
 //
-//     FVoiceCaptureRunnable (워커 스레드)
-//       ↓ TQueue (SPSC)
-//   ★ UVoiceSubsystem (게임 스레드)  ← 이 파일. Tick 으로 큐를 비운다
+//     FVoiceCaptureSource (게임 스레드에서 직접 폴링. VoiceCaptureSource.h 참고)
+//       ↓ Poll()
+//   ★ UVoiceSubsystem (게임 스레드)  ← 이 파일. Tick 에서 폴링해 재생 버퍼로 넘김
 //       ↓ PushSamples
 //     UVoiceSynthComponent (오디오 렌더 스레드)
 //
@@ -29,18 +31,18 @@
 #include "Subsystems/LocalPlayerSubsystem.h"
 #include "Containers/Ticker.h"
 #include "Voice/VoiceTypes.h"
+#include "Voice/VoiceCaptureSource.h"
 #include "VoiceSubsystem.generated.h"
 
-class FVoiceCaptureRunnable;
-class FRunnableThread;
+class FVoiceCaptureSource;
 class UVoiceSynthComponent;
 
 /**
  * 마이크 캡처와 재생을 소유한다.
  *
  * 역할:
- *   1. 캡처 워커 스레드의 생성과 파괴
- *   2. 게임 스레드 Tick 에서 워커의 큐를 비우고 재생 버퍼로 넘김
+ *   1. 마이크 캡처 객체(FVoiceCaptureSource)의 생성과 파괴
+ *   2. 게임 스레드 Tick 에서 마이크를 폴링해 재생 버퍼로 넘김
  *   3. 콘솔 명령 / 블루프린트가 쓸 API 제공
  */
 UCLASS()
@@ -68,6 +70,48 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
 	bool IsLoopbackEnabled() const { return bLoopbackEnabled; }
+
+	/**
+	 * 마이크 음소거를 켜고 끈다. `C` 키에 연결된다(VOICE_INTEGRATION.md 7-1절).
+	 *
+	 * 켜면 **캡처 자체를 중단한다**(마이크를 놓는다. VAD 도 안 돈다) - 설계 문서의
+	 * 표현 그대로다. "볼륨을 낮추는" 것이 아니라 "말하지 않는" 상태로 만드는 것이다.
+	 * 이렇게 해야 나중에 네트워크 전송(V3)이 붙었을 때도 음소거 중엔 아무것도
+	 * 나가지 않는다는 게 자연스럽게 보장된다 - 별도로 "전송 안 함" 분기를 안 둬도 된다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void SetMuted(bool bInMuted);
+
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void ToggleMute() { SetMuted(!bMuted); }
+
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	bool IsMuted() const { return bMuted; }
+
+	/**
+	 * 발화 모드(속삭임/보통/외침)를 바꾼다.
+	 *
+	 * 이 값이 들리는 거리와 NPC 가 듣는 거리를 동시에 결정한다.
+	 * 실제 숫자는 MOUVoice::GetHearRadius / GetNoiseRange 한 곳에만 있다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void SetVoiceMode(EVoiceMode NewMode);
+
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	EVoiceMode GetVoiceMode() const { return VoiceMode; }
+
+	/**
+	 * 말할 때 내 주위에 소리 도달 범위를 링으로 그린다(디버그 전용).
+	 *
+	 * 초록 = 사람이 듣는 거리, 빨강 = NPC 가 듣는 거리.
+	 * 두 값 모두 V8 에서 실제 소음 이벤트가 쓸 값과 **같은 함수**에서 나오므로,
+	 * 여기 보이는 원이 곧 실제 판정 범위다(어긋날 수 없다).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void SetShowRadiusDebug(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	bool IsShowingRadiusDebug() const { return bShowRadiusDebug; }
 
 	/** 마이크가 실제로 열렸는지. 없어도 게임은 정상 진행된다. */
 	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
@@ -101,25 +145,26 @@ public:
 	FString GetStatsString() const;
 
 private:
-	/** 게임 스레드 틱. 워커 큐를 비우고 재생 버퍼로 넘긴다. */
+	/** 게임 스레드 틱. 마이크를 폴링해 재생 버퍼로 넘긴다. */
 	bool Tick(float DeltaTime);
-
-	/** 워커 스레드를 Stop -> 종료 대기 -> 파괴 순서로 정리한다. */
-	void ShutdownCapture();
 
 	/** 재생용 신스 컴포넌트를 만든다(루프백을 처음 켤 때). */
 	void EnsurePlaybackComponent();
 
+	/** 말하는 동안 소리 도달 범위를 링으로 그린다. 디버그 빌드에서만 의미가 있다. */
+	void DrawRadiusDebug();
+
 	/**
-	 * 캡처 워커. 게임 스레드에서 생성/파괴하고 그 사이엔 워커 스레드가 쓴다.
+	 * 마이크 캡처.
 	 *
-	 * 원시 포인터인 이유는 기존 채팅의 FChatClientRunnable 과 같다:
-	 * 수명이 "스레드가 끝났는가" 에만 달려 있고 그 판단은 ShutdownCapture 하나에서만
-	 * 내린다. 참조 카운트로 관리하면 스레드가 살아있는데 객체가 먼저 사라질 여지가 생긴다.
-	 * **반드시 ShutdownCapture 를 거쳐서만 해제할 것. delete 를 직접 부르지 말 것.**
+	 * 워커 스레드가 아니라 **게임 스레드에서 직접 폴링한다.**
+	 * 엔진의 IVoiceCapture 구현이 게임 스레드 티커로 자기 버퍼를 채우는데
+	 * 그 버퍼에 뮤텍스가 없기 때문이다(FVoiceCaptureSource.h 상단 주석 참고).
 	 */
-	FVoiceCaptureRunnable* CaptureRunnable = nullptr;
-	FRunnableThread*       CaptureThread   = nullptr;
+	TUniquePtr<FVoiceCaptureSource> CaptureSource;
+
+	/** 매 틱 재사용하는 프레임 버퍼. 틱마다 할당하지 않으려고 멤버로 둔다. */
+	TArray<FMOUVoiceFrame> PolledFrames;
 
 	/**
 	 * 재생 컴포넌트.
@@ -134,6 +179,11 @@ private:
 
 	bool bLoopbackEnabled = false;
 	bool bIsSpeaking      = false;
+	bool bMuted           = false;
+	bool bShowRadiusDebug = false;
+
+	/** 지금 발화 모드. V9 에서 키/UI 로 바꾸게 되고, 지금은 콘솔로만 바꾼다. */
+	EVoiceMode VoiceMode = EVoiceMode::Normal;
 
 	/**
 	 * 마지막으로 프레임을 받은 시각.
