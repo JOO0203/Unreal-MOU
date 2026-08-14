@@ -3,6 +3,7 @@
 #include "Base/CharacterBase.h"
 
 #include "Base/BaseAttributeSet.h"
+#include "Components/GrabFollowComponent.h"
 #include "Components/StatusComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "Components/CapsuleComponent.h"
@@ -19,6 +20,9 @@ ACharacterBase::ACharacterBase()
 
 	// 플레이어 및 방해 NPC 공통 상태 관리 컴포넌트 생성
 	StatusComponent = CreateDefaultSubobject<UStatusComponent>(TEXT("StatusComponent"));
+
+	// 잡힌 캐릭터의 위치 및 회전을 운반자 소켓에 동기화하는 컴포넌트 생성
+	GrabFollowComponent = CreateDefaultSubobject<UGrabFollowComponent>(TEXT("GrabFollowComponent"));
 
 	// 캡슐 콜리전 기본 크기 설정
 	GetCapsuleComponent()->InitCapsuleSize(35.0f, 90.0f);
@@ -47,6 +51,14 @@ ACharacterBase::ACharacterBase()
 void ACharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// ASC가 Character에 있으므로 서버와 모든 클라이언트에서 ActorInfo를 초기화합니다.
+	// AI NPC는 클라이언트에서 PlayerState가 없어 OnRep_PlayerState가 호출되지 않을 수 있습니다.
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+		AbilitySystemComponent->SetReplicationMode(AscReplicationMode);
+	}
 
 	// Attribute 변경 감지 델리게이트 바인딩
 	BindAttributeChangeDelegates();

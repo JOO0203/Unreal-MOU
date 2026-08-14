@@ -58,6 +58,10 @@
 		{
 			"Name": "AllToolsets",
 			"Enabled": true
+		},
+		{
+			"Name": "Text3D",
+			"Enabled": true
 		}
 	]
 }
