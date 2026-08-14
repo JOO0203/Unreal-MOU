@@ -1,0 +1,50 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataTable.h"
+#include "ItemSpawnRow.generated.h"
+
+class AItemBase;
+class UTexture2D;
+
+/**
+ * FItemSpawnRow
+ * 아이템 DataTable의 한 행(칼럼) 정의. 스포너가 이 표를 읽어 아이템을 찍어낸다.
+ * 방식 1(데이터만 DT): 순수 데이터 + 스폰할 클래스만. 동작(GE/Fire 등)은 각 클래스/BP가 가진다.
+ * ItemBase는 건드리지 않는다 - 스폰 후 public 필드에 값만 주입.
+ */
+USTRUCT(BlueprintType)
+struct FItemSpawnRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 스폰할 아이템 액터 클래스 (예: BP_Potion_Heal, BP_TaserGun). 이 행의 핵심.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	TSubclassOf<AItemBase> ItemClass;
+
+	// 표시 이름 (ItemBase.ItemName에 주입)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	FText ItemName;
+
+	// 아이콘 (ItemBase.ItemIcon에 주입)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	TObjectPtr<UTexture2D> ItemIcon;
+
+	// 무게 (ItemBase.ItemWeight에 주입)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	float ItemWeight = 1.0f;
+
+	// 소비 아이템 여부. false면 영구 아이템(지도 등) - 닳지 않고 사라지지 않음.
+	// 표에서 소비/영구를 구분하는 용도. (영구 아이템은 MaxUseCount가 의미 없음)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bIsConsumable = true;
+
+	// 최대 사용 횟수 (ItemBase.MaxUseCount에 주입 → 소비/무기 베이스가 이 값으로 복제 카운트 초기화)
+	// 영구 아이템(bIsConsumable=false)에서는 사용되지 않음.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (EditCondition = "bIsConsumable"))
+	int32 MaxUseCount = 1;
+
+	// 상점 판매 가격 (상점/보상 시스템에서 사용)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	int32 Price = 0;
+};
