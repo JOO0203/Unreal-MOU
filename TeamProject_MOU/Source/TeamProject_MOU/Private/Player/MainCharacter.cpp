@@ -549,17 +549,18 @@ void AMainCharacter::OnUse()
 	// 현재 들고있는 택배(CarryingComponent)가 있다면 일반 아이템 사용 불가 (손이 비어있어야 함)
 	if (CarryingComponent && CarryingComponent->IsCarrying())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("물건을 들고 있어서 아이템을 사용할 수 없습니다!"));
-		return;
-	}
-
-	// TODO: 장착 중인 아이템 사용 로직 (인벤토리 시스템 연동 시 구현)
-	if (CarryingComponent && CarryingComponent->IsCarrying())
-	{
 		if (AItemBase* HandItem = Cast<AItemBase>(CarryingComponent->GetCarriedActor()))
 		{
 			HandItem->OnUse();
 		}
+		return;
+	
+
+	// TODO: 장착 중인 아이템 사용 로직 (인벤토리 시스템 연동 시 구현)
+	if (CarryingComponent && !CarryingComponent->IsCarrying())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("물건이 없어서 사용할 수 없습니다!"));
+
 	}
 }
 
