@@ -56,10 +56,10 @@ protected:
 	virtual void PickUp_Implementation(AActor* Picker) override;
 
 	// [CONSUME-011] 놓을 때 소유권 해제
-	virtual void Drop_Implementation(FVector DropLocation) override;
+	virtual void Drop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;
 
 	// [CONSUME-012] 던질 때 소유권 해제
-	virtual void Throw_Implementation(FVector ThrowVelocity) override;
+	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
 #pragma endregion
 
 #pragma region [CONSUME] 사용 흐름 (공통)

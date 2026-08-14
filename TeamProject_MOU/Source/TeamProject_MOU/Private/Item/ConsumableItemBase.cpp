@@ -32,25 +32,25 @@ void AConsumableItemBase::PickUp_Implementation(AActor* Picker)
 }
 
 // [CONSUME-011] 놓을 때 소유권 해제
-void AConsumableItemBase::Drop_Implementation(FVector DropLocation)
+void AConsumableItemBase::Drop_Implementation(FVector DropLocation, AActor* Dropper)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
 	}
 
-	Super::Drop_Implementation(DropLocation);
+	Super::Drop_Implementation(DropLocation, Dropper);
 }
 
 // [CONSUME-012] 던질 때 소유권 해제
-void AConsumableItemBase::Throw_Implementation(FVector ThrowVelocity)
+void AConsumableItemBase::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
 	}
 
-	Super::Throw_Implementation(ThrowVelocity);
+	Super::Throw_Implementation(ThrowVelocity, Thrower);
 }
 
 // [CONSUME-000] 좌클릭: 소비는 항상 서버에서 처리 (차감/판정/복제 신뢰성)

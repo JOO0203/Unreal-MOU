@@ -71,10 +71,10 @@ protected:
 	virtual void PickUp_Implementation(AActor* Picker) override;
 
 	// [WEAPON-011] 놓을 때 소유권 해제
-	virtual void Drop_Implementation(FVector DropLocation) override;
+	virtual void Drop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;
 
 	// [WEAPON-012] 던질 때 소유권 해제
-	virtual void Throw_Implementation(FVector ThrowVelocity) override;
+	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
 #pragma endregion
 
 #pragma region [WEAPON] 사용/발사 흐름 (공통)
