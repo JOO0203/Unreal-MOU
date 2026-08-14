@@ -15,6 +15,7 @@ public class TeamProject_MOU : ModuleRules
             "InputCore",
             "EnhancedInput",
             "AIModule",
+            "NavigationSystem",
             "StateTreeModule",
             "GameplayStateTreeModule",
             "UMG",
