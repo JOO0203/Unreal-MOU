@@ -65,7 +65,7 @@ void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (StatusComp)
 	{
 		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Pushing"), false);
-		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
+		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
 		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
 
 		bIsPushing = (PushingTag.IsValid() && StatusComp->HasStatusTag(PushingTag));

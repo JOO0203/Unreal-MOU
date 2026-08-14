@@ -58,6 +58,12 @@
 		{
 			"Name": "AllToolsets",
 			"Enabled": true
+		},
+		{
+
+			"Name": "MovieRenderPipeline","Text3D"
+
+			"Enabled": true
 		}
 	]
 }
