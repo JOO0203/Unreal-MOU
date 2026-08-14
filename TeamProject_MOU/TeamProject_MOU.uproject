@@ -60,7 +60,9 @@
 			"Enabled": true
 		},
 		{
-			"Name": "MovieRenderPipeline",
+
+			"Name": "MovieRenderPipeline","Text3D"
+
 			"Enabled": true
 		}
 	]
