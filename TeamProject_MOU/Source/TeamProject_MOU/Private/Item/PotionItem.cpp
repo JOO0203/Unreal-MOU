@@ -120,7 +120,7 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	Super::Throw_Implementation(ThrowVelocity, Thrower);
 
-	if (bApplyOnImpact && HasAuthority() && MeshComponent)
+	if (bApplyOnImpact && HasAuthority() && MeshComponent)QN
 	{
 		bHasImpacted = false;
 		MeshComponent->SetNotifyRigidBodyCollision(true); // OnComponentHit 활성화
