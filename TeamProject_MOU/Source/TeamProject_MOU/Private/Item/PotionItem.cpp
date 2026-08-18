@@ -1,4 +1,4 @@
-#include "Item/PotionItem.h"
+﻿#include "Item/PotionItem.h"
 #include "Base/CharacterBase.h"
 #include "Player/MainCharacter.h"
 #include "Components/StatusComponent.h"
@@ -120,7 +120,7 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	Super::Throw_Implementation(ThrowVelocity, Thrower);
 
-	if (bApplyOnImpact && HasAuthority() && MeshComponent)QN
+	if (bApplyOnImpact && HasAuthority() && MeshComponent)
 	{
 		bHasImpacted = false;
 		MeshComponent->SetNotifyRigidBodyCollision(true); // OnComponentHit 활성화
