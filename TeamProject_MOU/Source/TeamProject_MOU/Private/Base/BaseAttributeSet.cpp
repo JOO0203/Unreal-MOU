@@ -4,6 +4,7 @@
 
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/MainCharacter.h"
 
 UBaseAttributeSet::UBaseAttributeSet()
 {
@@ -123,6 +124,14 @@ void UBaseAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
 	{
 		SetHealth(FMath::Clamp(GetHealth(), 0.0f, GetMaxHealth()));
+
+		if (GetHealth() <= 0.0f)
+		{
+			if (AMainCharacter* MainCharacter = Cast<AMainCharacter>(GetOwningActor()))
+			{
+				MainCharacter->HandleHealthZero();
+			}
+		}
 	}
 	else if (Data.EvaluatedData.Attribute == GetMoveSpeedAttribute())
 	{

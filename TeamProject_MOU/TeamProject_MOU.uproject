@@ -60,7 +60,11 @@
 			"Enabled": true
 		},
 		{
-			"Name": "PCGGeometryScriptInterop",
+			"Name": "MovieRenderPipeline",
+			"Enabled": true
+		},
+		{
+			"Name": "Text3D",
 			"Enabled": true
 		}
 	]

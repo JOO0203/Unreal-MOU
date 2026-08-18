@@ -13,6 +13,7 @@ class AController;
 class UAbilitySystemComponent;
 class UBaseAttributeSet;
 class UGameplayAbility;
+class UGrabFollowComponent;
 class UStatusComponent;
 struct FOnAttributeChangeData;
 
@@ -48,6 +49,10 @@ public:
 	// 상태 이상 및 디버프 관리 컴포넌트 (플레이어 및 NPC 공통 사용)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Status")
 	TObjectPtr<UStatusComponent> StatusComponent;
+
+	// 잡힌 캐릭터가 운반자의 소켓 위치를 따라가도록 관리하는 컴포넌트
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grab")
+	TObjectPtr<UGrabFollowComponent> GrabFollowComponent;
 
 	// 캐릭터 생성 시 기본 부여할 Gameplay Ability 스킬 배열
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GASGamePlayAbility")
