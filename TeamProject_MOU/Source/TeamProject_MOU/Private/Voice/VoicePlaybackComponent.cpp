@@ -132,6 +132,11 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 
 	Stream.LastFrameTime = Now;
 	Stream.LastMode      = Mode;
+	Stream.Route         = Route;
+
+	// 무전이면 소리를 낼 무전기가 프레임에 실려 온다.
+	// 매번 갱신한다 - 같은 사람이라도 무전기를 바꿔 들 수 있다.
+	Stream.RadioActor = (Route == EVoiceRoute::Radio) ? Frame.RadioActor.Get() : nullptr;
 
 	// --- 지터버퍼에 넣는다 --------------------------------------------------
 	//
@@ -270,14 +275,27 @@ APawn* UVoicePlaybackComponent::FindSpeakerPawn(int32 SpeakerId) const
 	return nullptr;
 }
 
+AActor* UVoicePlaybackComponent::ResolveSpeakerActor(const FVoiceStream& Stream, int32 SpeakerId) const
+{
+	if (Stream.Route == EVoiceRoute::Radio)
+	{
+		// ★ 무전은 **발신자가 아니라 무전기**에서 소리가 난다.
+		//   그래서 발신자 폰을 찾지 않는다 - 발신자는 맵 반대편에 있을 수도 있고,
+		//   그 사람 폰은 이 클라에 리플리케이트조차 안 돼 있을 수 있다.
+		return Stream.RadioActor.Get();
+	}
+
+	return FindSpeakerPawn(SpeakerId);
+}
+
 UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 	FVoiceStream& Stream, int32 SpeakerId, EVoiceMode Mode)
 {
-	APawn* SpeakerPawn = FindSpeakerPawn(SpeakerId);
+	AActor* SpeakerActor = ResolveSpeakerActor(Stream, SpeakerId);
 
-	if (!SpeakerPawn)
+	if (!SpeakerActor)
 	{
-		// 발신자는 근접 반경 안에 있으므로 폰도 리플리케이트돼 있어야 정상이다.
+		// 근접이면 발신자 폰이, 무전이면 무전기가 아직 이 클라에 없다.
 		// 접속 직후처럼 아직 안 온 순간에만 잠깐 걸린다. 계속 오르면 문제다.
 		++TotalPawnMisses;
 		return nullptr;
@@ -285,9 +303,10 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 
 	UVoiceSynthComponent* Synth = Stream.Synth.Get();
 
-	// 폰이 바뀌었으면(사망 후 리스폰) 옛 사운드는 죽은 폰에 붙어 있다.
-	// 그대로 두면 새 위치가 아니라 **시체가 있던 자리에서 목소리가 난다.**
-	if (Synth && Stream.AttachedPawn.Get() != SpeakerPawn)
+	// 붙어 있던 액터가 바뀌었으면(사망 후 리스폰, 무전기 교체) 옛 사운드는
+	// 엉뚱한 액터에 붙어 있다. 그대로 두면 **시체가 있던 자리나 놓고 온
+	// 무전기에서 목소리가 난다.**
+	if (Synth && Stream.AttachedActor.Get() != SpeakerActor)
 	{
 		Synth->Stop();
 		Synth->DestroyComponent();
@@ -297,7 +316,7 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 
 	if (!Synth)
 	{
-		USceneComponent* AttachTarget = SpeakerPawn->GetRootComponent();
+		USceneComponent* AttachTarget = SpeakerActor->GetRootComponent();
 
 		if (!AttachTarget)
 		{
@@ -308,12 +327,19 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 			return nullptr;
 		}
 
-		Synth = NewObject<UVoiceSynthComponent>(SpeakerPawn);
+		Synth = NewObject<UVoiceSynthComponent>(SpeakerActor);
 
-		// ★★ 순서가 중요하다. SetProximityMode 를 Start() **전에** 불러야 한다.
+		// ★★ 순서가 중요하다. 공간화 설정을 Start() **전에** 해야 한다.
 		//    공간화 여부는 사운드를 만드는 시점에 읽히기 때문에, 나중에 켜면
 		//    그 사운드는 끝까지 2D 로 난다 - "소리는 나는데 방향이 없다" 가 된다.
-		Synth->SetProximityMode(Mode);
+		if (Stream.Route == EVoiceRoute::Radio)
+		{
+			Synth->SetRadioMode(MOUVoice::DefaultSpeakerHearRadius);
+		}
+		else
+		{
+			Synth->SetProximityMode(Mode);
+		}
 
 		// 등록 전에는 SetupAttachment, 등록 후에는 AttachToComponent 다.
 		// 여기서는 아직 등록 전이다.
@@ -322,11 +348,12 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 		Synth->Start();
 
 		Stream.Synth = Synth;
-		Stream.AttachedPawn = SpeakerPawn;
+		Stream.AttachedActor = SpeakerActor;
 	}
-	else
+	else if (Stream.Route == EVoiceRoute::Proximity)
 	{
 		// 발화 모드가 바뀌었으면 감쇠만 갈아끼운다(모드가 그대로면 즉시 반환한다).
+		// 무전은 반경이 무전기 속성이라 발화 모드와 무관하다.
 		Synth->SetProximityMode(Mode);
 	}
 

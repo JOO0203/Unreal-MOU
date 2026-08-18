@@ -151,6 +151,41 @@ public:
 	bool IsCaptureReady() const;
 
 	/**
+	 * 내가 지금 음성 사망 상태인가(말하기·듣기 모두 차단).
+	 *
+	 * 판정은 UVoiceComponent 가 들고 있다 - 서버가 정하고 복제해 오는 값이다.
+	 * 여기서는 그걸 그대로 물어본다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	bool IsVoiceDead() const;
+
+	/**
+	 * 무전 송신(PTT)을 켜고 끈다. 설계상 `X` 키 홀드에 대응한다(V6).
+	 *
+	 * 켜져 있는 동안 내 목소리가 **근접과 무전 양쪽으로** 나간다 - 무전을 쳐도
+	 * 입으로는 실제로 소리를 내고 있기 때문이다(2절). 근처 사람은 육성으로 듣고,
+	 * 멀리 있는 사람은 무전기로 듣는다. 겹치지 않게 하는 것은 서버 몫이다.
+	 *
+	 * ★ 실제로 무전이 나가는지는 서버가 정한다 - 무전기를 들고 있는지,
+	 *   켜져 있는지, 채널이 비었는지를 전부 서버가 다시 확인한다.
+	 *   여기서 켰다고 나가는 것이 아니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void SetRadioTransmitting(bool bTransmitting);
+
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	bool IsRadioTransmitting() const { return bRadioTransmitting; }
+
+	/**
+	 * 사망 상태를 서버에 요청한다(테스트용, `MOU.Voice.Die`).
+	 *
+	 * ★ 나중에 실제 게임 로직(체력 0 -> 사망)과 엮이면 이 함수는 사라진다.
+	 *   사망 판정은 서버가 하는 것이지 클라가 요청할 일이 아니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Voice")
+	void RequestVoiceDead(bool bDead);
+
+	/**
 	 * 지금 말하고 있는지 (VAD 판정). NPC 소음 발생 조건이자 UI 표시용이다.
 	 * V8 에서 소음 이벤트의 입력이 된다.
 	 */
@@ -228,13 +263,6 @@ public:
 	/** 진단용 통계를 한 줄 문자열로. MOU.Voice.Stat 이 쓴다. */
 	FString GetStatsString() const;
 
-private:
-	/** 게임 스레드 틱. 마이크를 폴링해 재생 버퍼로 넘긴다. */
-	bool Tick(float DeltaTime);
-
-	/** 재생용 신스 컴포넌트를 만든다(루프백을 처음 켤 때). */
-	void EnsurePlaybackComponent();
-
 	/**
 	 * 내 PlayerController 의 음성 창구를 얻는다. 없으면 null.
 	 *
@@ -242,6 +270,13 @@ private:
 	 * (레벨 이동, 재접속) 캐시가 자동으로 풀리도록 약참조로 들고 있는다.
 	 */
 	UVoiceComponent* GetVoiceComponent();
+
+private:
+	/** 게임 스레드 틱. 마이크를 폴링해 재생 버퍼로 넘긴다. */
+	bool Tick(float DeltaTime);
+
+	/** 재생용 신스 컴포넌트를 만든다(루프백을 처음 켤 때). */
+	void EnsurePlaybackComponent();
 
 	/** 지금 로컬 플레이어의 PlayerController. 없으면 null. */
 	APlayerController* GetOwningPlayerController() const;
@@ -340,6 +375,9 @@ private:
 	 * bIsSpeaking 하나만으로는 "지금 상태" 만 알 수 있어 전환 시점을 못 잡는다.
 	 */
 	bool bWasSpeaking = false;
+
+	/** 무전 송신 중인지(설계상 `X` 홀드). 서버가 자격을 다시 확인한다. */
+	bool bRadioTransmitting = false;
 
 	/** 지금 발화 모드. V9 에서 키/UI 로 바꾸게 되고, 지금은 콘솔로만 바꾼다. */
 	EVoiceMode VoiceMode = EVoiceMode::Normal;

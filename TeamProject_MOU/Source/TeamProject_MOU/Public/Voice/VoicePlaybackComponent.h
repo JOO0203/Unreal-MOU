@@ -89,8 +89,21 @@ struct FVoiceStream
 	/** 발신자 폰에 붙인 사운드. 위 ★ 참고. */
 	TWeakObjectPtr<UVoiceSynthComponent> Synth;
 
-	/** 지금 Synth 가 붙어 있는 폰. 리스폰 감지에 쓴다. */
-	TWeakObjectPtr<APawn> AttachedPawn;
+	/**
+	 * 지금 Synth 가 붙어 있는 액터.
+	 *
+	 * 근접이면 발신자 폰, 무전이면 무전기 액터다. 이 값이 바뀌면(리스폰,
+	 * 무전기를 떨어뜨림) 사운드를 새 액터에 다시 만든다.
+	 */
+	TWeakObjectPtr<AActor> AttachedActor;
+
+	/**
+	 * 무전 스트림일 때 소리를 낼 무전기 액터. 서버가 프레임마다 알려준다.
+	 *
+	 * ★ 매번 갱신하는 이유: **같은 스트림이라도 무전기가 바뀔 수 있다.**
+	 *   들고 있던 무전기를 떨어뜨리고 다른 것을 주우면 소리가 나는 위치가 바뀐다.
+	 */
+	TWeakObjectPtr<AActor> RadioActor;
 
 	/**
 	 * 도착한 프레임을 번호 순서로 다시 세우는 버퍼(V4).
@@ -120,6 +133,9 @@ struct FVoiceStream
 
 	/** 마지막으로 받은 발화 모드. 재생 시점에 감쇠 반경을 정하는 데 쓴다. */
 	EVoiceMode LastMode = EVoiceMode::Normal;
+
+	/** 이 스트림의 라우트. 소리를 어디에 붙일지와 어떤 톤으로 낼지를 정한다. */
+	EVoiceRoute Route = EVoiceRoute::Proximity;
 
 	/** 마지막으로 프레임이 온 시각. 오래 조용하면 스트림을 정리한다. */
 	double LastFrameTime = 0.0;
@@ -174,10 +190,20 @@ private:
 	APawn* FindSpeakerPawn(int32 SpeakerId) const;
 
 	/**
-	 * 스트림의 사운드가 올바른 폰에 붙어 있도록 보장한다.
-	 * 없거나 폰이 바뀌었으면(리스폰) 새로 만든다.
+	 * 이 스트림의 소리가 나야 할 액터를 정한다.
 	 *
-	 * @return 쓸 수 있는 사운드. 폰을 못 찾으면 null.
+	 *   근접 → 발신자의 폰
+	 *   무전 → **듣는 쪽 근처의 무전기**(서버가 프레임에 실어 보낸 액터)
+	 *
+	 * 무전 소리가 발신자가 아니라 무전기에서 나는 것이 이 설계의 핵심이다(7-4절).
+	 */
+	AActor* ResolveSpeakerActor(const FVoiceStream& Stream, int32 SpeakerId) const;
+
+	/**
+	 * 스트림의 사운드가 올바른 액터에 붙어 있도록 보장한다.
+	 * 없거나 대상이 바뀌었으면(리스폰, 무전기 교체) 새로 만든다.
+	 *
+	 * @return 쓸 수 있는 사운드. 대상을 못 찾으면 null.
 	 */
 	UVoiceSynthComponent* EnsureSynthForStream(FVoiceStream& Stream, int32 SpeakerId, EVoiceMode Mode);
 

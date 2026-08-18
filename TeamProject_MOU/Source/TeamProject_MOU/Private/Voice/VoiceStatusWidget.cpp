@@ -173,6 +173,15 @@ void UVoiceStatusWidget::RefreshStatusText()
 
 	UVoiceSubsystem* Voice = GetVoiceSubsystem();
 
+	// ★ 사망을 가장 먼저 본다. 마이크가 있든 없든, 음소거든 아니든 결과가 같기 때문이다.
+	//   이걸 명시적으로 알려주지 않으면 "왜 아무도 내 말을 안 듣지" 로 한참 헤맨다.
+	if (Voice && Voice->IsVoiceDead())
+	{
+		StatusText->SetText(FText::FromString(TEXT("[사망] 말할 수도, 들을 수도 없습니다")));
+		StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(0.9f, 0.25f, 0.25f)));
+		return;
+	}
+
 	// 마이크가 아예 없는 경우 - 색으로 상태를 구분하되 텍스트로도 명확히 알린다.
 	// 색만으로 구분하면 색각 이상이 있는 사용자가 상태를 못 읽는다.
 	if (!Voice || !Voice->IsCaptureReady())

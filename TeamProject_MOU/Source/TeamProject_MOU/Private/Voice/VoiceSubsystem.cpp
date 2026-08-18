@@ -194,6 +194,26 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 	PolledFrames.Reset();
 	CaptureSource->Poll(PolledFrames);
 
+	// 이번 틱에 쓸 창구를 한 번만 찾는다.
+	// (사망 검사와 전송 양쪽이 필요한데, 매번 찾으면 캐시가 빈 첫 틱에 검사가
+	//  건너뛰어져 죽은 상태로 한 프레임이 나갈 수 있다)
+	UVoiceComponent* VoiceComp = GetVoiceComponent();
+
+	// --- 사망자 차단 1겹: 클라이언트 캡처 중단 (V5) --------------------------
+	//
+	// ★ 이건 **방어가 아니라 알려주기다.** 진짜 차단은 서버가 한다(VoiceRouter).
+	//   개조 클라이언트는 이 검사를 지우면 그만이므로 여기에 기대면 안 된다.
+	//
+	//   그래도 두는 이유 두 가지:
+	//     · 죽은 사람이 계속 인코딩·전송을 하며 대역폭을 낭비하지 않는다
+	//     · 화면 표시가 "말하는 중" 으로 남지 않는다 - 안 들리는 줄 모르고
+	//       계속 말하는 답답한 상황을 막는다
+	if (VoiceComp && VoiceComp->IsVoiceDead())
+	{
+		bIsSpeaking = false;
+		return true;
+	}
+
 	if (bMuted)
 	{
 		// 밖에서 보기엔 마이크가 꺼진 것과 같다: 발화 상태 강제 OFF, 재생/전송 없음.
@@ -250,13 +270,20 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		// ★ 코덱이 꺼져 있으면 아무것도 못 보낸다. 네트워크로 나가는 형식이
 		//   Opus 바이트라서 원본 PCM 을 실을 자리가 없기 때문이다.
 		//   MOU.Voice.Codec 0 은 그래서 "루프백으로만 들어보는" 모드가 된다.
-		if (bEncoded)
+		if (bEncoded && VoiceComp)
 		{
-			if (UVoiceComponent* Voice = GetVoiceComponent())
-			{
-				Voice->SendVoiceFrame(EncodedScratch, Frame.Loudness, VoiceMode, EVoiceRoute::Proximity);
-				++FramesTransmitted;
-			}
+			// 무전 송신 중이면 무전으로 **요청**한다. 실제로 무전이 나갈지는
+			// 서버가 정한다 - 무전기 소지·전원·채널 점유를 전부 다시 확인한다.
+			//
+			// 근접으로도 나가는 것은 서버가 알아서 한다(무전을 쳐도 육성은 난다).
+			// 클라가 프레임을 두 번 보내지 않는다 - 같은 소리를 두 번 인코딩하고
+			// 두 번 전송하는 낭비이고, 서버가 한 번 받아 두 갈래로 뿌리면 된다.
+			const EVoiceRoute RequestedRoute = bRadioTransmitting
+				? EVoiceRoute::Radio
+				: EVoiceRoute::Proximity;
+
+			VoiceComp->SendVoiceFrame(EncodedScratch, Frame.Loudness, VoiceMode, RequestedRoute);
+			++FramesTransmitted;
 		}
 
 		if (!bLoopbackEnabled || !PlaybackComponent)
@@ -632,6 +659,51 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 bool UVoiceSubsystem::IsCaptureReady() const
 {
 	return CaptureSource.IsValid() && CaptureSource->IsReady();
+}
+
+bool UVoiceSubsystem::IsVoiceDead() const
+{
+	// const 함수라 캐시를 갱신할 수 없으므로 캐시된 것만 본다.
+	// 캐시가 비어 있으면(아직 한 번도 안 찾음) 사망이 아닌 것으로 본다 -
+	// 모르는 상태를 "죽음" 으로 잡으면 접속 직후 음성이 통째로 막힌다.
+	const UVoiceComponent* Voice = CachedVoiceComponent.Get();
+	return Voice ? Voice->IsVoiceDead() : false;
+}
+
+void UVoiceSubsystem::SetRadioTransmitting(bool bTransmitting)
+{
+	if (bRadioTransmitting == bTransmitting)
+	{
+		return;
+	}
+
+	bRadioTransmitting = bTransmitting;
+
+	UE_LOG(LogMOUVoice, Log, TEXT("무전 송신 %s. %s"),
+		bTransmitting ? TEXT("시작") : TEXT("중지"),
+		bTransmitting
+			? TEXT("(무전기를 들고 켜둬야 실제로 나간다 - 서버가 확인한다)")
+			: TEXT(""));
+}
+
+void UVoiceSubsystem::RequestVoiceDead(bool bDead)
+{
+	UVoiceComponent* Voice = GetVoiceComponent();
+
+	if (!Voice)
+	{
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("음성 컴포넌트를 찾지 못해 사망 상태를 바꿀 수 없다."));
+		return;
+	}
+
+	// 서버가 확정하고 복제해 돌아온다. 여기서 직접 bVoiceDead 를 건드리지 않는 이유는
+	// **클라가 스스로 정한 상태와 서버가 아는 상태가 어긋나면** 안 되기 때문이다.
+	// (호스트에서는 이 호출이 그 자리에서 실행되므로 즉시 반영된다)
+	Voice->ServerSetVoiceDead(bDead);
+
+	UE_LOG(LogMOUVoice, Log, TEXT("서버에 음성 %s 상태를 요청했다."),
+		bDead ? TEXT("사망") : TEXT("생존"));
 }
 
 bool UVoiceSubsystem::IsCodecReady() const
@@ -1169,6 +1241,104 @@ namespace
 				else
 				{
 					UE_LOG(LogMOUVoice, Warning, TEXT("음성 서브시스템을 찾지 못했다."));
+				}
+			}));
+
+	/**
+	 * V5 사망자 차단 테스트용.
+	 *
+	 * ★ 실제 사망(체력 0)과는 아직 연결돼 있지 않다. 캐릭터/PlayerState 와 엮는 것은
+	 *   다음 단계이고, 지금은 **차단 구조 3겹이 실제로 동작하는지**를 확인하는 것이
+	 *   목적이라 상태를 직접 세울 수단만 만들어 두었다.
+	 */
+	FAutoConsoleCommandWithWorldAndArgs GVoiceDieCommand(
+		TEXT("MOU.Voice.Die"),
+		TEXT("음성 사망 상태를 토글한다(말하기·듣기 모두 차단). ")
+		TEXT("사용법: MOU.Voice.Die [0|1] (인자 없으면 토글)"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				UVoiceSubsystem* Voice = FindVoiceSubsystem(World);
+				if (!Voice)
+				{
+					UE_LOG(LogMOUVoice, Warning, TEXT("음성 서브시스템을 찾지 못했다."));
+					return;
+				}
+
+				const bool bDead = Args.IsValidIndex(0)
+					? (FCString::Atoi(*Args[0]) != 0)
+					: !Voice->IsVoiceDead();
+
+				Voice->RequestVoiceDead(bDead);
+			}));
+
+	// -----------------------------------------------------------------------
+	// 무전기 (V6)
+	//
+	// ★ Spawn/Drop 은 테스트 도구다. 진짜 무전기는 아이템으로 줍고 버린다.
+	//   Power 는 설계상 `Z` 키, PTT 는 `X` 키에 대응한다 - 키 바인딩은 V9 몫이라
+	//   지금은 콘솔로만 조작한다.
+	// -----------------------------------------------------------------------
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceRadioSpawnCommand(
+		TEXT("MOU.Voice.Radio.Spawn"),
+		TEXT("테스트용 무전기를 손에 든다(임시 - 아이템 파트 완성 전까지)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					if (UVoiceComponent* Comp = Voice->GetVoiceComponent())
+					{
+						Comp->ServerDebugSpawnRadio();
+					}
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceRadioDropCommand(
+		TEXT("MOU.Voice.Radio.Drop"),
+		TEXT("들고 있던 무전기를 그 자리에 놓는다. 켜져 있으면 거기서 계속 소리가 난다."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					if (UVoiceComponent* Comp = Voice->GetVoiceComponent())
+					{
+						Comp->ServerDebugDropRadio();
+					}
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceRadioPowerCommand(
+		TEXT("MOU.Voice.Radio.Power"),
+		TEXT("무전기 전원을 켜고 끈다(설계상 Z 키). ")
+		TEXT("★ 끄면 음소거가 아니라 **무전망에서 완전히 빠진다.** 사용법: <0|1>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					if (UVoiceComponent* Comp = Voice->GetVoiceComponent())
+					{
+						Comp->ServerDebugSetRadioPower(Args.IsValidIndex(0) ? (FCString::Atoi(*Args[0]) != 0) : true);
+					}
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceRadioPttCommand(
+		TEXT("MOU.Voice.Radio.PTT"),
+		TEXT("무전 송신을 켜고 끈다(설계상 X 키 홀드). 인자 없으면 토글. 사용법: [0|1]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					const bool bOn = Args.IsValidIndex(0)
+						? (FCString::Atoi(*Args[0]) != 0)
+						: !Voice->IsRadioTransmitting();
+
+					Voice->SetRadioTransmitting(bOn);
 				}
 			}));
 
