@@ -17,10 +17,16 @@
 
 UVoicePlaybackComponent::UVoicePlaybackComponent()
 {
-	// 유휴 스트림 정리에만 쓰는 틱이라 매 프레임 돌 이유가 없다.
-	// 0.5초 간격이면 정리가 늦어봐야 반 박자이고 비용은 사실상 0 이다.
+	// ★ V4 부터는 **매 프레임** 돌아야 한다.
+	//
+	//   지터버퍼가 생기기 전에는 프레임을 받는 즉시 재생해서 틱이 느려도 됐다.
+	//   지금은 재생 링버퍼가 비어가는 것을 보고 채워 넣는 구조라, 틱이 느리면
+	//   그만큼 버퍼가 마르고 **소리가 끊긴다.** 0.5초 간격이면 재생이 아예 안 된다.
+	//
+	//   대신 유휴 스트림 정리는 매 프레임 할 이유가 없으므로 TimeSinceCleanup 으로
+	//   따로 늦춘다.
 	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.TickInterval = 0.5f;
+	PrimaryComponentTick.TickInterval = 0.f;
 }
 
 UVoicePlaybackComponent* UVoicePlaybackComponent::FindOrCreate(APlayerController* OwnerPC)
@@ -62,7 +68,17 @@ void UVoicePlaybackComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	CleanupIdleStreams();
+
+	// 재생은 매 프레임. 늦으면 그만큼 소리가 끊긴다(생성자 주석).
+	PumpAllStreams();
+
+	// 정리는 느긋해도 된다.
+	TimeSinceCleanup += DeltaTime;
+	if (TimeSinceCleanup >= 0.5f)
+	{
+		TimeSinceCleanup = 0.f;
+		CleanupIdleStreams();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -101,79 +117,128 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 			return;
 		}
 	}
-	// 오래 끊겼다 다시 오면 새 발화다. 디코더의 예측 상태를 비운다.
-	else if (Stream.bHasSeq && (Now - Stream.LastFrameTime) > MOUVoice::VoiceUtteranceGapSeconds)
+	// 오래 끊겼다 다시 오면 새 발화다. 디코더의 예측 상태와 버퍼를 함께 비운다.
+	//
+	// 지터버퍼도 같이 리셋하는 이유: 발화 사이의 공백은 유실이 아니다. 안 비우면
+	// 새 발화의 첫 프레임이 옛 번호와 이어져 **그 사이를 전부 유실로 보고**
+	// 은폐 프레임을 잔뜩 쏟아낸다.
+	else if ((Now - Stream.LastFrameTime) > MOUVoice::VoiceUtteranceGapSeconds)
 	{
 		Stream.Decoder->Reset();
-		Stream.bHasSeq = false;
+		Stream.Jitter.Reset();
+		Stream.LastPcm.Reset();
+		Stream.ConsecutiveConceals = 0;
 	}
 
-	// --- 순서 검사 ----------------------------------------------------------
-	//
-	// ★ uint16 순환(65535 -> 0)을 견뎌야 한다.
-	//   Seq 를 그냥 크기 비교하면 순환하는 순간 "65535개를 잃었다" 가 되어
-	//   통계가 망가지고, 정상 패킷을 오래된 것으로 오판해 버리게 된다.
-	//   **차이를 uint16 으로 계산하면** 순환이 자동으로 처리된다.
-	if (Stream.bHasSeq)
-	{
-		const uint16 Delta = static_cast<uint16>(Frame.Seq - Stream.LastSeq);
-
-		if (Delta == 0)
-		{
-			// 같은 프레임이 두 번 왔다. 재생하면 소리가 겹친다.
-			++TotalFramesDropped;
-			return;
-		}
-
-		if (Delta > 32768)
-		{
-			// 차이를 부호 있는 값으로 보면 음수 - 즉 **뒤늦게 도착한 옛 패킷**이다.
-			// 지터버퍼가 없는 V3 에서는 순서를 되돌릴 수 없으므로 버리는 것이 맞다.
-			// 지금 재생하면 이미 지나간 소리가 끼어들어 오히려 더 어색해진다.
-			// (V4 에서 지터버퍼가 생기면 여기서 버리지 않고 제자리에 꽂는다)
-			++TotalFramesDropped;
-			return;
-		}
-
-		if (Delta > 1)
-		{
-			// 중간이 비었다 = 유실. Opus 는 짧은 공백은 알아서 메운다.
-			Stream.FramesLost += Delta - 1;
-		}
-	}
-
-	Stream.LastSeq = Frame.Seq;
-	Stream.bHasSeq = true;
 	Stream.LastFrameTime = Now;
+	Stream.LastMode      = Mode;
 
-	// --- 디코딩 -------------------------------------------------------------
-	if (!Stream.Decoder->Decode(Frame.Opus.GetData(), Frame.Opus.Num(), Stream.DecodedScratch))
+	// --- 지터버퍼에 넣는다 --------------------------------------------------
+	//
+	// ★ 여기서 재생하지 않는다. 도착 간격은 들쭉날쭉하므로 그 박자에 맞춰
+	//   재생하면 그대로 끊긴다. 재생은 PumpStream 이 일정한 속도로 한다.
+	//   **이 분리가 V4 의 전부다.**
+	if (!Stream.Jitter.Push(Frame.Seq, Frame.Opus))
 	{
+		// 너무 늦게 왔거나 중복이다. 자세한 사유는 지터버퍼 통계에 남는다.
 		++TotalFramesDropped;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 재생 펌프 - 지터버퍼에서 꺼내 링버퍼를 채운다
+// ---------------------------------------------------------------------------
+
+void UVoicePlaybackComponent::PumpAllStreams()
+{
+	for (TPair<FVoiceStreamKey, FVoiceStream>& Pair : Streams)
+	{
+		PumpStream(Pair.Value, Pair.Key.SpeakerId);
+	}
+}
+
+void UVoicePlaybackComponent::PumpStream(FVoiceStream& Stream, int32 SpeakerId)
+{
+	if (!Stream.Decoder.IsValid())
+	{
 		return;
 	}
 
-	// --- 사운드 준비 (발신자 폰에 부착) --------------------------------------
-	UVoiceSynthComponent* Synth = EnsureSynthForStream(Stream, Frame.SpeakerId, Mode);
+	UVoiceSynthComponent* Synth = EnsureSynthForStream(Stream, SpeakerId, Stream.LastMode);
+
 	if (!Synth)
 	{
-		// 발신자 폰이 아직 이 클라에 없다. 다음 프레임에 다시 시도한다.
+		// 발신자 폰이 아직 이 클라에 없다. 다음 틱에 다시 시도한다.
 		return;
 	}
 
-	// --- 지연 방지 ----------------------------------------------------------
+	// 링버퍼를 목표 깊이까지만 채운다.
 	//
-	// 네트워크 흔들림으로 프레임이 몰려 오면 버퍼가 계속 차서 "몇 초 전 목소리" 를
-	// 듣게 된다. 음성은 오래된 것을 버리고 현재로 따라붙는 것이 맞다.
-	const int32 BufferedFrames = Synth->GetBufferedSampleCount() / MOUVoice::SamplesPerFrame;
-	if (BufferedFrames >= MOUVoice::PlaybackDropThresholdFrames)
+	// ★ 이 상한이 곧 지연 상한이다. 가득 채우면 그만큼 늦게 들리고, 적게 채우면
+	//   오디오 스레드가 먼저 비워서 끊긴다. 목표 깊이(3프레임=60ms)는 그 균형점이다.
+	const int32 TargetSamples = MOUVoice::TargetJitterFrames * MOUVoice::SamplesPerFrame;
+
+	// 한 틱에 무한정 돌지 않도록 상한을 둔다. 링버퍼가 어떤 이유로든 안 비면
+	// 조건이 계속 참이 되어 게임이 멈출 수 있다.
+	int32 SafetyCounter = MOUVoice::MaxJitterFrames + MOUVoice::TargetJitterFrames;
+
+	while (Synth->GetBufferedSampleCount() < TargetSamples && SafetyCounter-- > 0)
 	{
-		Synth->RequestFlush();
-		++TotalFramesDropped;
+		const EVoiceJitterResult Result = Stream.Jitter.Pop(Stream.PopScratch);
+
+		if (Result == EVoiceJitterResult::Starved)
+		{
+			// 아직 안 왔을 뿐이다. 여기서 은폐하면 멀쩡히 오고 있는 소리를 밀어낸다.
+			break;
+		}
+
+		if (Result == EVoiceJitterResult::Frame)
+		{
+			if (!Stream.Decoder->Decode(Stream.PopScratch.GetData(), Stream.PopScratch.Num(), Stream.DecodedScratch))
+			{
+				++TotalFramesDropped;
+				continue;
+			}
+
+			// 다음 유실 때 메울 재료로 남겨둔다.
+			Stream.LastPcm = Stream.DecodedScratch;
+			Stream.ConsecutiveConceals = 0;
+			++Stream.FramesPlayed;
+		}
+		else // Conceal - 유실이 확정됐다
+		{
+			BuildConcealmentFrame(Stream);
+			++Stream.FramesConcealed;
+		}
+
+		Synth->PushSamples(Stream.DecodedScratch.GetData(), Stream.DecodedScratch.Num());
+	}
+}
+
+void UVoicePlaybackComponent::BuildConcealmentFrame(FVoiceStream& Stream)
+{
+	++Stream.ConsecutiveConceals;
+
+	// 메울 재료가 없거나(발화 첫 프레임이 유실) 너무 오래 끌었으면 무음을 낸다.
+	//
+	// ★ 같은 소리를 계속 반복하면 사람 목소리가 아니라 기계음처럼 웅웅거린다.
+	//   짧게 덮을 때만 도움이 되고, 길어지면 조용한 편이 덜 거슬린다.
+	if (Stream.LastPcm.Num() == 0 || Stream.ConsecutiveConceals > MOUVoice::MaxConcealFrames)
+	{
+		Stream.DecodedScratch.Reset();
+		Stream.DecodedScratch.SetNumZeroed(MOUVoice::SamplesPerFrame);
+		return;
 	}
 
-	Synth->PushSamples(Stream.DecodedScratch.GetData(), Stream.DecodedScratch.Num());
-	++Stream.FramesPlayed;
+	// 반복할수록 빠르게 잦아들게 한다. 갑자기 뚝 끊기는 것보다 자연스럽다.
+	const float Gain = FMath::Pow(MOUVoice::ConcealFadePerFrame, static_cast<float>(Stream.ConsecutiveConceals));
+
+	Stream.DecodedScratch.SetNumUninitialized(Stream.LastPcm.Num(), EAllowShrinking::No);
+
+	for (int32 Index = 0; Index < Stream.LastPcm.Num(); ++Index)
+	{
+		Stream.DecodedScratch[Index] = static_cast<int16>(Stream.LastPcm[Index] * Gain);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -307,16 +372,35 @@ void UVoicePlaybackComponent::ResetAllStreams()
 
 FString UVoicePlaybackComponent::GetStatsString() const
 {
-	int32 Lost = 0;
-	int32 Played = 0;
+	int32 Played    = 0;
+	int32 Concealed = 0;
+	int32 Late      = 0;
+	int32 Duplicate = 0;
+	int32 Resync    = 0;
+	int32 Starve    = 0;
+	int32 Pending   = 0;
 
 	for (const TPair<FVoiceStreamKey, FVoiceStream>& Pair : Streams)
 	{
-		Lost   += Pair.Value.FramesLost;
-		Played += Pair.Value.FramesPlayed;
+		const FVoiceStream& Stream = Pair.Value;
+
+		Played    += Stream.FramesPlayed;
+		Concealed += Stream.FramesConcealed;
+
+		Late      += Stream.Jitter.GetLateCount();
+		Duplicate += Stream.Jitter.GetDuplicateCount();
+		Resync    += Stream.Jitter.GetResyncCount();
+		Starve    += Stream.Jitter.GetStarveCount();
+		Pending   += Stream.Jitter.GetPendingCount();
 	}
 
+	// 지터 깊이를 ms 로도 보여준다. 프레임 수보다 "지금 몇 ms 늦게 듣고 있는지" 가
+	// 직관적이고, 목표값(60ms)과 바로 비교된다.
+	const float PendingMs = Pending * static_cast<float>(MOUVoice::FrameMs);
+
 	return FString::Printf(
-		TEXT("스트림=%d 수신=%d 재생=%d 버림=%d 유실=%d 폰없음=%d"),
-		Streams.Num(), TotalFramesReceived, Played, TotalFramesDropped, Lost, TotalPawnMisses);
+		TEXT("스트림=%d 수신=%d 재생=%d 버림=%d 폰없음=%d ")
+		TEXT("| 지터깊이=%d(%.0fms) 은폐=%d 지각=%d 중복=%d 재동기=%d 끊김=%d"),
+		Streams.Num(), TotalFramesReceived, Played, TotalFramesDropped, TotalPawnMisses,
+		Pending, PendingMs, Concealed, Late, Duplicate, Resync, Starve);
 }

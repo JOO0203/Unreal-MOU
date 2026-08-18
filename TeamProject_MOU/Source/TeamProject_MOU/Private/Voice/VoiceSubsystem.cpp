@@ -208,6 +208,18 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		++FramesReceived;
 		bIsSpeaking = Frame.bIsSpeaking;
 
+		// --- 0. 감도 보정 중이면 측정만 한다 ---------------------------------
+		//
+		// 조용히 있으라고 해놓고 그 소리를 남에게 보내면 안 되므로, 보정 중에는
+		// 인코딩도 전송도 재생도 하지 않는다. VAD 판정(bIsSpeaking)은 그대로
+		// 돌게 두는데, 위젯에서 "지금 기준이 얼마나 안 맞는지" 가 보여야 하기 때문이다.
+		if (bCalibrating)
+		{
+			CalibrationPeak = FMath::Max(CalibrationPeak, Frame.Loudness);
+			++CalibrationSamples;
+			continue;
+		}
+
 		// 무음 구간은 여기서 끝낸다. 인코딩도 하지 않는다.
 		//
 		// VAD 로 무음을 걸러내는 것은 대역폭 절감이기도 하지만, 더 중요하게는
@@ -331,6 +343,14 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		Decoder->Reset();
 	}
 	bWasSpeaking = bIsSpeaking;
+
+	// 보정 시간이 다 됐는지는 프레임이 오든 안 오든 확인해야 한다.
+	// 위 루프 안에서 보면 마이크가 조용해 프레임이 안 오는 동안 보정이
+	// 영원히 안 끝난다 - 하필 **조용히 있으라고 한 상황**이라 확률이 높다.
+	if (bCalibrating && FPlatformTime::Seconds() >= CalibrationEndTime)
+	{
+		FinishCalibration();
+	}
 
 	DrawRadiusDebug();
 
@@ -637,6 +657,173 @@ void UVoiceSubsystem::SetMicSensitivity(float InThreshold)
 float UVoiceSubsystem::GetMicSensitivity() const
 {
 	return CaptureSource.IsValid() ? CaptureSource->GetVadThreshold() : MOUVoice::DefaultVadThreshold;
+}
+
+// ---------------------------------------------------------------------------
+// 감도 자동 보정
+//
+// 왜 필요한지는 VoiceTypes.h 의 보정 상수 주석에 있다. 요약하면:
+// 기본 임계값 0.02 는 **어떤 마이크에도 맞지 않는 임의의 숫자**이고,
+// 아날로그 3.5mm 입력에서는 조용할 때도 그 값을 넘겨 "항상 말하는 중" 이 된다.
+// ---------------------------------------------------------------------------
+
+// 헤더의 기본 인자가 리터럴이라 상수와 조용히 갈라질 수 있다. 여기서 못박는다.
+static_assert(MOUVoice::DefaultCalibrationSeconds == 2.0f,
+	"BeginSensitivityCalibration 의 기본 인자(2.0f)와 DefaultCalibrationSeconds 가 어긋났다. "
+	"VoiceSubsystem.h 의 기본값도 같이 고칠 것.");
+
+void UVoiceSubsystem::BeginSensitivityCalibration(float DurationSeconds)
+{
+	if (!IsCaptureReady())
+	{
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("마이크가 없어 보정할 수 없다. MOU.Voice.Reopen 으로 다시 열어보거나 ")
+			TEXT("MOU.Voice.Diag 로 진단할 것."));
+		return;
+	}
+
+	if (bMuted)
+	{
+		// 음소거 중에는 Tick 이 프레임을 버리므로 측정값이 0 만 나온다.
+		// 그대로 두면 "기준이 최소값으로 떨어져서 모든 잡음에 반응하는" 상태가 된다.
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("음소거 상태에서는 보정할 수 없다. %s 로 음소거를 풀고 다시 시도할 것."),
+			TEXT("C"));
+		return;
+	}
+
+	const float Duration = FMath::Max(0.5f, DurationSeconds);
+
+	bCalibrating       = true;
+	CalibrationEndTime = FPlatformTime::Seconds() + Duration;
+	CalibrationPeak    = 0.f;
+	CalibrationSamples = 0;
+
+	UE_LOG(LogMOUVoice, Log,
+		TEXT("감도 보정 시작 (%.1f초). ★ 지금부터 **말하지 마세요** - 평소 환경의 잡음만 재는 중입니다."),
+		Duration);
+}
+
+float UVoiceSubsystem::GetCalibrationRemainingSeconds() const
+{
+	if (!bCalibrating)
+	{
+		return 0.f;
+	}
+
+	return FMath::Max(0.f, static_cast<float>(CalibrationEndTime - FPlatformTime::Seconds()));
+}
+
+void UVoiceSubsystem::FinishCalibration()
+{
+	bCalibrating = false;
+
+	if (CalibrationSamples <= 0)
+	{
+		// 측정 구간에 프레임이 한 개도 안 왔다. 마이크가 중간에 빠졌거나
+		// 엔진 캡처가 죽은 것이다. 기준을 건드리지 않는 편이 안전하다 -
+		// 0 을 기준으로 잡으면 모든 잡음이 발화가 된다.
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("보정 실패: 측정 구간에 마이크 데이터가 오지 않았다. 감도를 바꾸지 않는다."));
+		return;
+	}
+
+	const float NewThreshold = FMath::Clamp(
+		CalibrationPeak * MOUVoice::CalibrationMargin,
+		MOUVoice::MinVadThreshold,
+		1.f);
+
+	const float OldThreshold = GetMicSensitivity();
+	SetMicSensitivity(NewThreshold);
+
+	UE_LOG(LogMOUVoice, Log,
+		TEXT("감도 보정 완료. 잡음 최대=%.4f (%d프레임) -> 기준 %.4f (이전 %.4f)"),
+		CalibrationPeak, CalibrationSamples, NewThreshold, OldThreshold);
+
+	// ★ 소프트웨어로 덮을 수 없는 상황은 그렇다고 말해준다.
+	//   기준을 올려서 조용할 때 조용하게는 만들 수 있지만, 잡음 바닥이 이 정도면
+	//   **작게 말하는 소리가 잡음에 묻혀서** 속삭임 모드가 사실상 못 쓰게 된다.
+	if (CalibrationPeak >= MOUVoice::NoisyMicWarnThreshold)
+	{
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("★ 잡음 바닥이 높다(%.4f). 기준을 올려두긴 했지만 작게 말하면 안 잡힐 수 있다. ")
+			TEXT("Windows 소리 설정 > 입력 장치 > 속성에서 **마이크 부스트(+20/+30dB)를 끄면** ")
+			TEXT("훨씬 나아진다. 3.5mm 아날로그 입력에서 흔한 문제다."),
+			CalibrationPeak);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 마이크 다시 열기
+// ---------------------------------------------------------------------------
+
+bool UVoiceSubsystem::ReopenCapture()
+{
+	// 다른 창이 마이크를 잡고 있으면 뺏지 않는다. 뺏으면 그 창이 조용히 죽는다.
+	if (GVoiceCaptureOwner.IsValid() && GVoiceCaptureOwner.Get() != this)
+	{
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("같은 프로세스의 다른 창이 마이크를 쓰고 있어 다시 열 수 없다."));
+		return false;
+	}
+
+	if (!FVoiceModule::IsAvailable() || !FVoiceModule::Get().IsVoiceEnabled())
+	{
+		UE_LOG(LogMOUVoice, Error,
+			TEXT("Voice 모듈이 비활성 상태다. MOU.Voice.Diag 로 진단할 것."));
+		return false;
+	}
+
+	if (!CaptureSource)
+	{
+		// 이 창은 시작할 때 캡처를 안 잡았다(다른 창이 먼저였거나 모듈이 늦게 올라옴).
+		// 지금은 비었으므로 이 창이 가져간다.
+		CaptureSource = MakeUnique<FVoiceCaptureSource>();
+	}
+	else
+	{
+		// ★ 반드시 먼저 닫는다. 안 닫고 Start() 를 부르면 이미 열려 있다고 판단해
+		//   **그대로 반환한다**(FVoiceCaptureSource::Start 의 bReady 조기 반환).
+		//   그러면 "다시 열었는데 왜 그대로지" 가 된다 - 새로 꽂은 장치를 잡으려면
+		//   엔진 캡처 객체를 버리고 새로 만들어야 한다.
+		CaptureSource->Shutdown();
+	}
+
+	GVoiceCaptureOwner = this;
+
+	const bool bOpened = CaptureSource->Start();
+
+	// 코덱이 아직 없으면 지금 만든다(이 창이 처음 캡처를 잡는 경우).
+	if (!Encoder)
+	{
+		Encoder = MakeUnique<FMOUVoiceEncoder>();
+		Encoder->Initialize();
+	}
+	if (!Decoder)
+	{
+		Decoder = MakeUnique<FMOUVoiceDecoder>();
+		Decoder->Initialize();
+	}
+
+	if (bOpened)
+	{
+		UE_LOG(LogMOUVoice, Log,
+			TEXT("마이크를 다시 열었다. 이어서 MOU.Voice.Calibrate 로 감도를 맞출 것 - ")
+			TEXT("장치마다 잡음 바닥이 크게 달라서 기본값이 맞는 경우가 오히려 드물다."));
+	}
+	else
+	{
+		// ★ 여기서 가장 흔한 오해를 미리 잡아준다(헤더 주석의 장치 목록 캐시 문제).
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("마이크를 다시 열지 못했다.\n")
+			TEXT("  · **에디터를 켠 뒤에 헤드셋을 꽂았다면 이 명령으로는 안 된다.** ")
+			TEXT("엔진이 장치 목록을 시작할 때 한 번만 읽어서 캐시하기 때문에 ")
+			TEXT("에디터를 재시작해야 한다.\n")
+			TEXT("  · 장치가 원래 꽂혀 있었다면 Windows 소리 설정에서 입력 장치가 ")
+			TEXT("선택돼 있는지 확인하고 MOU.Voice.Diag 를 볼 것."));
+	}
+
+	return bOpened;
 }
 
 FString UVoiceSubsystem::GetStatsString() const
@@ -955,6 +1142,47 @@ namespace
 				}
 
 				UE_LOG(LogMOUVoice, Log, TEXT("모두 정상. %s"), *Voice->GetStatsString());
+			}));
+
+	/**
+	 * ★ "가만히 있는데 계속 말하는 중으로 나온다" 의 해결책.
+	 *
+	 * 기본 임계값(0.02)은 어떤 마이크에도 맞지 않는 임의의 숫자다. 특히 3.5mm
+	 * 아날로그 입력은 잡음 바닥이 그보다 높아서 조용해도 발화로 잡힌다.
+	 * 사람이 이 숫자를 감으로 맞추는 것은 불가능하므로 측정해서 정한다(9절).
+	 */
+	FAutoConsoleCommandWithWorldAndArgs GVoiceCalibrateCommand(
+		TEXT("MOU.Voice.Calibrate"),
+		TEXT("조용한 상태의 잡음을 재서 마이크 감도를 자동으로 맞춘다. ")
+		TEXT("★ 측정 동안 말하지 말 것. 사용법: MOU.Voice.Calibrate [초=2]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					const float Duration = Args.IsValidIndex(0)
+						? FCString::Atof(*Args[0])
+						: MOUVoice::DefaultCalibrationSeconds;
+
+					Voice->BeginSensitivityCalibration(Duration);
+				}
+				else
+				{
+					UE_LOG(LogMOUVoice, Warning, TEXT("음성 서브시스템을 찾지 못했다."));
+				}
+			}));
+
+	FAutoConsoleCommandWithWorldAndArgs GVoiceReopenCommand(
+		TEXT("MOU.Voice.Reopen"),
+		TEXT("마이크 캡처를 닫았다 다시 연다. ")
+		TEXT("★ 에디터를 켠 뒤 새로 꽂은 장치는 이걸로 못 잡는다(엔진이 장치 목록을 캐시한다)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					Voice->ReopenCapture();
+				}
 			}));
 
 	FAutoConsoleCommandWithWorldAndArgs GVoiceSensitivityCommand(

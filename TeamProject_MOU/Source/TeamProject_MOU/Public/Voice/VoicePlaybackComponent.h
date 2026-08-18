@@ -39,6 +39,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Voice/VoiceJitterBuffer.h"
 #include "Voice/VoiceTypes.h"
 #include "VoicePlaybackComponent.generated.h"
 
@@ -91,19 +92,41 @@ struct FVoiceStream
 	/** 지금 Synth 가 붙어 있는 폰. 리스폰 감지에 쓴다. */
 	TWeakObjectPtr<APawn> AttachedPawn;
 
+	/**
+	 * 도착한 프레임을 번호 순서로 다시 세우는 버퍼(V4).
+	 *
+	 * 이게 생기면서 **"받으면 바로 재생" 이 "받으면 넣고, 따로 꺼내 재생" 으로**
+	 * 바뀌었다. 도착(HandleFrame)과 재생(PumpStream)이 분리된 이유다.
+	 */
+	FVoiceJitterBuffer Jitter;
+
+	/** 지터버퍼에서 꺼낸 압축 바이트를 받는 버퍼. */
+	TArray<uint8> PopScratch;
+
 	/** 디코딩 결과를 받는 버퍼. 스트림마다 들고 있어 매 프레임 할당하지 않는다. */
 	TArray<int16> DecodedScratch;
 
-	/** 마지막으로 받은 Seq. 유실 감지용(V3 은 통계만, V4 에서 지터버퍼가 쓴다). */
-	uint16 LastSeq = 0;
-	bool   bHasSeq = false;
+	/**
+	 * 마지막으로 정상 디코딩한 PCM. **유실 은폐(PLC)의 재료다.**
+	 *
+	 * 엔진 Opus 래퍼가 진짜 PLC 를 안 열어주기 때문에(VoiceTypes.h 참고)
+	 * 직전 소리를 감쇠시켜 반복하는 방식으로 메운다. 그러려면 직전 프레임을
+	 * 들고 있어야 한다.
+	 */
+	TArray<int16> LastPcm;
+
+	/** 연속 은폐 횟수. 너무 길어지면 무음으로 전환한다. */
+	int32 ConsecutiveConceals = 0;
+
+	/** 마지막으로 받은 발화 모드. 재생 시점에 감쇠 반경을 정하는 데 쓴다. */
+	EVoiceMode LastMode = EVoiceMode::Normal;
 
 	/** 마지막으로 프레임이 온 시각. 오래 조용하면 스트림을 정리한다. */
 	double LastFrameTime = 0.0;
 
 	/** 진단용. */
-	int32 FramesPlayed = 0;
-	int32 FramesLost   = 0;
+	int32 FramesPlayed    = 0;
+	int32 FramesConcealed = 0;
 };
 
 /**
@@ -158,11 +181,41 @@ private:
 	 */
 	UVoiceSynthComponent* EnsureSynthForStream(FVoiceStream& Stream, int32 SpeakerId, EVoiceMode Mode);
 
+	/**
+	 * 지터버퍼에서 꺼내 재생 링버퍼를 목표 깊이까지 채운다.
+	 *
+	 * ★ **재생 속도를 정하는 것은 이 함수가 아니라 오디오 스레드다.**
+	 *   오디오 스레드가 링버퍼를 실시간 속도로 비우므로, 우리는 "덜 찼으면
+	 *   채운다" 만 하면 자연히 20ms 간격이 맞는다. 여기서 시간을 재서 직접
+	 *   박자를 맞추려 하면 게임 틱 주기(가변)와 오디오 주기(고정)가 어긋나
+	 *   조금씩 밀리거나 쌓인다.
+	 */
+	void PumpStream(FVoiceStream& Stream, int32 SpeakerId);
+
+	/** 모든 스트림을 펌프한다. 매 틱 호출된다. */
+	void PumpAllStreams();
+
+	/**
+	 * 유실 구간을 메울 PCM 을 만든다(PLC).
+	 *
+	 * 직전 프레임을 감쇠시켜 반복한다. 엔진 Opus 래퍼가 진짜 PLC 를 안 열어주기
+	 * 때문이다 - 자세한 것은 VoiceTypes.h 의 MaxConcealFrames 주석.
+	 */
+	void BuildConcealmentFrame(FVoiceStream& Stream);
+
 	/** 오래 조용한 스트림을 정리한다. */
 	void CleanupIdleStreams();
 
 	/** 발신자(+라우트)마다 하나. */
 	TMap<FVoiceStreamKey, FVoiceStream> Streams;
+
+	/**
+	 * 정리 작업 주기 조절용 누적 시간.
+	 *
+	 * 펌프는 매 틱 돌아야 하지만(안 그러면 재생이 끊긴다) 유휴 스트림 정리는
+	 * 그럴 이유가 없다. 틱 간격을 늦추는 대신 여기서 따로 세어 분리한다.
+	 */
+	float TimeSinceCleanup = 0.f;
 
 	/** 진단 카운터. */
 	int32 TotalFramesReceived = 0;
