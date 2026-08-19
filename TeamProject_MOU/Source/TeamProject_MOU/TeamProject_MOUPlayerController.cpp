@@ -16,6 +16,21 @@
 #include "Chat/LoginWidgetBase.h"
 #include "Engine/GameInstance.h"
 
+<<<<<<< HEAD
+=======
+// 음성 RPC 창구. 컨트롤러는 음성 시스템의 내부를 몰라도 되지만,
+// "모든 컨트롤러가 음성 창구를 하나씩 갖는다" 는 것은 컨트롤러의 책임이다
+// (채팅 로그인 위젯을 여기서 띄우는 것과 같은 이유).
+#include "Voice/VoiceComponent.h"
+
+ATeamProject_MOUPlayerController::ATeamProject_MOUPlayerController()
+{
+	// ★ 생성자에서 만들어야 서버와 클라이언트가 같은 컴포넌트를 갖는다.
+	//   이유는 헤더의 VoiceComponent 주석 참고.
+	VoiceComponent = CreateDefaultSubobject<UVoiceComponent>(TEXT("MOUVoiceComponent"));
+}
+
+>>>>>>> upstream/DayilyMarge
 void ATeamProject_MOUPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
@@ -105,8 +120,15 @@ void ATeamProject_MOUPlayerController::ShowLoginWidgetIfNeeded()
 		return;
 	}
 
+<<<<<<< HEAD
 	LoginWidget->ServerHost = ChatServerHost;
 	LoginWidget->ServerPort = ChatServerPort;
+=======
+	// 비워두면 위젯이 설정(Config/DefaultGame.ini)에서 읽는다. 컨트롤러가 굳이
+	// 기본 주소를 알 필요는 없으므로, 예외적으로 지정했을 때만 덮어쓴다.
+	LoginWidget->ServerHost = ChatServerHostOverride;
+	LoginWidget->ServerPort = ChatServerPortOverride;
+>>>>>>> upstream/DayilyMarge
 	LoginWidget->AddToViewport();
 
 	// 로그인 화면은 마우스로 조작하므로 커서를 켜준다. NativeConstruct 가 입력 모드까지

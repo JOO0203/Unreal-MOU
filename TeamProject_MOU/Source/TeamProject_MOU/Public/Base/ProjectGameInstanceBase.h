@@ -32,6 +32,28 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedReputation = 0;
 
+<<<<<<< HEAD
+=======
+	// ====================================
+	// Debt Save Data
+	// ====================================
+
+	// 맵 이동 전 GameState의 팀 공용 부채 값을 임시로 저장.
+	// GameState는 레벨 변경되면 새로 생성, GameInstance 레벨 이동 후에도 유지
+	// 이전 맵의 부채를 다음 맵으로 넘기기 위해 사용
+	// 실제 플레이 중 사용하는 부채 값은 GameState의 CurrentDebt, SavedDebt는 맵 이동을 위한 보관용 값
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
+	int32 SavedDebt = 0;
+
+	// 맵 이동 전 GameState의 팀 공용 상환 주기를 임시로 저장.
+	// GameState는 레벨 변경되면 새로 생성, GameInstance 레벨 이동 후에도 유지
+	// 이전 맵의 상환 주기를 다음 맵으로 넘기기 위해 사용
+	// 실제 플레이 중 사용하는 부채 상환 주기는 GameState의 DebtCycle, SavedDebtCycle는 맵 이동을 위한 보관용 값
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
+	int32 SavedDebtCycle = 0;
+
+
+>>>>>>> upstream/DayilyMarge
 	// 경제 데이터가 저장되어있는지 확인
 	// 첫 게임 시작 시에는 저장데이터가 없으므로 false, SavedEconmyData 정상적으로 실행하면 true
 	// 이후 새로운 GameState가 생성됐을 때 저장된 데이터가 있을 경우에만 복원하기 위해 사용
@@ -42,14 +64,24 @@ public:
 	// Economy Save / Load
 	// ====================================
 
+<<<<<<< HEAD
 	// 현재 GameState의 골드/평판을 GameInstance에 임시 저장
+=======
+	// 현재 GameState의 골드/평판/부채/상환 주기를 GameInstance에 임시 저장
+>>>>>>> upstream/DayilyMarge
 	// 맵 이동 직전에 호출, server의 GameState 값만 저장, client에서 호출, 실제저장 x
 	UFUNCTION(BlueprintCallable, Category = "Economy|Save")
 	void SaveEconomyData();
 
+<<<<<<< HEAD
 	// GameInstance에 보관되어 있는 골드/평판을 현재 맵에 새로운 GameState에 복원
 	// 맵 이동 후 새로운 GameState가 만들어지고 
 	// 복원된 GameState값은 GameState Replicatio을 통해 각 client에 자동 전달
+=======
+	// GameInstance에 보관되어 있는 골드/평판/부채/상환 주기를 현재 맵에 새로운 GameState에 복원
+	// 맵 이동 후 새로운 GameState가 만들어지고 
+	// 복원된 GameState값은 GameState Replication을 통해 각 client에 자동 전달
+>>>>>>> upstream/DayilyMarge
 	UFUNCTION(BlueprintCallable, Category = "Economy|Save")
 	void LoadEconomyData();
 };

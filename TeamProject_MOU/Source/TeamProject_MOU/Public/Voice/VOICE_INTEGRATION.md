@@ -1,8 +1,18 @@
 # MOU 음성 시스템 설계 (근접 음성 / 무전기 / NPC 청각)
 
 작성: 2026-08-12
+<<<<<<< HEAD
 최종 갱신: 2026-08-13 (요구사항 반영 — 무전 채널 삭제, 전원/송신 키 분리, 사망자 처리)
 상태: **V0·V1 구현 완료 + 실사용 검증됨** (2026-08-13). 마이크 음소거(C) UI 도 구현. 나머지는 설계만.
+=======
+최종 갱신: 2026-08-18 (V3 네트워크 라우팅 구현 — 14-5절 신설)
+상태:
+- **V0·V1** 구현 완료 + 실사용 검증됨 (2026-08-13). 마이크 음소거(C) UI 포함.
+- **V2**(Opus 코덱) 구현 완료 + 빌드 통과 (2026-08-18). **귀로 듣는 검증은 아직**(14-4절).
+- **V3**(RPC + 서버 라우팅 + 3D 재생) 구현 완료 + 빌드 통과 (2026-08-18).
+  **에디터에서 한 번도 실행하지 않았다**(14-5절 마지막 항목).
+- V4 이후는 설계만.
+>>>>>>> upstream/DayilyMarge
 
 이 문서는 `SERVER_INTEGRATION.md` 와 같은 규칙을 따른다 — 무엇을 하는지보다 **왜 그렇게 했는지**를 남긴다.
 
@@ -114,10 +124,17 @@ C 를 A/B 와 엮으면 규칙 하나로 게임이 만들어진다.
      ▼
    VoiceCaptureSource  (★게임 스레드 - 6절 각주 참고)
      │  20ms 프레이밍 + RMS(음량) 계산 + VAD(무음 컷, 감도는 옵션에서 조절)
+<<<<<<< HEAD
      │  Opus 인코딩 (~40~80바이트/프레임, V2 예정)
      ▼ (직접 호출)
    VoiceSubsystem (게임 스레드)
      │  근접 음소거(C) 여부 / X=무전 송신 중인지, 발화 모드(속삭임·보통·외침)
+=======
+     ▼ (직접 호출. PCM 그대로 넘긴다 - 14-4절)
+   VoiceSubsystem (게임 스레드)
+     │  근접 음소거(C) 여부 / X=무전 송신 중인지, 발화 모드(속삭임·보통·외침)
+     │  FMOUVoiceEncoder: Opus 인코딩 (~50~70바이트/프레임)
+>>>>>>> upstream/DayilyMarge
      ▼
    VoiceComponent (PlayerController 에 부착)
      │  ServerSendVoiceFrame()  ← Server, Unreliable RPC
@@ -256,6 +273,10 @@ Source/TeamProject_MOU/
   Public/Voice/                     Private/Voice/
     VoiceTypes.h                      (헤더 전용)
     VoiceCaptureSource.h              VoiceCaptureSource.cpp
+<<<<<<< HEAD
+=======
+    VoiceCodec.h                      VoiceCodec.cpp
+>>>>>>> upstream/DayilyMarge
     VoiceSubsystem.h                  VoiceSubsystem.cpp
     VoiceStatusWidget.h               VoiceStatusWidget.cpp
     VoiceComponent.h                  VoiceComponent.cpp
@@ -268,7 +289,13 @@ Source/TeamProject_MOU/
 | 클래스 | 부모 | 어디 사는가 | 역할 |
 |---|---|---|---|
 | `FVoiceCaptureSource` | (없음, 순수 클래스) | **클라 게임 스레드** ← 아래 ★ | 마이크 폴링 → 20ms 프레이밍 → RMS/VAD |
+<<<<<<< HEAD
 | `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 캡처 생명주기, 음소거(C)/루프백 상태, 마이크 감도 옵션 |
+=======
+| `FMOUVoiceEncoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**보내는 쪽 1개**) | PCM → Opus. 엔진 `IVoiceEncoder` 래퍼 |
+| `FMOUVoiceDecoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**스트림마다 1개**) | Opus → PCM. 상태가 있어 공유 불가 (14-4절 ★) |
+| `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 캡처 생명주기, 인코딩, 음소거(C)/루프백 상태, 마이크 감도 옵션 |
+>>>>>>> upstream/DayilyMarge
 | `UVoiceStatusWidget` | `UUserWidget` | 클라 게임 스레드 | 마이크 상태 상시 표시(15절 프라이버시 요구) + `C` 키 바인딩 |
 | `UVoiceComponent` | `UActorComponent` | `APlayerController` | RPC 창구. **양쪽에 존재** (V3 이후) |
 | `UVoiceRouter` | `UWorldSubsystem` | **서버 전용** | 무전기 레지스트리, 수신자 결정, 반이중 중재, 레이트 리밋, 소음 이벤트 (V6 이후) |
@@ -801,13 +828,28 @@ APlayerState* GetHolder() const;
 
 | 이름 | 기본값 | 설명 |
 |---|---|---|
+<<<<<<< HEAD
 | `SampleRate` | 16000 | 바꾸면 인코더/디코더 양쪽 |
 | `FrameMs` | 20 | 40 으로 올리면 대역폭 절반, 지연 +20ms |
+=======
+| `SampleRate` | 16000 | 바꾸면 인코더/디코더 양쪽. **8000·12000·16000·24000·48000 만 허용** |
+| `FrameMs` | 20 | **★ 아래 주의** — 40 으로 올리면 대역폭이 줄긴 하지만 이유가 다르다 |
+| `OpusBitrate` | 24000 | 프레임당 바이트를 결정. 12절 대역폭 계산의 근거 |
+>>>>>>> upstream/DayilyMarge
 | `TargetJitterFrames` | 3 (60ms) | 낮추면 반응 빠름 / 끊김 증가 |
 | `MaxJitterFrames` | 8 | 넘으면 오래된 것부터 버림 |
 | `VadThreshold` | 0.02 | **옵션 화면에서 사용자가 조절** (9절) |
 | `VadHangoverMs` | 200 | 말끝이 잘리지 않게 |
 
+<<<<<<< HEAD
+=======
+> **★ `FrameMs` 는 사실상 20 에 고정이다 (V2 에서 확인).**
+> 엔진 Opus 래퍼가 `FrameSize = SampleRate / 50` 로 하드코딩돼 있어 **320샘플
+> 단위로만** 인코딩한다. 40 으로 바꾸면 "40ms 프레임" 이 되는 게 아니라
+> **"한 패킷에 20ms 프레임 2개"** 가 되고, 대역폭이 주는 이유는 **헤더 공유**다.
+> **320 의 배수가 아닌 값으로 바꾸면 나머지가 조용히 버려진다.** 자세한 것은 14-4절.
+
+>>>>>>> upstream/DayilyMarge
 **발화 모드 — 밸런스의 핵심**
 
 | 모드 | **총 가청 거리**<br>(= Radius + Falloff) | 내역<br>Radius / Falloff | 소음 `MaxRange` | Loudness 배율 |
@@ -848,8 +890,13 @@ APlayerState* GetHolder() const;
 |---|---|---|---|
 | **V0** | **`MOU.Voice.FakeNoise` 콘솔 명령만 먼저** | **NPC 팀원이 즉시 병렬 작업 시작 가능** ← 최우선 | **✅ 완료** |
 | **V1** | `Voice` 모듈 활성화, 캡처 → **로컬 루프백 재생** (네트워크 없음) | 내 목소리가 내 헤드폰에 0.1초 뒤 들린다 | **✅ 완료 + 실사용 확인**(PIE 에서 말하니 실제로 들림) |
+<<<<<<< HEAD
 | **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | 다음 |
 | **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 |
+=======
+| **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | **✅ 구현 완료** (2026-08-18). **귀로 확인 필요** |
+| **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 | **✅ 구현 완료 + 빌드 통과** (2026-08-18). **PIE 실행 검증 안 됨** |
+>>>>>>> upstream/DayilyMarge
 | **V4** | 지터버퍼 + PLC + `MOU.Voice.Stat` | `Net PktLoss=10` 넣어도 알아듣는다 |
 | **V5** | **사망자 차단 3중 방어** | 죽으면 말도 못 하고 듣지도 못한다 |
 | **V6** | `RadioComponent` + `Z` 전원 + `X` 송신 + 반이중 | 맵 반대편에서 무전이 오간다. 동시 송신 시 "사용 중" |
@@ -957,6 +1004,187 @@ class FVoiceCaptureWindows : public IVoiceCapture, public FTSTickerObjectBase
 - 지연이 실제로 얼마인지(설계 목표 0.1초 이내). `MOU.Voice.Stat` 의
   `재생버퍼=...ms` 로 본다.
 
+<<<<<<< HEAD
+=======
+### 14-4. V2 구현 결과 — 엔진 Opus 래퍼의 실제 모습 (2026-08-18)
+
+**만든 파일**
+
+| 파일 | 역할 |
+|---|---|
+| `Public/Voice/VoiceCodec.h`<br>`Private/Voice/VoiceCodec.cpp` | `FMOUVoiceEncoder` / `FMOUVoiceDecoder`. 엔진 `IVoiceEncoder`/`IVoiceDecoder` 래퍼 |
+
+**설계 대비 달라진 것**
+
+| 설계 문서 | 실제 구현 | 이유 |
+|---|---|---|
+| `FMOUVoiceFrame` 이 "PCM 대신 압축 바이트" 를 담는다 | **프레임은 계속 PCM.** 압축 바이트는 `UVoiceSubsystem` 이 따로 보관 | V3 에서 압축 바이트는 **RPC 인자로 바로 나간다.** 구조체에 담아둘 곳이 없다. 코덱 우회 비교 경로도 그대로 살아남는다 |
+| 인코더/디코더를 한 클래스로 | **두 클래스로 분리** | V3 에서 개수가 갈라진다 — 인코더는 보내는 쪽 1개, 디코더는 **발신자마다 1개**. 아래 ★ |
+| 인코딩을 `FVoiceCaptureSource` 안에서 | `UVoiceSubsystem` 에서 | 캡처의 책임은 "20ms 로 자르기" 하나다. 코덱 수명까지 지우면 V3 에서 다시 떼야 한다 |
+
+> **★ 디코더를 스트림마다 하나씩 두어야 하는 이유.**
+> Opus 디코더는 **직전 프레임을 참고해 다음 프레임을 복원한다**(상태를 가진다).
+> 여러 사람의 목소리를 디코더 하나로 돌려 쓰면 서로의 상태를 오염시켜 지직거린다.
+> V3 에서 `UVoicePlaybackComponent` 가 `(발신자, 라우트)` 쌍마다 하나씩 들게 된다.
+
+**★★ 엔진 코드를 읽고서야 알게 된 함정 3가지**
+
+이 셋은 전부 **에러 없이 조용히 무음이 되는** 종류다. 로그도 안 나오므로
+모르고 부딪히면 마이크·오디오 장치·볼륨을 의심하며 시간을 날린다.
+
+**1. 20ms 는 우리 선택이 아니라 엔진이 강제하는 값이다**
+
+```cpp
+// VoiceCodecOpus.cpp
+#define NUM_OPUS_FRAMES_PER_SEC 50
+FrameSize = SampleRate / NUM_OPUS_FRAMES_PER_SEC;   // 16000/50 = 320
+```
+
+프레임 길이를 인자로 받지 않는다. **무조건 320샘플 단위로만** 인코딩한다.
+우리 프레이밍이 마침 같아서 1프레임 = 1 Opus 프레임으로 딱 떨어졌다.
+
+> **13절의 "`FrameMs` 를 40 으로 올리면 대역폭 절반" 은 설명이 틀렸다.**
+> 40 으로 바꿔도 "40ms Opus 프레임" 이 되지 않는다. **"한 패킷에 20ms 프레임 2개"**
+> 가 된다 — 엔진이 들어온 바이트를 320샘플씩 쪼개 `opus_encode` 를 두 번 부르고
+> 헤더 하나에 묶는다. 대역폭이 주는 것은 맞지만 이유는 **헤더 공유**다.
+> 그리고 **320 의 배수가 아닌 값으로 바꾸면 나머지가 조용히 버려진다.**
+
+**2. 압축 결과는 순수 Opus 가 아니라 엔진이 정의한 컨테이너다**
+
+```
+[0]      프레임 개수 (uint8)
+[1]      Generation — 패킷 순번. 디코더가 유실을 감지한다 (uint8)
+[2..]    프레임마다 압축 끝 오프셋 (uint16 × 프레임개수)
+[그 뒤]  실제 Opus 데이터
+```
+
+**다른 Opus 구현으로는 못 푼다.** 반대쪽도 반드시 엔진 디코더여야 한다.
+우리는 양쪽 다 UE 라 문제가 없지만, **나중에 외부 클라이언트(모바일 등)를 붙일
+계획이 생기면 이 지점이 발목을 잡는다**는 것은 알고 있어야 한다.
+
+**3. ★ 디코딩 출력 버퍼는 6프레임 크기여야 한다 (제일 위험)**
+
+```cpp
+// VoiceCodecOpus.cpp, FVoiceDecoderOpus::Decode()
+#define MAX_OPUS_FRAMES 6
+if (UncompressedBufferAvail >= (MAX_OPUS_FRAMES * BytesPerFrame))  // 6*640 = 3840
+{ ...디코딩... }
+else
+{ UE_LOG(..., "Decompression buffer too small to decode voice"); break; }
+```
+
+**남은 공간이 3840바이트 미만이면 디코딩을 통째로 건너뛴다.**
+
+20ms 프레임 하나를 넣었으니 320샘플(640바이트) 버퍼면 되겠다고 생각하는 것이
+자연스러운데, **그러면 반환 샘플 수가 0 이고 에러도 아니다.**
+"인코딩은 되는데 소리만 안 난다" 로 보인다.
+
+> 그래서 `MOUVoice::DecodeScratchSamples = 6 * SamplesPerFrame`(1920) 로 두고,
+> **줄이지 말라는 이유를 상수 주석에 길게 적어두었다.** 나중에 "메모리 낭비 같은데"
+> 하고 320 으로 줄이는 최적화가 반드시 시도될 자리다.
+
+**미리 심어둔 안전장치 두 가지**
+
+| 장치 | 막으려는 것 |
+|---|---|
+| 압축 프레임이 `MaxEncodedFrameBytes`(128) 초과 시 **경고 1회** | V3 의 Unreliable RPC 는 큰 페이로드를 **조용히 버린다**(15절). V3 에서 터지면 "특정 사람 목소리만 안 들린다" 로 나타나 추적이 매우 어렵다. **V2 단계에서 미리 감시한다** |
+| 디코딩 실패 시 **원본 PCM 으로 대체하지 않음** | 대체하면 코덱이 완전히 고장나 있어도 소리는 멀쩡히 나서 V3 에 가서야 발견하게 된다. 조용한 편이 낫다 — 실패 횟수는 `MOU.Voice.Stat` 에 남는다 |
+
+**비트레이트를 명시적으로 박은 이유.** 엔진 `Init()` 은 VBR 만 켜고 비트레이트는
+Opus 자동값에 맡긴다. 그러면 12절의 "프레임당 ~60바이트" 계산에 근거가 없어진다.
+`SetBitrate(24000)` 으로 못박아야 대역폭을 예측할 수 있고, 나중에 인터넷으로
+확장할 때 내릴 여지도 생긴다.
+
+**발화가 끝나면 디코더를 리셋한다.** 안 하면 새 발화의 첫 프레임이 **몇 초 전에
+끊긴 소리를 참고해서** 복원되어 말 첫머리가 짧게 지직거린다. 리셋 시점은
+`bIsSpeaking` 이 hangover 까지 다 돌고 내려간 뒤다 — 프레임 단위로 보면
+hangover 로 아직 살아있는 구간을 발화 종료로 오판한다. 음소거(`C`)는 Tick 의
+발화 종료 감지를 우회하므로 `SetMuted()` 안에서 따로 리셋한다.
+
+**아직 확인하지 못한 것**
+
+- **★ 압축을 통과한 소리를 귀로 듣기.** `MOU.Voice.Loopback 1` 을 켜고
+  `MOU.Voice.Codec` 을 0/1 로 왕복하며 같은 말을 반복해 비교한다.
+  **"전화 수준이면 합격" 은 숫자로 판정할 수 없다 — 반드시 귀로 확인해야 한다.**
+  (헤드폰 필수. 스피커는 하울링)
+- 실측 압축률. `MOU.Voice.Stat` 의 `평균N바이트` 가 설계 전제(~60바이트)와
+  맞는지 본다. **크게 다르면 12절의 대역폭 표를 다시 계산해야 한다.**
+- 코덱 삽입으로 지연이 늘었는지. 역시 `MOU.Voice.Stat` 의 `재생버퍼=...ms`.
+
+### 14-5. V3 구현 결과 — 네트워크가 붙는 지점 (2026-08-18)
+
+**만든 파일**
+
+| 파일 | 역할 |
+|---|---|
+| `Public/Voice/VoiceComponent.h`<br>`Private/Voice/VoiceComponent.cpp` | RPC 창구. 모든 `PlayerController` 에 하나씩 |
+| `Public/Voice/VoiceRouter.h`<br>`Private/Voice/VoiceRouter.cpp` | 서버 라우팅. 신원 확정 + 수신자 결정 + 레이트 리밋 |
+| `Public/Voice/VoicePlaybackComponent.h`<br>`Private/Voice/VoicePlaybackComponent.cpp` | 수신 재생. 발신자마다 디코더 + 3D 사운드 |
+
+`VoiceTypes.h`(패킷·라우팅 상수), `VoiceSynthComponent`(3D 감쇠),
+`VoiceSubsystem`(송신 연결), `TeamProject_MOUPlayerController`(컴포넌트 부착)도 같이 고쳤다.
+
+**설계 대비 달라진 것**
+
+| 설계 문서 | 실제 구현 | 이유 |
+|---|---|---|
+| `FVoiceFrameOut` 에 `Mode` 없음 (10절) | **`Mode` 추가** | 받는 쪽이 감쇠 반경을 이 값으로 정한다. 클라가 스스로 추측하면 **서버가 끊는 거리와 클라에서 안 들리는 거리가 어긋난다** |
+| 감쇠를 `USoundAttenuation` 에셋으로 (7-2절) | 코드에서 `AttenuationOverrides` 로 채움 | 에셋이 아직 없다. V7 사운드 작업에서 에셋으로 뺀다 — 그때 `MakeProximityAttenuation()` 만 갈아끼우면 된다 |
+| 레이트 리밋은 V6 라우터 기능 (6절 표) | **V3 에 넣음** | V3 이 **클라 데이터를 서버가 처음 받는 지점**이다. 방어를 나중으로 미룰 이유가 없다 |
+| `EVoiceMode`/`EVoiceRoute` | **`MAX` 항목 추가** | 네트워크로 온 enum 을 서버 경계에서 자르기 위해(`SanitizeMode`/`SanitizeRoute`) |
+| PIE 첫 창만 캡처 (6절, V1 때 미구현) | **이제 구현됨** | V3 의 검증 방법이 PIE 2창이라 지금 필요해졌다 |
+
+**★★ 조용히 실패했을 자리들 — 미리 막은 것**
+
+V3 은 문서가 "위험 구간" 으로 표시한 단계고, 실제로 **에러 없이 아무 일도 안 일어나는**
+함정이 몰려 있었다. 각각 무엇이 어떻게 보였을지 적어둔다.
+
+| 함정 | 안 막으면 보이는 증상 |
+|---|---|
+| 컴포넌트에 `SetIsReplicatedByDefault(true)` 누락 | RPC 호출이 컴파일도 되고 실행도 되는데 **아무 일도 안 일어난다** |
+| `SetProximityMode()` 를 `Start()` **뒤에** 호출 | 소리는 나는데 **방향이 없다**(끝까지 2D). 공간화 여부는 사운드를 만들 때 읽힌다 |
+| 폰 루트 컴포넌트 없이 사운드 부착 | 목소리가 **맵 원점에서** 난다 |
+| `Seq` 를 크기 비교 | 22분마다 순환할 때 **"65535개 유실"** 로 통계가 망가지고 정상 패킷을 옛것으로 오판해 버린다. 차이를 uint16 으로 계산하면 자동 해결 |
+| `PushSamples` 의 `Min(N, 320)` | 한 번에 320개 넘게 밀어넣으면 **뒤가 조용히 사라진다.** 지금은 못 터지지만 V4 지터버퍼에서 터진다 → 320씩 끊어 도는 것으로 고침 |
+| 재생 컴포넌트를 로컬 아닌 컨트롤러에도 생성 | 호스트가 **접속자 수만큼** 아무도 안 듣는 디코딩을 돌린다 |
+| PIE 두 창이 같은 마이크를 염 | 둘째 창이 조용히 실패하거나 **첫 창 캡처까지 망가진다** |
+
+> **★ `_Validate` 가 false 를 돌려주면 언리얼이 그 클라이언트를 끊는다.**
+> 그래서 상한을 두 단계로 나눴다 — `_Validate` 는 "정상 클라이언트가 만들 수 없는
+> 값"(512바이트)만 걸러 끊고, 규격 위반(128 초과)은 라우터가 조용히 버린다.
+> 정상 상한으로 여기서 끊으면 **비트레이트 설정이 조금 어긋난 팀원이 게임에서 튕긴다.**
+
+> **★ 리슨서버 호스트는 RPC 를 "타지 않는다" (15절).**
+> 호스트는 서버이자 클라라 언리얼이 RPC 를 네트워크로 보내지 않고 **그 자리에서
+> 함수를 부른다.** 결과적으로 코드는 똑같이 동작하므로, `VoiceComponent.cpp` 에
+> `if (IsLocalController()) return;` 류의 분기가 **없는 것이 의도된 것**이다.
+> 그런 분기를 넣으면 "호스트만 아무 소리도 안 들린다" 가 된다.
+
+**감쇠 숫자가 어긋나지 못하게 컴파일 타임에 못박았다**
+
+7-2절의 `Radius + FalloffDistance = 총 가청 거리` 관계를 `VoiceTypes.h` 에서
+`static_assert` 로 검사한다. 세 숫자 중 하나만 고치면 **빌드가 깨진다.**
+
+> 어긋나면 증상이 고약하다: 서버는 `GetHearRadius` 로 전송을 끊는데 클라 감쇠는
+> 다른 거리에서 0 이 되므로, **경계에서 목소리가 뚝 끊기거나**(감쇠가 더 길 때)
+> **들려야 할 거리인데 소리가 없다**(감쇠가 더 짧을 때). 둘 다 "가끔 이상하다"
+> 로만 보여서 원인을 찾기 매우 어렵다.
+
+**아직 확인하지 못한 것 — ★ 전부 실행 검증이다**
+
+빌드만 통과했고 **에디터에서 한 번도 돌려보지 않았다.**
+
+- **PIE 2창에서 실제로 들리는지.** 창 하나가 말하고 다른 창이 듣는다.
+  (마이크는 첫 창만 잡는다 — 양방향은 프로세스 두 개로)
+- **거리에 따라 사라지는지.** `MOU.Voice.ShowRadius 1` 로 초록 링을 띄우고
+  링 안팎을 오가며 확인한다. **경계에서 뚝 끊기면 `FalloffMode` 정렬이 틀린 것이다.**
+- **소리가 발신자 위치에서 나는지**(방향감). 안 되면 `SetProximityMode` 가
+  `Start()` 뒤에 불렸을 가능성이 높다.
+- **호스트도 들리는지.** 위 리슨서버 항목이 실제로 맞는지는 돌려봐야 안다.
+- `MOU.Voice.Stat` 의 `전송 / [서버]라우팅·전달 / [수신]재생` 이 어디서 0 이 되는지.
+  **이 세 숫자로 송신·서버·수신 중 어디가 문제인지 바로 갈린다** — 안 들릴 때 여기부터 본다.
+
+>>>>>>> upstream/DayilyMarge
 **콘솔 명령 (기존 `MOU.Chat.*` 규칙과 통일)**
 
 ```
@@ -966,6 +1194,11 @@ MOU.Voice.ShowRadius <0|1>    ★ 말할 때 소리 도달 범위를 링으로 �
                                  초록=사람이 듣는 거리 / 빨강=NPC 가 듣는 거리
 MOU.Voice.Mode <0|1|2>        발화 모드 (0=속삭임 1=보통 2=외침)
 MOU.Voice.Loopback <0|1>      로컬 루프백 (V1 검증용. V3 이후엔 디버그 전용)
+<<<<<<< HEAD
+=======
+MOU.Voice.Codec [0|1]         ★ Opus 우회 (V2 검증용). 인자 없으면 토글
+                                 0=원본 PCM / 1=압축 통과. 왕복하며 음질 A/B 비교
+>>>>>>> upstream/DayilyMarge
 MOU.Voice.Mute [0|1]          마이크 음소거 (C 키와 동일). 인자 없으면 토글
 MOU.Voice.ShowUI / HideUI     마이크 상태 표시 위젯 (VoiceStatusWidget)
 MOU.Voice.Diag                마이크가 안 잡힐 때 원인을 4단계로 진단
@@ -999,9 +1232,27 @@ MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키와 동일)                
 - `OnGenerateAudio` 안에서 `UE_LOG` 하나만 넣어도 오디오가 튄다. 디버깅은 카운터를 올리고 게임 스레드에서 읽는다.
 - `SynthComponent` 를 매 발화마다 `NewObject` 하면 GC 압력이 생긴다. **스트림 풀을 만들어 재사용한다.**
 
+<<<<<<< HEAD
 **네트워크**
 
 - Unreliable RPC 는 **한 패킷에 들어가야 한다.** 페이로드가 커지면 조용히 버려진다. 128바이트 상한은 이 때문이기도 하다.
+=======
+**코덱 (V2 에서 실제로 부딪힌 것들 — 자세한 것은 14-4절)**
+
+- **★ 디코딩 출력 버퍼가 6프레임(3840바이트)보다 작으면 조용히 0샘플이 나온다.**
+  에러도 로그도 없다. "인코딩은 되는데 소리만 안 난다" 로 보인다.
+  `MOUVoice::DecodeScratchSamples` 를 **줄이는 최적화를 하면 안 된다.**
+- **프레임 길이는 20ms 고정이다.** 엔진이 `SampleRate / 50` 로 하드코딩했다.
+  320샘플의 배수가 아닌 입력은 나머지가 조용히 버려진다.
+- **압축 결과는 순수 Opus 가 아니다.** 엔진 정의 컨테이너라 다른 Opus 구현으로 못 푼다.
+- **Opus 디코더는 상태를 가진다.** 발신자마다 하나씩 둘 것. 하나를 돌려 쓰면 지직거린다.
+  발화가 끊기면 `Reset()` 을 부를 것. 안 하면 새 발화 첫머리가 지직거린다.
+
+**네트워크**
+
+- Unreliable RPC 는 **한 패킷에 들어가야 한다.** 페이로드가 커지면 조용히 버려진다. 128바이트 상한은 이 때문이기도 하다.
+  **V2 에 감시를 심어뒀다** — 압축 프레임이 128바이트를 넘으면 경고가 한 번 뜬다(14-4절).
+>>>>>>> upstream/DayilyMarge
 - 폰이 relevant 하지 않으면 그 폰의 RPC 는 안 간다. **그래서 `PlayerController` 에 컴포넌트를 둔다.**(6절)
 - **리슨서버의 호스트 본인은 RPC 를 타지 않는다.** 서버=클라 동일 프로세스이므로 라우팅 결과를
   직접 재생 경로에 넣어야 한다. 빼먹으면 "호스트만 아무 소리도 안 들린다" 가 나온다. **자주 나는 버그다.**
@@ -1086,6 +1337,7 @@ V0·V1 을 구현하면서 아래는 **엔진 헤더에서 직접 확인했다.*
 - `USynthComponent::Start()` 는 `IsActive()` 면 즉시 반환하므로 **두 번 불러도 안전하다.**
   `bAutoActivate` 와 명시적 `Start()` 가 겹쳐도 `Init()` 은 한 번만 불린다.
 
+<<<<<<< HEAD
 ### 17-2. V2 이후에 확인할 것
 
 | 확인할 것 | 어디서 |
@@ -1093,3 +1345,29 @@ V0·V1 을 구현하면서 아래는 **엔진 헤더에서 직접 확인했다.*
 | `IVoiceEncoder`/`IVoiceDecoder` 의 프레임 크기 제약 | `.../Voice/Public/Interfaces/VoiceCodec.h` |
 | Opus 가 허용하는 프레임 길이 (20ms 를 쓸 계획) | 위와 동일 |
 | `USoundEffectSourcePresetChain` 사용법 (무전 필터, V7) | `AudioExtensions` |
+=======
+### 17-2. 확인 완료 (V2, 2026-08-18)
+
+V2 를 구현하며 엔진 소스에서 직접 확인했다. **자세한 것과 함정은 14-4절.**
+
+| API | 확인된 서명 / 사실 |
+|---|---|
+| 인코더 생성 | `FVoiceModule::Get().CreateVoiceEncoder(int32 SampleRate, int32 NumChannels, EAudioEncodeHint)` → `TSharedPtr<IVoiceEncoder>` |
+| 디코더 생성 | `FVoiceModule::Get().CreateVoiceDecoder(int32 SampleRate, int32 NumChannels)` → `TSharedPtr<IVoiceDecoder>` |
+| 인코딩 | `int32 Encode(const uint8* RawPCM, uint32 RawSize, uint8* OutData, uint32& OutSize)` — **`OutSize` 는 in/out.** 반환값은 인코딩되지 **않고 남은** 바이트 수 |
+| 디코딩 | `void Decode(const uint8* In, uint32 InSize, uint8* OutPCM, uint32& OutSize)` — 역시 in/out. **단위가 샘플이 아니라 바이트** |
+| 인코딩 힌트 | `EAudioEncodeHint`: `VoiceEncode_Voice`(명료도 우선) / `VoiceEncode_Audio`(음악용). **Voice 를 쓴다** |
+| **프레임 길이** | **고정 20ms.** `FrameSize = SampleRate / 50` 하드코딩. 인자로 못 바꾼다 ← 14-4절 함정 1 |
+| **압축 포맷** | 순수 Opus 가 아닌 **엔진 정의 컨테이너**(개수 + Generation + 오프셋 + Opus) ← 함정 2 |
+| **디코딩 버퍼** | **`MAX_OPUS_FRAMES(6) × BytesPerFrame` 이상**이어야 한다. 작으면 조용히 0샘플 ← ★함정 3 |
+| 인코더 기본값 | VBR ON / 제약VBR OFF / 복잡도 1 / FEC OFF. **비트레이트는 미설정** → 우리가 `SetBitrate` 로 명시 |
+| 샘플레이트 제약 | 인코더/디코더 모두 8000·12000·16000·24000·48000 만. **16000 은 안전** |
+
+### 17-3. V3 이후에 확인할 것
+
+| 확인할 것 | 어디서 | 언제 |
+|---|---|---|
+| Unreliable RPC 의 실제 페이로드 상한 (128바이트 가정이 맞는지) | UE 네트워킹 | V3 |
+| 리슨서버 호스트 본인에게 RPC 가 안 가는 문제의 처리 (15절) | — | V3 |
+| `USoundEffectSourcePresetChain` 사용법 (무전 필터) | `AudioExtensions` | V7 |
+>>>>>>> upstream/DayilyMarge

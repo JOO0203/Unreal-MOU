@@ -8,6 +8,22 @@ class AItemBase;
 class UTexture2D;
 
 /**
+<<<<<<< HEAD
+=======
+ * EItemCategory
+ * 상점 분류용 아이템 카테고리. 상점 UI에서 탭/필터로 사용한다.
+ * 카테고리를 늘리려면 여기에 값만 추가하면 된다(기존 행은 기본값 Etc 유지).
+ */
+UENUM(BlueprintType)
+enum class EItemCategory : uint8
+{
+	Weapon	UMETA(DisplayName = "무기"),
+	Potion	UMETA(DisplayName = "포션"),
+	Etc		UMETA(DisplayName = "기타")
+};
+
+/**
+>>>>>>> upstream/DayilyMarge
  * FItemSpawnRow
  * 아이템 DataTable의 한 행(칼럼) 정의. 스포너가 이 표를 읽어 아이템을 찍어낸다.
  * 방식 1(데이터만 DT): 순수 데이터 + 스폰할 클래스만. 동작(GE/Fire 등)은 각 클래스/BP가 가진다.
@@ -22,6 +38,13 @@ struct FItemSpawnRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	TSubclassOf<AItemBase> ItemClass;
 
+<<<<<<< HEAD
+=======
+	// 상점 분류 카테고리 (무기/포션/기타). 상점 UI에서 탭/필터로 사용. 기본값 Etc.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	EItemCategory Category = EItemCategory::Etc;
+
+>>>>>>> upstream/DayilyMarge
 	// 표시 이름 (ItemBase.ItemName에 주입)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	FText ItemName;

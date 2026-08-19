@@ -9,6 +9,13 @@ AProjectGameStateBase::AProjectGameStateBase()
 {
 	Gold = 0;
 	Reputation = 0;
+<<<<<<< HEAD
+=======
+
+	CurrentDebt = 200;
+	DebtMultiplier = 1.5f;
+	DebtCycle = 1;
+>>>>>>> upstream/DayilyMarge
 }
 
 // ==============================================
@@ -117,6 +124,61 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 }
 
 // ==============================================
+<<<<<<< HEAD
+=======
+// Debt
+// ==============================================
+
+bool AProjectGameStateBase::PayDebt()
+{
+	if (!HasAuthority())
+	{
+		return false;
+	}
+
+	// 빚을 낼 돈이 부족함
+	if (!SpendGold(CurrentDebt))
+	{
+		return  false;
+	}
+
+	// 상환 성공
+	DebtCycle++;
+	OnDebtCycleUpdated(DebtCycle);
+
+	CurrentDebt = FMath::RoundToInt(CurrentDebt * DebtMultiplier);
+	OnDebtUpdated(CurrentDebt);
+
+	return true;
+}
+
+void AProjectGameStateBase::SetCurrentDebt(int32 NewDebt)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	CurrentDebt = FMath::Max(0, NewDebt);
+
+	OnDebtUpdated(CurrentDebt);
+}
+
+void AProjectGameStateBase::SetDebtCycle(int32 NewDebtCycle)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	DebtCycle = FMath::Max(1, NewDebtCycle);
+
+	OnDebtCycleUpdated(DebtCycle);
+}
+
+
+// ==============================================
+>>>>>>> upstream/DayilyMarge
 // RepNotify
 // ==============================================
 
@@ -129,6 +191,18 @@ void AProjectGameStateBase::OnRep_Reputation()
 {
 	OnReputationUpdated(Reputation);
 }
+<<<<<<< HEAD
+=======
+void AProjectGameStateBase::OnRep_CurrentDebt()
+{
+	OnDebtUpdated(CurrentDebt);
+}
+
+void AProjectGameStateBase::OnRep_DebtCycle()
+{
+	OnDebtCycleUpdated(DebtCycle);
+}
+>>>>>>> upstream/DayilyMarge
 
 // ==============================================
 // Replication
@@ -139,4 +213,9 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AProjectGameStateBase, Gold);
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
+<<<<<<< HEAD
+=======
+	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
+	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
+>>>>>>> upstream/DayilyMarge
 }

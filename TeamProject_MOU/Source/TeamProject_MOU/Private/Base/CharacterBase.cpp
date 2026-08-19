@@ -60,11 +60,14 @@ void ACharacterBase::BeginPlay()
 		AbilitySystemComponent->SetReplicationMode(AscReplicationMode);
 	}
 
+<<<<<<< HEAD
 	if (HasAuthority() && BaseAttribute)
 	{
 		BaseAttribute->SetMaxWeight(DefaultMaxWeight);
 	}
 
+=======
+>>>>>>> upstream/DayilyMarge
 	// Attribute 변경 감지 델리게이트 바인딩
 	BindAttributeChangeDelegates();
 }
