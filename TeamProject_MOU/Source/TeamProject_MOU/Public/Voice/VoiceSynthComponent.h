@@ -25,9 +25,9 @@
 //   VOICE_INTEGRATION.md 7-2절 (재생/감쇠), 11절 (스레드 경계)
 //
 // [현재 구현 단계]
-//   V1 (로컬 루프백). 아직 2D 로만 재생한다.
-//   3D 공간화와 감쇠(AttenuationSettings)는 V3 에서 붙인다 - 지금은 소리를
-//   낼 발신자 액터가 없기 때문이다(내 목소리를 내가 듣는 단계).
+//   V3. 기본은 2D(루프백용)이고, SetProximityMode() 를 부르면 3D 로 바뀐다.
+//   근접 재생은 발신자 폰에 이 컴포넌트를 붙이고 그 함수를 부르는 방식이다.
+//   무전 재생(무전기 액터 + 필터)은 V6·V7 에서 붙인다.
 
 #pragma once
 
@@ -86,6 +86,37 @@ public:
 	/** 버퍼가 넘쳐 버린 샘플 수. 지연이 쌓이는 중이라는 신호다. */
 	int32 GetOverflowCount() const { return OverflowCounter.GetValue(); }
 
+	/**
+	 * 근접 3D 재생으로 설정한다(발화 모드에 맞는 거리 감쇠 포함).
+	 *
+	 * **처음 한 번은 반드시 `Start()` 전에 불러야 한다.** 공간화 여부
+	 * (`bAllowSpatialization`)는 사운드를 만드는 시점에 읽히기 때문에,
+	 * Start() 뒤에 켜면 그 사운드는 끝까지 2D 로 난다.
+	 *
+	 * 그 뒤로는 매 프레임 불러도 싸다 - 모드가 실제로 바뀔 때만 일한다.
+	 * 재생 중 모드가 바뀌면 사운드를 다시 만들지 않고 **감쇠만 갈아끼운다.**
+	 * 다시 만들면 말하는 도중에 소리가 끊겼다 이어져 딸깍거린다.
+	 */
+	void SetProximityMode(EVoiceMode Mode);
+
+	/** 지금 3D 로 설정돼 있는지. 루프백(2D)과 구분하는 데 쓴다. */
+	bool IsSpatialized() const { return bSpatialConfigured; }
+
+	/**
+	 * 무전기 스피커로 재생하도록 설정한다(V7). **`Start()` 전에 부를 것.**
+	 *
+	 * 근접과 다른 점 두 가지:
+	 *   1. 감쇠 반경이 발화 모드가 아니라 **무전기 속성**에서 온다
+	 *      (무전기 스피커 크기는 말하는 사람이 속삭이든 소리치든 그대로다)
+	 *   2. **무전 톤 필터**가 걸린다 - 대역을 좁히고 찌그러뜨리고 잡음을 얹는다
+	 *
+	 * @param HearRadius  사람이 들을 수 있는 총 거리(cm). URadioComponent 의 값.
+	 */
+	void SetRadioMode(float HearRadius);
+
+	/** 지금 무전 톤이 걸려 있는지. */
+	bool IsRadioFiltered() const { return bRadioFilterEnabled; }
+
 protected:
 	// --- USynthComponent ---------------------------------------------------
 
@@ -127,4 +158,48 @@ private:
 
 	/** 렌더 스레드가 마지막으로 처리한 비우기 요청 번호. **렌더 스레드 전용.** */
 	int32 LastHandledFlushRequest = 0;
+
+	/**
+	 * 지금 적용돼 있는 발화 모드.
+	 *
+	 * SetProximityMode 가 매 프레임 불려도 실제 작업을 건너뛰기 위한 캐시다.
+	 * 감쇠 갱신은 오디오 스레드로 명령을 보내는 일이라 공짜가 아니다.
+	 */
+	EVoiceMode CurrentMode = EVoiceMode::Normal;
+
+	/** SetProximityMode 가 한 번이라도 불렸는지. 2D(루프백)와 구분한다. */
+	bool bSpatialConfigured = false;
+
+	// -----------------------------------------------------------------------
+	// 무전 톤 필터 (V7)
+	//
+	// ★★ 아래 상태 변수는 **오디오 렌더 스레드 전용**이다.
+	//    OnGenerateAudio 안에서만 읽고 쓴다. 게임 스레드에서 만지면 지직거린다.
+	//
+	// [왜 소스 이펙트 체인 에셋이 아니라 코드인가]
+	//   설계 문서 7-4절은 USoundEffectSourcePresetChain 에셋을 쓰라고 했다.
+	//   디자이너가 에디터에서 톤을 굴릴 수 있어야 한다는 이유인데, 맞는 말이다.
+	//   다만 **지금 그 에셋이 없다.** 에셋을 만들 때까지 무전이 그냥 맑은
+	//   목소리로 들리면 "무전기 같은가" 를 판단할 수가 없다.
+	//
+	//   그래서 코드로 기본 톤을 넣어 지금 들어볼 수 있게 하고, 나중에 에셋이
+	//   생기면 SourceEffectChain 프로퍼티(USynthComponent 가 이미 갖고 있다)에
+	//   지정하고 이 내장 필터를 끄면 된다. 둘은 배타적이지 않다.
+	// -----------------------------------------------------------------------
+
+	/** 무전 톤을 적용할지. 게임 스레드가 켜고 렌더 스레드가 읽는다(bool 이라 원자적). */
+	bool bRadioFilterEnabled = false;
+
+	/** 하이패스 상태 - 저음을 깎아 "전화기" 대역으로 만든다. */
+	float HighPassState = 0.f;
+
+	/** 로우패스 상태 - 고음을 깎는다. 두 개를 겹쳐 기울기를 키운다. */
+	float LowPassState1 = 0.f;
+	float LowPassState2 = 0.f;
+
+	/** 잡음 생성용 난수 상태. FMath::Rand 를 렌더 스레드에서 쓰면 안 되므로 직접 돌린다. */
+	uint32 NoiseSeed = 0x1234567u;
+
+	/** 무전 톤을 입힌다. **오디오 렌더 스레드에서만 호출한다.** */
+	void ApplyRadioFilter(float* Audio, int32 NumSamples);
 };
