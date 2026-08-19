@@ -29,29 +29,11 @@
 //   **진짜 스레드 경계는 여기가 아니라 재생 쪽**(게임 스레드 -> 오디오 렌더 스레드)
 //   이고, 그건 VoiceSynthComponent 의 락 프리 링버퍼가 담당한다.
 //
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-//   V2 에서 Opus 인코딩이 들어와도 16kbps 인코딩은 수십 마이크로초라 게임
-//   스레드에서 충분하다. 프로파일링에서 걸리면 그때 **인코딩만** 워커로 뺀다
-//   (캡처 폴링은 여전히 게임 스레드에 남아야 한다).
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 //   [V2 결과] Opus 인코딩은 게임 스레드에 그대로 두었다. 24kbps / 320샘플
 //   인코딩은 수십 마이크로초라 문제되지 않는다. 다만 인코딩은 이 클래스가
 //   아니라 UVoiceSubsystem 이 한다(아래 FMOUVoiceFrame 주석 참고).
 //   프로파일링에서 걸리면 그때 **인코딩만** 워커로 뺀다 - 캡처 폴링은 여전히
 //   게임 스레드에 남아야 한다.
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 //
 // [대응하는 문서]
 //   VOICE_INTEGRATION.md 7-1절 (캡처), 11절 (스레드 경계)
@@ -64,18 +46,6 @@
 class IVoiceCapture;
 
 /**
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
- * 캡처된 20ms 조각 하나.
- *
- * V2 에서 Opus 가 들어오면 PCM 대신 압축 바이트가 되고,
- * V3 에서 네트워크로 나갈 때 Seq/Route 필드가 붙는다.
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
  * 캡처된 20ms 조각 하나. **항상 원본 PCM 이다.**
  *
  * V2 를 하며 초안(“Opus 가 들어오면 PCM 대신 압축 바이트가 된다”)을 접었다.
@@ -88,13 +58,6 @@ class IVoiceCapture;
  *
  * V3 에서 네트워크로 나갈 때 Seq/Route 는 압축 바이트와 함께 RPC 인자로 붙는다.
  * 이 구조체는 캡처 결과 그대로 남는다.
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
  */
 struct FMOUVoiceFrame
 {

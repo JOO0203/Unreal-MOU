@@ -9,25 +9,10 @@ AProjectGameStateBase::AProjectGameStateBase()
 {
 	Gold = 0;
 	Reputation = 0;
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 	CurrentDebt = 200;
 	DebtMultiplier = 1.5f;
 	DebtCycle = 1;
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 }
 
 // ==============================================
@@ -136,14 +121,6 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 }
 
 // ==============================================
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 // Debt
 // ==============================================
 
@@ -196,13 +173,6 @@ void AProjectGameStateBase::SetDebtCycle(int32 NewDebtCycle)
 
 
 // ==============================================
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 // RepNotify
 // ==============================================
 
@@ -215,14 +185,6 @@ void AProjectGameStateBase::OnRep_Reputation()
 {
 	OnReputationUpdated(Reputation);
 }
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 void AProjectGameStateBase::OnRep_CurrentDebt()
 {
 	OnDebtUpdated(CurrentDebt);
@@ -232,13 +194,6 @@ void AProjectGameStateBase::OnRep_DebtCycle()
 {
 	OnDebtCycleUpdated(DebtCycle);
 }
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 // ==============================================
 // Replication
@@ -249,19 +204,6 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AProjectGameStateBase, Gold);
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
->>>>>>> upstream/DayilyMarge
-=======
-	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
-	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
->>>>>>> upstream/DayilyMarge
-=======
-	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
-	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
->>>>>>> upstream/DayilyMarge
 }

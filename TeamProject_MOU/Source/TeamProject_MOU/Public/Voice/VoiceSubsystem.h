@@ -3,22 +3,8 @@
 // [팀원이 알아야 할 것 - 요약]
 //   음성을 쓰려면 이 서브시스템만 알면 된다. 스레드나 오디오 버퍼는 볼 필요 없다.
 //   콘솔에서:  MOU.Voice.Loopback 1   -> 내 목소리가 내 헤드폰으로 돌아온다
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-//              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수
-=======
 //              MOU.Voice.Codec 0      -> Opus 우회. 켰다 껐다 하며 음질 비교
 //              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수 + 압축률
->>>>>>> upstream/DayilyMarge
-=======
-//              MOU.Voice.Codec 0      -> Opus 우회. 켰다 껐다 하며 음질 비교
-//              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수 + 압축률
->>>>>>> upstream/DayilyMarge
-=======
-//              MOU.Voice.Codec 0      -> Opus 우회. 켰다 껐다 하며 음질 비교
-//              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수 + 압축률
->>>>>>> upstream/DayilyMarge
 //              MOU.Voice.FakeNoise 1500  -> 마이크 없이 NPC 소음만 발생
 //              MOU.Voice.Mute 1       -> 마이크 음소거 (C 키와 동일)
 //              MOU.Voice.ShowUI       -> 상태 표시 위젯 띄우기 (VoiceStatusWidget.h)
@@ -28,21 +14,8 @@
 //     FVoiceCaptureSource (게임 스레드에서 직접 폴링. VoiceCaptureSource.h 참고)
 //       ↓ Poll()
 //   ★ UVoiceSubsystem (게임 스레드)  ← 이 파일. Tick 에서 폴링해 재생 버퍼로 넘김
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 //       ↓ FMOUVoiceEncoder     (V3 에서 여기 결과가 서버로 나간다)
 //       ↓ FMOUVoiceDecoder     (V3 에서는 받는 쪽이 한다)
->>>>>>> upstream/DayilyMarge
-=======
-//       ↓ FMOUVoiceEncoder     (V3 에서 여기 결과가 서버로 나간다)
-//       ↓ FMOUVoiceDecoder     (V3 에서는 받는 쪽이 한다)
->>>>>>> upstream/DayilyMarge
-=======
-//       ↓ FMOUVoiceEncoder     (V3 에서 여기 결과가 서버로 나간다)
-//       ↓ FMOUVoiceDecoder     (V3 에서는 받는 쪽이 한다)
->>>>>>> upstream/DayilyMarge
 //       ↓ PushSamples
 //     UVoiceSynthComponent (오디오 렌더 스레드)
 //
@@ -51,29 +24,11 @@
 //   PIE 다중 창에서 창마다 마이크를 열려고 해서 장치 경합이 난다.
 //   (VOICE_INTEGRATION.md 6절 참고)
 //
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-// [현재 구현 단계 - V1]
-//   로컬 루프백까지. 네트워크 전송도, Opus 도, 무전기도 아직 없다.
-//   이 단계의 목적은 "엔진 API 와 스레드 경계가 설계대로 도는가" 를 확인하는 것이다.
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 // [현재 구현 단계 - V2]
 //   캡처 -> Opus 인코딩 -> Opus 디코딩 -> 로컬 재생까지.
 //   네트워크 전송도, 무전기도 아직 없다.
 //   이 단계의 목적은 "코덱을 통과시켜도 알아들을 만한가" 를 귀로 확인하는 것이다.
 //   MOU.Voice.Codec 0/1 로 코덱을 우회해 A/B 비교할 수 있다.
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 #pragma once
 
@@ -82,29 +37,11 @@
 #include "Containers/Ticker.h"
 #include "Voice/VoiceTypes.h"
 #include "Voice/VoiceCaptureSource.h"
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-#include "VoiceSubsystem.generated.h"
-
-class FVoiceCaptureSource;
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 #include "Voice/VoiceCodec.h"
 #include "VoiceSubsystem.generated.h"
 
 class FVoiceCaptureSource;
 class UVoiceComponent;
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 class UVoiceSynthComponent;
 
 /**
@@ -142,14 +79,6 @@ public:
 	bool IsLoopbackEnabled() const { return bLoopbackEnabled; }
 
 	/**
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	 * Opus 코덱을 켜고 끈다(V2 검증용).
 	 *
 	 * 끄면 원본 PCM 이 그대로 재생 경로로 간다. 켜고 끄며 들어보면 **압축이
@@ -176,13 +105,6 @@ public:
 	bool IsCodecReady() const;
 
 	/**
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	 * 마이크 음소거를 켜고 끈다. `C` 키에 연결된다(VOICE_INTEGRATION.md 7-1절).
 	 *
 	 * 켜면 **캡처 자체를 중단한다**(마이크를 놓는다. VAD 도 안 돈다) - 설계 문서의
@@ -262,14 +184,6 @@ private:
 	/** 재생용 신스 컴포넌트를 만든다(루프백을 처음 켤 때). */
 	void EnsurePlaybackComponent();
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/**
 	 * 내 PlayerController 의 음성 창구를 얻는다. 없으면 null.
 	 *
@@ -281,13 +195,6 @@ private:
 	/** 지금 로컬 플레이어의 PlayerController. 없으면 null. */
 	APlayerController* GetOwningPlayerController() const;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/** 말하는 동안 소리 도달 범위를 링으로 그린다. 디버그 빌드에서만 의미가 있다. */
 	void DrawRadiusDebug();
 
@@ -300,17 +207,6 @@ private:
 	 */
 	TUniquePtr<FVoiceCaptureSource> CaptureSource;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	/** 매 틱 재사용하는 프레임 버퍼. 틱마다 할당하지 않으려고 멤버로 둔다. */
-	TArray<FMOUVoiceFrame> PolledFrames;
-
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/**
 	 * Opus 인코더. **보내는 쪽에 하나면 된다.**
 	 * V3 에서도 여기 남는다 - 바뀌는 것은 결과를 재생이 아니라 RPC 로 보내는 것뿐이다.
@@ -344,13 +240,6 @@ private:
 	/** 서버로 보낸 프레임 수. 루프백 통계와 구분해서 센다. */
 	int32 FramesTransmitted = 0;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/**
 	 * 재생 컴포넌트.
 	 *
@@ -367,14 +256,6 @@ private:
 	bool bMuted           = false;
 	bool bShowRadiusDebug = false;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/**
 	 * 코덱 사용 여부. 기본 ON.
 	 *
@@ -392,13 +273,6 @@ private:
 	 */
 	bool bWasSpeaking = false;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/** 지금 발화 모드. V9 에서 키/UI 로 바꾸게 되고, 지금은 콘솔로만 바꾼다. */
 	EVoiceMode VoiceMode = EVoiceMode::Normal;
 

@@ -5,29 +5,10 @@
 //   설계 문서: 저장소 루트의 VOICE_INTEGRATION.md
 //
 // [현재 구현 단계]
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-//   V0 (FakeNoise 콘솔 명령) + V1 (로컬 루프백) 까지.
-//   네트워크 전송(V3)과 Opus 코덱(V2)은 아직 없다. 그래서 EVoiceRoute 같은
-//   라우팅 관련 타입은 아직 만들지 않았다 - 쓰는 곳이 없는 타입을 미리 만들면
-//   설계가 바뀔 때 같이 바꿔야 하는 짐만 된다.
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 //   V0 (FakeNoise 콘솔 명령) + V1 (로컬 루프백) + V2 (Opus 코덱) 까지.
 //   네트워크 전송(V3)은 아직 없다. 그래서 EVoiceRoute 같은 라우팅 관련 타입은
 //   아직 만들지 않았다 - 쓰는 곳이 없는 타입을 미리 만들면 설계가 바뀔 때
 //   같이 바꿔야 하는 짐만 된다.
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 //
 // [수정 시 같이 고쳐야 하는 파일]
 //   SampleRate/FrameMs 를 바꾸면 VoiceCaptureSource.cpp 의 프레이밍과
@@ -52,14 +33,6 @@ enum class EVoiceMode : uint8
 	Whisper UMETA(DisplayName = "속삭임"),
 	Normal  UMETA(DisplayName = "보통"),
 	Shout   UMETA(DisplayName = "외침"),
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 	/** 범위 검사용. 실제 모드가 아니다. 항상 마지막에 둘 것. */
 	MAX UMETA(Hidden),
@@ -83,13 +56,6 @@ enum class EVoiceRoute : uint8
 	Radio     UMETA(DisplayName = "무전"),
 
 	MAX UMETA(Hidden),
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 };
 
 /**
@@ -117,15 +83,6 @@ namespace MOUVoice
 	 * 프레임 하나의 길이(ms)와 그에 해당하는 샘플 수.
 	 *
 	 * 20ms 인 이유: Opus 가 지원하는 프레임 길이(2.5/5/10/20/40/60ms) 중
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	 * 지연과 오버헤드의 균형점이다. V2 에서 Opus 를 넣을 때 이 값을 그대로 쓴다.
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	 * 지연과 오버헤드의 균형점이다.
 	 *
 	 * ★★ [V2 에서 확인됨] 20ms 는 우연이 아니라 **엔진이 강제하는 값이다.**
@@ -144,26 +101,11 @@ namespace MOUVoice
 	 *   320샘플씩 쪼개 여러 번 opus_encode 를 부르고 헤더 하나에 묶기 때문이다.
 	 *   대역폭이 줄어드는 것은 맞지만(헤더를 공유하므로) 이유가 13절 설명과 다르다.
 	 *   그리고 320 의 배수가 아닌 값으로 바꾸면 나머지가 인코딩되지 않고 버려진다.
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	 */
 	inline constexpr int32 FrameMs          = 20;
 	inline constexpr int32 SamplesPerFrame  = SampleRate * FrameMs / 1000;  // 320
 	inline constexpr int32 BytesPerFrame    = SamplesPerFrame * sizeof(int16); // 640
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	// -----------------------------------------------------------------------
 	// Opus 코덱 (V2)
 	//
@@ -219,13 +161,6 @@ namespace MOUVoice
 	 */
 	inline constexpr int32 DecodeScratchSamples = 6 * SamplesPerFrame;  // 1920
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	/**
 	 * VAD(음성 감지) 임계값. RMS 를 0~1 로 정규화한 값과 비교한다.
 	 *
@@ -328,15 +263,6 @@ namespace MOUVoice
 		default:                  return TEXT("보통");
 		}
 	}
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-}
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 	inline const TCHAR* GetVoiceRouteName(EVoiceRoute Route)
 	{
@@ -553,10 +479,3 @@ struct FVoiceFrameOut
 
 	UPROPERTY() TArray<uint8> Opus;
 };
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge

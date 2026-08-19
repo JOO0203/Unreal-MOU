@@ -5,48 +5,18 @@
 
 #include "Voice/VoiceSynthComponent.h"
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 #include "Components/AudioComponent.h"
 #include "Engine/Attenuation.h"
 #include "Sound/SoundAttenuation.h"
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 UVoiceSynthComponent::UVoiceSynthComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	// 모노. 음성은 스테레오로 만들 이유가 없고, 공간화는 오디오 엔진이 한다.
 	NumChannels = MOUVoice::NumChannels;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	// V1 은 루프백(내 목소리를 내가 듣기)이라 2D 로 낸다.
-	// V3 에서 발신자 폰에 붙일 때 true 로 바꾸고 AttenuationSettings 를 건다.
-=======
 	// 기본은 2D 다. 루프백(내 목소리를 내가 듣기)은 월드 위치가 없으므로 그게 맞다.
 	// 근접 재생은 SetProximityMode() 가 켠다.
->>>>>>> upstream/DayilyMarge
-=======
-	// 기본은 2D 다. 루프백(내 목소리를 내가 듣기)은 월드 위치가 없으므로 그게 맞다.
-	// 근접 재생은 SetProximityMode() 가 켠다.
->>>>>>> upstream/DayilyMarge
-=======
-	// 기본은 2D 다. 루프백(내 목소리를 내가 듣기)은 월드 위치가 없으므로 그게 맞다.
-	// 근접 재생은 SetProximityMode() 가 켠다.
->>>>>>> upstream/DayilyMarge
 	bAllowSpatialization = false;
 
 	// 이 컴포넌트는 액터에 붙은 채로 계속 살아있고 필요할 때만 소리를 낸다.
@@ -54,14 +24,6 @@ UVoiceSynthComponent::UVoiceSynthComponent(const FObjectInitializer& ObjectIniti
 	bAutoActivate = true;
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 namespace
 {
 	/**
@@ -145,13 +107,6 @@ void UVoiceSynthComponent::SetProximityMode(EVoiceMode Mode)
 	bSpatialConfigured = true;
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 bool UVoiceSynthComponent::Init(int32& SampleRate)
 {
 	// 오디오 엔진에게 "나는 16kHz 로 낸다" 고 알린다.
@@ -175,31 +130,6 @@ void UVoiceSynthComponent::PushSamples(const int16* Samples, int32 NumSamples)
 	// PCM16 -> float(-1~1). 오디오 엔진은 float 로 다룬다.
 	//
 	// 스택 배열을 쓰는 이유: 매 프레임 TArray 를 할당하면 20ms 마다 힙을 때려
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	// GC 압력과 프레임 스파이크가 생긴다. 한 프레임은 320샘플로 고정이므로
-	// 상한이 명확해 스택으로 충분하다.
-	float Converted[MOUVoice::SamplesPerFrame];
-	const int32 CountToConvert = FMath::Min(NumSamples, MOUVoice::SamplesPerFrame);
-
-	for (int32 Index = 0; Index < CountToConvert; ++Index)
-	{
-		Converted[Index] = static_cast<float>(Samples[Index]) / 32768.f;
-	}
-
-	const int32 Pushed = RingBuffer.Push(Converted, static_cast<uint32>(CountToConvert));
-
-	// 넘쳐서 못 넣은 만큼을 센다. 이 값이 계속 오르면 마이크 입력이 재생보다
-	// 빨라 지연이 쌓이고 있다는 뜻이다(= 버퍼를 비워야 한다).
-	if (Pushed < CountToConvert)
-	{
-		OverflowCounter.Add(CountToConvert - Pushed);
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	// GC 압력과 프레임 스파이크가 생긴다.
 	//
 	// ★ 320샘플씩 끊어서 도는 이유 - 예전에는 `Min(NumSamples, 320)` 으로
@@ -235,13 +165,6 @@ void UVoiceSynthComponent::PushSamples(const int16* Samples, int32 NumSamples)
 
 		Cursor    += ChunkSize;
 		Remaining -= ChunkSize;
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	}
 }
 

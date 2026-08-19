@@ -248,77 +248,24 @@ void UStatusComponent::RemoveStatusTag(FGameplayTag Tag)
 
 bool UStatusComponent::CanMove() const
 {
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
-	static const FGameplayTag PrimaryStunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
-	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
-	static const FGameplayTag KnockedTag = FGameplayTag::RequestGameplayTag(FName("State.Knockdown"), false);
-
-	return !HasStatusTag(StunTag) && !HasStatusTag(PrimaryStunTag) && !HasStatusTag(HeldTag) && !HasStatusTag(KnockedTag);
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
 	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
 	static const FGameplayTag KnockedTag = FGameplayTag::RequestGameplayTag(FName("State.KnockedBack"), false);
 
 	return !HasStatusTag(StunTag) && !HasStatusTag(HeldTag) && !HasStatusTag(KnockedTag);
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 }
 
 bool UStatusComponent::CanAct() const
 {
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
-	static const FGameplayTag PrimaryStunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
-	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
-
-	return !HasStatusTag(StunTag) && !HasStatusTag(PrimaryStunTag) && !HasStatusTag(HeldTag);
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
 	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
 
 	return !HasStatusTag(StunTag) && !HasStatusTag(HeldTag);
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 }
 
 bool UStatusComponent::CanSprint() const
 {
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Exhausted"), false);
-=======
 	static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"), false);
->>>>>>> upstream/DayilyMarge
-=======
-	static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"), false);
->>>>>>> upstream/DayilyMarge
-=======
-	static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"), false);
->>>>>>> upstream/DayilyMarge
 	return CanMove() && !HasStatusTag(ExhaustedTag);
 }
 

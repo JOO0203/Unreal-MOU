@@ -100,17 +100,6 @@ public:
 	 *
 	 * 실패해도 자동으로 재시도하므로, 서버를 나중에 켜도 알아서 붙는다.
 	 * 이미 연결 중이면 아무 것도 하지 않는다.
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-	 */
-	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
-	void ConnectToChatServer(const FString& InHost = TEXT("127.0.0.1"), int32 InPort = 9000);
-=======
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 	 *
 	 * [주소를 인자로 넘기지 않는 것이 기본이다]
 	 *   InHost 를 비워두거나 InPort 를 0 으로 두면 UMOUChatServerSettings::ResolveEndpoint
@@ -120,13 +109,6 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
 	void ConnectToChatServer(const FString& InHost = TEXT(""), int32 InPort = 0);
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
-=======
->>>>>>> upstream/DayilyMarge
 
 	/**
 	 * 계정으로 로그인한다. 성공하면 서버가 accounts.id 를 UserId 로 돌려준다.

@@ -29,24 +29,9 @@ public class TeamProject_MOU : ModuleRules
             "Sockets",
             "Networking",
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
             // 채팅 서버 주소를 Project Settings 에 노출한다 (Chat/ChatServerSettings.h).
             "DeveloperSettings",
 
->>>>>>> upstream/DayilyMarge
-=======
-            // 채팅 서버 주소를 Project Settings 에 노출한다 (Chat/ChatServerSettings.h).
-            "DeveloperSettings",
-
->>>>>>> upstream/DayilyMarge
-=======
-            // 채팅 서버 주소를 Project Settings 에 노출한다 (Chat/ChatServerSettings.h).
-            "DeveloperSettings",
-
->>>>>>> upstream/DayilyMarge
             // --- 음성 시스템 (VOICE_INTEGRATION.md 4절) ------------------
             // 마이크 캡처와 Opus 코덱은 엔진 것을 그대로 쓴다.
             // 직접 만드는 것은 그 위의 라우팅/재생뿐이다.
