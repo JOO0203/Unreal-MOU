@@ -93,9 +93,10 @@ void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Pushing"), false);
 		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
 		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
+>>>>>>> upstream/DayilyMarge
 		
 		bIsPushing = MainCharacter->bIsPushingMode;
-		bIsStunned = (StunTag.IsValid() && StatusComp->HasStatusTag(StunTag));
+		bIsStunned = (StunTag.IsValid() && StatusComp->HasStatusTag(StunTag)) || (PrimaryStunTag.IsValid() && StatusComp->HasStatusTag(PrimaryStunTag));
 		bIsHeld = (HeldTag.IsValid() && StatusComp->HasStatusTag(HeldTag));
 	}
 	else
