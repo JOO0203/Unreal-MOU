@@ -73,7 +73,10 @@ public:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -114,6 +117,9 @@ public:
 	void OnDebtCycleUpdated(int32 NewDebtCycle);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -126,7 +132,10 @@ protected:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	UFUNCTION()
@@ -136,6 +145,9 @@ protected:
 	void OnRep_DebtCycle();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

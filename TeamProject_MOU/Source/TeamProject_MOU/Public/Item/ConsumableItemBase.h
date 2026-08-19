@@ -6,6 +6,11 @@
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+class UAnimMontage;
+
+>>>>>>> upstream/DayilyMarge
 =======
 class UAnimMontage;
 
@@ -91,7 +96,10 @@ protected:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// [CONSUME-015] 사용 시 소유 캐릭터가 재생할 애니메이션 몽타주 (마시기 등).
@@ -100,6 +108,9 @@ protected:
 	TObjectPtr<UAnimMontage> UseMontage;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -112,7 +123,10 @@ private:
 	void TryConsumeOnServer();
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -120,6 +134,9 @@ private:
 	// (안 하면 CarriedActor가 남아 Carry 포즈가 안 풀리고 무게도 안 빠짐) 서버 전용.
 	void ReleaseFromHolderHand();
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

@@ -15,8 +15,14 @@ class UGameplayEffect;
  *   - 체력 회복  = Health를 올리는 Instant/Periodic GE
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
  *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
  *   - 경량화/소지량 증가 = MaxWeight를 올리는(또는 CurrentWeight를 낮추는) Duration GE
+=======
+ *   - 힘 증가    = LiftPower/MaxLiftPower를 올리는 Duration GE
+ *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
+ *   - 경량화     = MaxWeight를 올리는(또는 CurrentWeight를 낮추는) Duration GE
+>>>>>>> upstream/DayilyMarge
 =======
  *   - 힘 증가    = LiftPower/MaxLiftPower를 올리는 Duration GE
  *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
@@ -55,7 +61,10 @@ protected:
 	FGameplayTagContainer TagsToRemove;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -83,6 +92,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion|Throw")
 	float ImpactRadius = 400.0f;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -93,7 +105,10 @@ protected:
 	virtual void ApplyEffect_Implementation() override;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -114,6 +129,9 @@ private:
 	// 중복 발동 방지 (OnComponentHit이 여러 번 불릴 수 있음)
 	bool bHasImpacted = false;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

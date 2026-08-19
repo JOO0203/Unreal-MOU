@@ -113,6 +113,9 @@ protected:
 	void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
 	 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

@@ -34,7 +34,10 @@ public:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// ====================================
@@ -57,6 +60,9 @@ public:
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -72,7 +78,11 @@ public:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 현재 GameState의 골드/평판을 GameInstance에 임시 저장
+=======
+	// 현재 GameState의 골드/평판/부채/상환 주기를 GameInstance에 임시 저장
+>>>>>>> upstream/DayilyMarge
 =======
 	// 현재 GameState의 골드/평판/부채/상환 주기를 GameInstance에 임시 저장
 >>>>>>> upstream/DayilyMarge
@@ -85,9 +95,15 @@ public:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// GameInstance에 보관되어 있는 골드/평판을 현재 맵에 새로운 GameState에 복원
 	// 맵 이동 후 새로운 GameState가 만들어지고 
 	// 복원된 GameState값은 GameState Replicatio을 통해 각 client에 자동 전달
+=======
+	// GameInstance에 보관되어 있는 골드/평판/부채/상환 주기를 현재 맵에 새로운 GameState에 복원
+	// 맵 이동 후 새로운 GameState가 만들어지고 
+	// 복원된 GameState값은 GameState Replication을 통해 각 client에 자동 전달
+>>>>>>> upstream/DayilyMarge
 =======
 	// GameInstance에 보관되어 있는 골드/평판/부채/상환 주기를 현재 맵에 새로운 GameState에 복원
 	// 맵 이동 후 새로운 GameState가 만들어지고 

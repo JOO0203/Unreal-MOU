@@ -86,7 +86,10 @@ protected:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// [WEAPON-013] 이 발사에서 사용횟수(WeaponUseCount)를 차감할지 여부.
@@ -94,6 +97,9 @@ protected:
 	virtual bool ShouldConsumeUseOnFire() const { return true; }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

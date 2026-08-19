@@ -37,8 +37,11 @@ void UProjectGameInstanceBase::SaveEconomyData()
 	SavedReputation = ProjectGameState->Reputation;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	SavedDebt = ProjectGameState->CurrentDebt;
@@ -46,6 +49,9 @@ void UProjectGameInstanceBase::SaveEconomyData()
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -82,7 +88,11 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	// GameState 값 변경은 Server가 관리하므로 Client의 GameInstance에서는 저장하지 않음.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// Server에서 복원된 골드 및 평판은 GameState Replication을 통해 Client에게 전달
+=======
+	// Server에서 복원된 경제 데이터는 GameState Replication을 통해 Client에게 전달
+>>>>>>> upstream/DayilyMarge
 =======
 	// Server에서 복원된 경제 데이터는 GameState Replication을 통해 Client에게 전달
 >>>>>>> upstream/DayilyMarge
@@ -101,6 +111,11 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	ProjectGameState->SetReputation(SavedReputation);
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+	ProjectGameState->SetCurrentDebt(SavedDebt);
+	ProjectGameState->SetDebtCycle(SavedDebtCycle);
+>>>>>>> upstream/DayilyMarge
 =======
 	ProjectGameState->SetCurrentDebt(SavedDebt);
 	ProjectGameState->SetDebtCycle(SavedDebtCycle);

@@ -5,7 +5,12 @@
 //   콘솔에서:  MOU.Voice.Loopback 1   -> 내 목소리가 내 헤드폰으로 돌아온다
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수
+=======
+//              MOU.Voice.Codec 0      -> Opus 우회. 켰다 껐다 하며 음질 비교
+//              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수 + 압축률
+>>>>>>> upstream/DayilyMarge
 =======
 //              MOU.Voice.Codec 0      -> Opus 우회. 켰다 껐다 하며 음질 비교
 //              MOU.Voice.Stat         -> 프레임/버퍼/드랍 수 + 압축률
@@ -25,6 +30,11 @@
 //   ★ UVoiceSubsystem (게임 스레드)  ← 이 파일. Tick 에서 폴링해 재생 버퍼로 넘김
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+//       ↓ FMOUVoiceEncoder     (V3 에서 여기 결과가 서버로 나간다)
+//       ↓ FMOUVoiceDecoder     (V3 에서는 받는 쪽이 한다)
+>>>>>>> upstream/DayilyMarge
 =======
 //       ↓ FMOUVoiceEncoder     (V3 에서 여기 결과가 서버로 나간다)
 //       ↓ FMOUVoiceDecoder     (V3 에서는 받는 쪽이 한다)
@@ -43,10 +53,13 @@
 //
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 // [현재 구현 단계 - V1]
 //   로컬 루프백까지. 네트워크 전송도, Opus 도, 무전기도 아직 없다.
 //   이 단계의 목적은 "엔진 API 와 스레드 경계가 설계대로 도는가" 를 확인하는 것이다.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 // [현재 구현 단계 - V2]
@@ -55,6 +68,9 @@
 //   이 단계의 목적은 "코덱을 통과시켜도 알아들을 만한가" 를 귀로 확인하는 것이다.
 //   MOU.Voice.Codec 0/1 로 코덱을 우회해 A/B 비교할 수 있다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -68,10 +84,13 @@
 #include "Voice/VoiceCaptureSource.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 #include "VoiceSubsystem.generated.h"
 
 class FVoiceCaptureSource;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 #include "Voice/VoiceCodec.h"
@@ -80,6 +99,9 @@ class FVoiceCaptureSource;
 class FVoiceCaptureSource;
 class UVoiceComponent;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -122,7 +144,10 @@ public:
 	/**
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	 * Opus 코덱을 켜고 끈다(V2 검증용).
@@ -152,6 +177,9 @@ public:
 
 	/**
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -236,7 +264,10 @@ private:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -251,6 +282,9 @@ private:
 	APlayerController* GetOwningPlayerController() const;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -268,10 +302,13 @@ private:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/** 매 틱 재사용하는 프레임 버퍼. 틱마다 할당하지 않으려고 멤버로 둔다. */
 	TArray<FMOUVoiceFrame> PolledFrames;
 
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -308,6 +345,9 @@ private:
 	int32 FramesTransmitted = 0;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -329,7 +369,10 @@ private:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -350,6 +393,9 @@ private:
 	bool bWasSpeaking = false;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

@@ -62,11 +62,14 @@ void ACharacterBase::BeginPlay()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	if (HasAuthority() && BaseAttribute)
 	{
 		BaseAttribute->SetMaxWeight(DefaultMaxWeight);
 	}
 
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 =======

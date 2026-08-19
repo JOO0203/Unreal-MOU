@@ -14,6 +14,10 @@
 #include "Chat/ChatFraming.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+#include "Chat/ChatServerSettings.h"
+>>>>>>> upstream/DayilyMarge
 =======
 #include "Chat/ChatServerSettings.h"
 >>>>>>> upstream/DayilyMarge
@@ -138,7 +142,10 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 {
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// 인자가 비어 있으면 코드가 주소를 정하지 않는다. 설정(Config/DefaultGame.ini) 또는
@@ -159,6 +166,9 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -172,7 +182,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	ChatClient = new FChatClientRunnable(InHost, InPort);
+=======
+	ChatClient = new FChatClientRunnable(Host, Port);
+>>>>>>> upstream/DayilyMarge
 =======
 	ChatClient = new FChatClientRunnable(Host, Port);
 >>>>>>> upstream/DayilyMarge
@@ -186,7 +200,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 		ChatClient,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *InHost, InPort),
+=======
+		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *Host, Port),
+>>>>>>> upstream/DayilyMarge
 =======
 		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *Host, Port),
 >>>>>>> upstream/DayilyMarge
@@ -206,7 +224,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *InHost, InPort));
+=======
+	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *Host, Port));
+>>>>>>> upstream/DayilyMarge
 =======
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *Host, Port));
 >>>>>>> upstream/DayilyMarge
@@ -837,7 +859,13 @@ void UChatSubsystem::SetConnectionState(EChatConnectionState NewState, const FSt
 // PIE 에서 ` 키를 눌러 콘솔을 열고 아래 명령을 입력한다.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   MOU.Chat.Connect 127.0.0.1 9000
+=======
+//   MOU.Chat.Server                    (지금 어느 서버를 보고 있는지 확인 — 접속 문제는 여기부터)
+//   MOU.Chat.Connect                  (설정된 서버로 접속. 주소를 직접 줄 수도 있다)
+//   MOU.Chat.SetServer 192.168.0.32 9000   (이 PC 에만 다른 주소 저장, 인자 없으면 초기화)
+>>>>>>> upstream/DayilyMarge
 =======
 //   MOU.Chat.Server                    (지금 어느 서버를 보고 있는지 확인 — 접속 문제는 여기부터)
 //   MOU.Chat.Connect                  (설정된 서버로 접속. 주소를 직접 줄 수도 있다)
@@ -873,7 +901,11 @@ namespace
 		TEXT("MOU.Chat.Connect"),
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 		TEXT("채팅 서버에 접속한다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
+=======
+		TEXT("채팅 서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
+>>>>>>> upstream/DayilyMarge
 =======
 		TEXT("채팅 서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
 >>>>>>> upstream/DayilyMarge
@@ -887,9 +919,12 @@ namespace
 				{
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 					const FString HostArg = Args.IsValidIndex(0) ? Args[0] : TEXT("127.0.0.1");
 					const int32   PortArg = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 9000;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 					// 인자를 생략하면 빈 값을 넘긴다 -> ConnectToChatServer 가 설정에서 읽는다.
@@ -898,6 +933,9 @@ namespace
 					const FString HostArg = Args.IsValidIndex(0) ? Args[0] : FString();
 					const int32   PortArg = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 0;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -907,7 +945,10 @@ namespace
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -952,6 +993,9 @@ namespace
 			}));
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

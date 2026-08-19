@@ -18,7 +18,10 @@
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 // 음성 RPC 창구. 컨트롤러는 음성 시스템의 내부를 몰라도 되지만,
@@ -34,6 +37,9 @@ ATeamProject_MOUPlayerController::ATeamProject_MOUPlayerController()
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -128,9 +134,12 @@ void ATeamProject_MOUPlayerController::ShowLoginWidgetIfNeeded()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	LoginWidget->ServerHost = ChatServerHost;
 	LoginWidget->ServerPort = ChatServerPort;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// 비워두면 위젯이 설정(Config/DefaultGame.ini)에서 읽는다. 컨트롤러가 굳이
@@ -138,6 +147,9 @@ void ATeamProject_MOUPlayerController::ShowLoginWidgetIfNeeded()
 	LoginWidget->ServerHost = ChatServerHostOverride;
 	LoginWidget->ServerPort = ChatServerPortOverride;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

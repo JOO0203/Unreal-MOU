@@ -11,6 +11,10 @@ class UUserWidget;
 class ULoginWidgetBase;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+class UVoiceComponent;
+>>>>>>> upstream/DayilyMarge
 =======
 class UVoiceComponent;
 >>>>>>> upstream/DayilyMarge
@@ -80,6 +84,7 @@ protected:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/** 로그인 위젯의 ServerHost/ServerPort 로 그대로 넘어간다. */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	FString ChatServerHost = TEXT("127.0.0.1");
@@ -87,6 +92,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	int32 ChatServerPort = 9000;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -104,6 +111,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	int32 ChatServerPortOverride = 0;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

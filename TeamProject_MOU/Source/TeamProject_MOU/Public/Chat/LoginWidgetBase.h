@@ -56,6 +56,7 @@ public:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/** 접속할 채팅 서버. 패키징 후에도 바꿀 수 있도록 UPROPERTY 로 뺐다. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
 	FString ServerHost = TEXT("127.0.0.1");
@@ -63,6 +64,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
 	int32 ServerPort = 9000;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -83,6 +86,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Login")
 	int32 ServerPort = 0;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

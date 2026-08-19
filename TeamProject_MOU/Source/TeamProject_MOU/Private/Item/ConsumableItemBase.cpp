@@ -2,7 +2,10 @@
 #include "Net/UnrealNetwork.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 #include "Components/CarryingComponent.h"
@@ -10,6 +13,9 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -106,10 +112,13 @@ void AConsumableItemBase::TryConsumeOnServer()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 다 쓰면 아이템 소멸
 	if (ConsumeUseCount <= 0)
 	{
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// 다 쓰면 손을 비운 뒤 아이템 소멸
@@ -119,6 +128,9 @@ void AConsumableItemBase::TryConsumeOnServer()
 		// (Destroy만 하면 다음 GC 전까지 CarriedActor가 남아 애니메이션이 안 돌아옴)
 		ReleaseFromHolderHand();
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -128,7 +140,10 @@ void AConsumableItemBase::TryConsumeOnServer()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 // [CONSUME-013] 소유 캐릭터의 CarryingComponent에서 이 아이템을 비운다.
@@ -162,6 +177,9 @@ void AConsumableItemBase::ReleaseFromHolderHand()
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -185,10 +203,13 @@ void AConsumableItemBase::ApplyEffect_Implementation()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 // [CONSUME-005] 효과 연출 멀티캐스트 → BP 훅 호출
 void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 {
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 // [CONSUME-005] 효과 연출 멀티캐스트 → 사용 애니메이션 + BP 훅 호출
@@ -213,6 +234,9 @@ void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 
 	// VFX/사운드 등 BP 연출 훅
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

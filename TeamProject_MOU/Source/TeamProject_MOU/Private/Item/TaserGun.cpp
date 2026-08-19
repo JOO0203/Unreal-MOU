@@ -8,6 +8,10 @@
 #include "TimerManager.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+#include "AbilitySystemBlueprintLibrary.h" // SendGameplayEventToActor
+>>>>>>> upstream/DayilyMarge
 =======
 #include "AbilitySystemBlueprintLibrary.h" // SendGameplayEventToActor
 >>>>>>> upstream/DayilyMarge
@@ -75,7 +79,11 @@ void ATaserGun::Fire()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 // [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 기절 태그 부여 + 타이머로 해제 예약
+=======
+// [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 감전 태그 부여 + 타이머로 해제 예약
+>>>>>>> upstream/DayilyMarge
 =======
 // [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 감전 태그 부여 + 타이머로 해제 예약
 >>>>>>> upstream/DayilyMarge
@@ -100,6 +108,7 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 		return;
 	}
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
@@ -137,6 +146,8 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 =======
 =======
 >>>>>>> upstream/DayilyMarge
+=======
+>>>>>>> upstream/DayilyMarge
 	// 감전 발동 이벤트 태그 (GA_CC_Electric의 Trigger. 철자 'Eletric' 그대로여야 매칭됨)
 	// 이 이벤트를 받으면 대상 ASC에 Grant된 GA_CC_Electric이 발동되어
 	// GE 적용 + 감전 몽타주 재생 + 지속시간 후 자동 해제까지 모두 처리한다.
@@ -163,6 +174,9 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 			FString::Printf(TEXT("ELECTRIC event -> %s"), *GetNameSafe(TargetCharacter)));
 	}
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

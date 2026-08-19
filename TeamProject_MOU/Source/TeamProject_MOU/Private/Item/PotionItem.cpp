@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 #include "Item/PotionItem.h"
 #include "Base/CharacterBase.h"
 #include "Components/StatusComponent.h"
@@ -7,6 +8,8 @@
 #include "AbilitySystemInterface.h"
 #include "GameplayEffect.h"
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 ﻿#include "Item/PotionItem.h"
@@ -30,6 +33,9 @@
 		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 6.0f, Color, FString::Printf(TEXT("[Potion] " Fmt), ##__VA_ARGS__)); } \
 	} while (0)
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -42,7 +48,11 @@ APotionItem::APotionItem()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 // [POTION-001] 소비 효과: 대상 ASC에 GE 적용 + 상태이상 태그 제거
+=======
+// [POTION-001] 소비 효과: 자기 사용 시 대상 하나(자신)에게 적용
+>>>>>>> upstream/DayilyMarge
 =======
 // [POTION-001] 소비 효과: 자기 사용 시 대상 하나(자신)에게 적용
 >>>>>>> upstream/DayilyMarge
@@ -55,8 +65,11 @@ void APotionItem::ApplyEffect_Implementation()
 	// 효과 대상 (SelfOnly면 든 플레이어 = LastOwner)
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	AActor* Target = ResolveEffectTarget();
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	ApplyPotionEffectToTarget(ResolveEffectTarget());
@@ -66,6 +79,9 @@ void APotionItem::ApplyEffect_Implementation()
 void APotionItem::ApplyPotionEffectToTarget(AActor* Target)
 {
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -104,7 +120,11 @@ void APotionItem::ApplyPotionEffectToTarget(AActor* Target)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 상태이상 태그 제거 (Slowed, Exhausted, CC.Stuned 등) - StatusComponent 경유
+=======
+	// 상태이상 태그 제거 (감전 State.CC.Electirc 등) - StatusComponent 경유
+>>>>>>> upstream/DayilyMarge
 =======
 	// 상태이상 태그 제거 (감전 State.CC.Electirc 등) - StatusComponent 경유
 >>>>>>> upstream/DayilyMarge
@@ -128,7 +148,10 @@ void APotionItem::ApplyPotionEffectToTarget(AActor* Target)
 	}
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -256,6 +279,9 @@ void APotionItem::OnImpact(UPrimitiveComponent* HitComp, AActor* OtherActor, UPr
 	MulticastPlayUseEffect();
 	Destroy();
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

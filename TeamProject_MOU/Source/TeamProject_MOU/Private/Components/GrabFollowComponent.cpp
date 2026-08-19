@@ -1,6 +1,10 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 #include "Components/GrabFollowComponent.h"
+=======
+﻿#include "Components/GrabFollowComponent.h"
+>>>>>>> upstream/DayilyMarge
 =======
 ﻿#include "Components/GrabFollowComponent.h"
 >>>>>>> upstream/DayilyMarge
@@ -157,7 +161,11 @@ void UGrabFollowComponent::ApplyHeldTag(bool bAdd) const
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
+=======
+	const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
+>>>>>>> upstream/DayilyMarge
 =======
 	const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
 >>>>>>> upstream/DayilyMarge

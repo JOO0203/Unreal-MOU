@@ -102,10 +102,13 @@ public:
 	 * 이미 연결 중이면 아무 것도 하지 않는다.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
 	void ConnectToChatServer(const FString& InHost = TEXT("127.0.0.1"), int32 InPort = 9000);
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	 *
@@ -118,6 +121,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MOU|Chat")
 	void ConnectToChatServer(const FString& InHost = TEXT(""), int32 InPort = 0);
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

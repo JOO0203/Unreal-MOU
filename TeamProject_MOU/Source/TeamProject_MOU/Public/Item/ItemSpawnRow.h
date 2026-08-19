@@ -10,7 +10,10 @@ class UTexture2D;
 /**
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
  * EItemCategory
@@ -27,6 +30,9 @@ enum class EItemCategory : uint8
 
 /**
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -46,7 +52,10 @@ struct FItemSpawnRow : public FTableRowBase
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// 상점 분류 카테고리 (무기/포션/기타). 상점 UI에서 탭/필터로 사용. 기본값 Etc.
@@ -54,6 +63,9 @@ struct FItemSpawnRow : public FTableRowBase
 	EItemCategory Category = EItemCategory::Etc;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

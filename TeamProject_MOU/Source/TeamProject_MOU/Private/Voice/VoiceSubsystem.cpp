@@ -11,7 +11,10 @@
 #include "Voice/VoiceCaptureSource.h"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 #include "Voice/VoiceCodec.h"
@@ -19,6 +22,9 @@
 #include "Voice/VoicePlaybackComponent.h"
 #include "Voice/VoiceRouter.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -39,7 +45,10 @@
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 namespace
@@ -68,6 +77,9 @@ namespace
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -101,12 +113,15 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	}
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	else
 	{
 		// 마이크 열기. 실패해도 게임은 정상 진행된다(재생만 동작).
 		CaptureSource = MakeUnique<FVoiceCaptureSource>();
 		CaptureSource->Start();
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	else if (GVoiceCaptureOwner.IsValid())
@@ -137,6 +152,9 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		Decoder = MakeUnique<FMOUVoiceDecoder>();
 		Decoder->Initialize();
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -177,7 +195,10 @@ void UVoiceSubsystem::Deinitialize()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// 코덱은 캡처 뒤에 정리한다. 캡처가 살아있는 동안 인코더가 사라지면
@@ -194,6 +215,9 @@ void UVoiceSubsystem::Deinitialize()
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -251,6 +275,7 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 		if (!bLoopbackEnabled || !PlaybackComponent)
 		{
 			// 루프백이 꺼져 있으면 프레임을 그냥 버린다.
@@ -263,6 +288,8 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 =======
 =======
 >>>>>>> upstream/DayilyMarge
+=======
+>>>>>>> upstream/DayilyMarge
 		// 무음 구간은 여기서 끝낸다. 인코딩도 하지 않는다.
 		//
 		// VAD 로 무음을 걸러내는 것은 대역폭 절감이기도 하지만, 더 중요하게는
@@ -270,6 +297,9 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		// V8 의 NPC 소음 이벤트도 같은 판정을 입력으로 쓴다. 그래서 걸러내는
 		// 지점이 여기 한 곳이어야 전송·소음·재생이 서로 어긋나지 않는다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -280,7 +310,10 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 		// --- 1. 인코딩 ------------------------------------------------------
@@ -348,6 +381,9 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		// --- 4. 재생 --------------------------------------------------------
 		//
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -367,7 +403,11 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 		PlaybackComponent->PushSamples(Frame.Samples.GetData(), Frame.Samples.Num());
+=======
+		PlaybackComponent->PushSamples(PlaybackSamples, PlaybackCount);
+>>>>>>> upstream/DayilyMarge
 =======
 		PlaybackComponent->PushSamples(PlaybackSamples, PlaybackCount);
 >>>>>>> upstream/DayilyMarge
@@ -395,7 +435,10 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// ★ 발화가 끝나는 순간 디코더 상태를 초기화한다.
@@ -414,6 +457,9 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 	bWasSpeaking = bIsSpeaking;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -482,7 +528,10 @@ void UVoiceSubsystem::DrawRadiusDebug()
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 APlayerController* UVoiceSubsystem::GetOwningPlayerController() const
@@ -531,6 +580,9 @@ UVoiceComponent* UVoiceSubsystem::GetVoiceComponent()
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -619,7 +671,10 @@ void UVoiceSubsystem::SetLoopbackEnabled(bool bEnabled)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 void UVoiceSubsystem::SetCodecEnabled(bool bEnabled)
@@ -656,6 +711,9 @@ void UVoiceSubsystem::SetCodecEnabled(bool bEnabled)
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -701,7 +759,10 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 		}
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -713,6 +774,9 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 		}
 		bWasSpeaking = false;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -728,7 +792,10 @@ bool UVoiceSubsystem::IsCaptureReady() const
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 bool UVoiceSubsystem::IsCodecReady() const
@@ -738,6 +805,9 @@ bool UVoiceSubsystem::IsCodecReady() const
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -768,11 +838,14 @@ FString UVoiceSubsystem::GetStatsString() const
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return FString::Printf(
 		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
 		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d"),
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// --- 코덱 통계 ----------------------------------------------------------
@@ -844,6 +917,9 @@ FString UVoiceSubsystem::GetStatsString() const
 		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d%s%s"),
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -863,7 +939,13 @@ FString UVoiceSubsystem::GetStatsString() const
 		Underrun,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 		Overflow);
+=======
+		Overflow,
+		*CodecStats,
+		*NetStats);
+>>>>>>> upstream/DayilyMarge
 =======
 		Overflow,
 		*CodecStats,
@@ -883,7 +965,12 @@ FString UVoiceSubsystem::GetStatsString() const
 //   MOU.Voice.Loopback 1          내 목소리를 내 헤드폰으로 (V1 검증)
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   MOU.Voice.Stat                통계 출력
+=======
+//   MOU.Voice.Codec 0             Opus 우회 - 원본과 압축을 A/B 비교 (V2 검증)
+//   MOU.Voice.Stat                통계 출력 (압축률과 프레임 크기 포함)
+>>>>>>> upstream/DayilyMarge
 =======
 //   MOU.Voice.Codec 0             Opus 우회 - 원본과 압축을 A/B 비교 (V2 검증)
 //   MOU.Voice.Stat                통계 출력 (압축률과 프레임 크기 포함)
@@ -930,7 +1017,10 @@ namespace
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	/**
@@ -962,6 +1052,9 @@ namespace
 			}));
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -1106,7 +1199,10 @@ namespace
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 				// 5단계: 코덱. 마이크와 별개로 실패할 수 있으므로 따로 찍는다.
@@ -1122,6 +1218,9 @@ namespace
 				}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

@@ -31,10 +31,13 @@
 //
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   V2 에서 Opus 인코딩이 들어와도 16kbps 인코딩은 수십 마이크로초라 게임
 //   스레드에서 충분하다. 프로파일링에서 걸리면 그때 **인코딩만** 워커로 뺀다
 //   (캡처 폴링은 여전히 게임 스레드에 남아야 한다).
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 //   [V2 결과] Opus 인코딩은 게임 스레드에 그대로 두었다. 24kbps / 320샘플
@@ -43,6 +46,9 @@
 //   프로파일링에서 걸리면 그때 **인코딩만** 워커로 뺀다 - 캡처 폴링은 여전히
 //   게임 스레드에 남아야 한다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -60,11 +66,14 @@ class IVoiceCapture;
 /**
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
  * 캡처된 20ms 조각 하나.
  *
  * V2 에서 Opus 가 들어오면 PCM 대신 압축 바이트가 되고,
  * V3 에서 네트워크로 나갈 때 Seq/Route 필드가 붙는다.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
  * 캡처된 20ms 조각 하나. **항상 원본 PCM 이다.**
@@ -80,6 +89,9 @@ class IVoiceCapture;
  * V3 에서 네트워크로 나갈 때 Seq/Route 는 압축 바이트와 함께 RPC 인자로 붙는다.
  * 이 구조체는 캡처 결과 그대로 남는다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

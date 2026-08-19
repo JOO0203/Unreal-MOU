@@ -7,6 +7,7 @@
 // [현재 구현 단계]
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   V0 (FakeNoise 콘솔 명령) + V1 (로컬 루프백) 까지.
 //   네트워크 전송(V3)과 Opus 코덱(V2)은 아직 없다. 그래서 EVoiceRoute 같은
 //   라우팅 관련 타입은 아직 만들지 않았다 - 쓰는 곳이 없는 타입을 미리 만들면
@@ -14,11 +15,16 @@
 =======
 =======
 >>>>>>> upstream/DayilyMarge
+=======
+>>>>>>> upstream/DayilyMarge
 //   V0 (FakeNoise 콘솔 명령) + V1 (로컬 루프백) + V2 (Opus 코덱) 까지.
 //   네트워크 전송(V3)은 아직 없다. 그래서 EVoiceRoute 같은 라우팅 관련 타입은
 //   아직 만들지 않았다 - 쓰는 곳이 없는 타입을 미리 만들면 설계가 바뀔 때
 //   같이 바꿔야 하는 짐만 된다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -48,7 +54,10 @@ enum class EVoiceMode : uint8
 	Shout   UMETA(DisplayName = "외침"),
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -75,6 +84,9 @@ enum class EVoiceRoute : uint8
 
 	MAX UMETA(Hidden),
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -107,8 +119,11 @@ namespace MOUVoice
 	 * 20ms 인 이유: Opus 가 지원하는 프레임 길이(2.5/5/10/20/40/60ms) 중
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	 * 지연과 오버헤드의 균형점이다. V2 에서 Opus 를 넣을 때 이 값을 그대로 쓴다.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	 * 지연과 오버헤드의 균형점이다.
@@ -130,6 +145,9 @@ namespace MOUVoice
 	 *   대역폭이 줄어드는 것은 맞지만(헤더를 공유하므로) 이유가 13절 설명과 다르다.
 	 *   그리고 320 의 배수가 아닌 값으로 바꾸면 나머지가 인코딩되지 않고 버려진다.
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -140,7 +158,10 @@ namespace MOUVoice
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 	// -----------------------------------------------------------------------
@@ -199,6 +220,9 @@ namespace MOUVoice
 	inline constexpr int32 DecodeScratchSamples = 6 * SamplesPerFrame;  // 1920
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -306,8 +330,11 @@ namespace MOUVoice
 	}
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 }
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -527,6 +554,9 @@ struct FVoiceFrameOut
 	UPROPERTY() TArray<uint8> Opus;
 };
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge

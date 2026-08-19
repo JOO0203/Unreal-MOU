@@ -11,7 +11,10 @@ AProjectGameStateBase::AProjectGameStateBase()
 	Reputation = 0;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 
@@ -19,6 +22,9 @@ AProjectGameStateBase::AProjectGameStateBase()
 	DebtMultiplier = 1.5f;
 	DebtCycle = 1;
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -132,7 +138,10 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 // ==============================================
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 // Debt
@@ -188,6 +197,9 @@ void AProjectGameStateBase::SetDebtCycle(int32 NewDebtCycle)
 
 // ==============================================
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -205,7 +217,10 @@ void AProjectGameStateBase::OnRep_Reputation()
 }
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
 void AProjectGameStateBase::OnRep_CurrentDebt()
@@ -218,6 +233,9 @@ void AProjectGameStateBase::OnRep_DebtCycle()
 	OnDebtCycleUpdated(DebtCycle);
 }
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 =======
 >>>>>>> upstream/DayilyMarge
@@ -233,6 +251,11 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
+	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
+>>>>>>> upstream/DayilyMarge
 =======
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
