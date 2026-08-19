@@ -104,13 +104,9 @@ protected:
 	virtual void BindAttributeChangeDelegates();
 
 	// 체력 변경 콜백 핸들러
-<<<<<<< HEAD
 	virtual void HandleHealthChanged(const FOnAttributeChangeData& Data);
 	virtual void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
 
-=======
-	void HandleHealthChanged(const FOnAttributeChangeData& Data);
-	void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
 	 
 	// 스태미나 변경 콜백 핸들러
 	virtual void HandleSteminaChanged(const FOnAttributeChangeData& Data);
