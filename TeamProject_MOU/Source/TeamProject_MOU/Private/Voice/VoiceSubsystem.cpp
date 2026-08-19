@@ -10,11 +10,17 @@
 
 #include "Voice/VoiceCaptureSource.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 #include "Voice/VoiceCodec.h"
 #include "Voice/VoiceComponent.h"
 #include "Voice/VoicePlaybackComponent.h"
 #include "Voice/VoiceRouter.h"
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 #include "Voice/VoiceSynthComponent.h"
 
@@ -32,7 +38,10 @@
 // ---------------------------------------------------------------------------
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 namespace
 {
 	/**
@@ -58,6 +67,9 @@ namespace
 	TWeakObjectPtr<UVoiceSubsystem> GVoiceCaptureOwner;
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -88,12 +100,15 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			TEXT("그리고 에디터를 재시작했는지 확인할 것(ini 는 시작 시 한 번만 읽는다)."));
 	}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	else
 	{
 		// 마이크 열기. 실패해도 게임은 정상 진행된다(재생만 동작).
 		CaptureSource = MakeUnique<FVoiceCaptureSource>();
 		CaptureSource->Start();
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	else if (GVoiceCaptureOwner.IsValid())
 	{
 		// 이 프로세스에서 이미 다른 창이 마이크를 잡았다(위 GVoiceCaptureOwner 주석).
@@ -121,6 +136,9 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 		Decoder = MakeUnique<FMOUVoiceDecoder>();
 		Decoder->Initialize();
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	}
 
@@ -158,7 +176,10 @@ void UVoiceSubsystem::Deinitialize()
 	CaptureSource.Reset();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// 코덱은 캡처 뒤에 정리한다. 캡처가 살아있는 동안 인코더가 사라지면
 	// 남은 프레임을 처리하다 죽은 인코더를 만질 수 있다.
 	Encoder.Reset();
@@ -172,6 +193,9 @@ void UVoiceSubsystem::Deinitialize()
 		GVoiceCaptureOwner.Reset();
 	}
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	Super::Deinitialize();
 }
@@ -226,6 +250,7 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		bIsSpeaking = Frame.bIsSpeaking;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 		if (!bLoopbackEnabled || !PlaybackComponent)
 		{
 			// 루프백이 꺼져 있으면 프레임을 그냥 버린다.
@@ -236,12 +261,17 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		// 무음 구간은 재생하지 않는다. 대역폭 절감이자, 루프백에서 마이크
 		// 잡음이 계속 되돌아오는 것을 막는다.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 		// 무음 구간은 여기서 끝낸다. 인코딩도 하지 않는다.
 		//
 		// VAD 로 무음을 걸러내는 것은 대역폭 절감이기도 하지만, 더 중요하게는
 		// **"지금 소리를 내고 있는가" 가 곧 게임 규칙**이기 때문이다(7-1절).
 		// V8 의 NPC 소음 이벤트도 같은 판정을 입력으로 쓴다. 그래서 걸러내는
 		// 지점이 여기 한 곳이어야 전송·소음·재생이 서로 어긋나지 않는다.
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 		if (!Frame.bIsSpeaking)
 		{
@@ -249,7 +279,10 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 		// --- 1. 인코딩 ------------------------------------------------------
 		//
 		// ★ 루프백 여부와 무관하게 인코딩한다.
@@ -314,6 +347,9 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 
 		// --- 4. 재생 --------------------------------------------------------
 		//
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 		// 지연이 쌓이는 것을 막는다.
 		//
@@ -330,7 +366,11 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 		PlaybackComponent->PushSamples(Frame.Samples.GetData(), Frame.Samples.Num());
+=======
+		PlaybackComponent->PushSamples(PlaybackSamples, PlaybackCount);
+>>>>>>> upstream/DayilyMarge
 =======
 		PlaybackComponent->PushSamples(PlaybackSamples, PlaybackCount);
 >>>>>>> upstream/DayilyMarge
@@ -354,7 +394,10 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// ★ 발화가 끝나는 순간 디코더 상태를 초기화한다.
 	//
 	// Opus 디코더는 직전 프레임을 참고해 다음 프레임을 복원한다. 발화 사이에
@@ -370,6 +413,9 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 	}
 	bWasSpeaking = bIsSpeaking;
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	DrawRadiusDebug();
 
@@ -435,7 +481,10 @@ void UVoiceSubsystem::DrawRadiusDebug()
 // ---------------------------------------------------------------------------
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 APlayerController* UVoiceSubsystem::GetOwningPlayerController() const
 {
 	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
@@ -481,6 +530,9 @@ UVoiceComponent* UVoiceSubsystem::GetVoiceComponent()
 	return Found;
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 void UVoiceSubsystem::EnsurePlaybackComponent()
 {
@@ -566,7 +618,10 @@ void UVoiceSubsystem::SetLoopbackEnabled(bool bEnabled)
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 void UVoiceSubsystem::SetCodecEnabled(bool bEnabled)
 {
 	if (bCodecEnabled == bEnabled)
@@ -600,6 +655,9 @@ void UVoiceSubsystem::SetCodecEnabled(bool bEnabled)
 		         : TEXT("원본 PCM 이 그대로 들린다(비교용)."));
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 void UVoiceSubsystem::SetVoiceMode(EVoiceMode NewMode)
 {
@@ -642,7 +700,10 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 			PlaybackComponent->RequestFlush();
 		}
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 
 		// 음소거는 Tick 의 발화 종료 감지를 우회한다(위쪽에서 early return 한다).
 		// 그래서 여기서 직접 처리해야 음소거를 풀었을 때 첫마디가 지직거리지 않는다.
@@ -651,6 +712,9 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 			Decoder->Reset();
 		}
 		bWasSpeaking = false;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	}
 
@@ -663,13 +727,19 @@ bool UVoiceSubsystem::IsCaptureReady() const
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 bool UVoiceSubsystem::IsCodecReady() const
 {
 	return Encoder.IsValid() && Encoder->IsReady()
 		&& Decoder.IsValid() && Decoder->IsReady();
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 float UVoiceSubsystem::GetCurrentLoudness() const
 {
@@ -697,11 +767,14 @@ FString UVoiceSubsystem::GetStatsString() const
 	const int32 Overflow = PlaybackComponent ? PlaybackComponent->GetOverflowCount() : 0;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return FString::Printf(
 		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
 		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d"),
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// --- 코덱 통계 ----------------------------------------------------------
 	//
 	// 평균 프레임 크기가 12절의 대역폭 계산을 실측으로 검증하는 값이다.
@@ -770,6 +843,9 @@ FString UVoiceSubsystem::GetStatsString() const
 		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
 		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d%s%s"),
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 		IsCaptureReady() ? TEXT("준비됨") : TEXT("없음"),
 		bMuted ? TEXT("ON") : TEXT("OFF"),
@@ -786,7 +862,13 @@ FString UVoiceSubsystem::GetStatsString() const
 		Buffered * 1000.f / MOUVoice::SampleRate,
 		Underrun,
 <<<<<<< HEAD
+<<<<<<< HEAD
 		Overflow);
+=======
+		Overflow,
+		*CodecStats,
+		*NetStats);
+>>>>>>> upstream/DayilyMarge
 =======
 		Overflow,
 		*CodecStats,
@@ -800,7 +882,12 @@ FString UVoiceSubsystem::GetStatsString() const
 // 사용 예:
 //   MOU.Voice.Loopback 1          내 목소리를 내 헤드폰으로 (V1 검증)
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   MOU.Voice.Stat                통계 출력
+=======
+//   MOU.Voice.Codec 0             Opus 우회 - 원본과 압축을 A/B 비교 (V2 검증)
+//   MOU.Voice.Stat                통계 출력 (압축률과 프레임 크기 포함)
+>>>>>>> upstream/DayilyMarge
 =======
 //   MOU.Voice.Codec 0             Opus 우회 - 원본과 압축을 A/B 비교 (V2 검증)
 //   MOU.Voice.Stat                통계 출력 (압축률과 프레임 크기 포함)
@@ -842,7 +929,10 @@ namespace
 			}));
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	/**
 	 * V2 검증의 핵심 도구.
 	 *
@@ -871,6 +961,9 @@ namespace
 				}
 			}));
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	FAutoConsoleCommandWithWorldAndArgs GVoiceMuteCommand(
 		TEXT("MOU.Voice.Mute"),
@@ -1012,7 +1105,10 @@ namespace
 				}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 				// 5단계: 코덱. 마이크와 별개로 실패할 수 있으므로 따로 찍는다.
 				// "마이크는 잡히는데 소리가 안 난다" 의 원인이 여기일 수 있다.
 				UE_LOG(LogMOUVoice, Log, TEXT("5) Opus 코덱         : %s (%s)"),
@@ -1025,6 +1121,9 @@ namespace
 						TEXT("   -> 코덱 없이 들어보려면 MOU.Voice.Codec 0 으로 우회할 수 있다."));
 				}
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 				UE_LOG(LogMOUVoice, Log, TEXT("모두 정상. %s"), *Voice->GetStatsString());
 			}));

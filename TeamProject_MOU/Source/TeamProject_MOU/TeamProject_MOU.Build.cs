@@ -30,6 +30,12 @@ public class TeamProject_MOU : ModuleRules
             "Networking",
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+            // 채팅 서버 주소를 Project Settings 에 노출한다 (Chat/ChatServerSettings.h).
+            "DeveloperSettings",
+
+>>>>>>> upstream/DayilyMarge
 =======
             // 채팅 서버 주소를 Project Settings 에 노출한다 (Chat/ChatServerSettings.h).
             "DeveloperSettings",

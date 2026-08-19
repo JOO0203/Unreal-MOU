@@ -26,9 +26,15 @@
 //
 // [현재 구현 단계]
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   V1 (로컬 루프백). 아직 2D 로만 재생한다.
 //   3D 공간화와 감쇠(AttenuationSettings)는 V3 에서 붙인다 - 지금은 소리를
 //   낼 발신자 액터가 없기 때문이다(내 목소리를 내가 듣는 단계).
+=======
+//   V3. 기본은 2D(루프백용)이고, SetProximityMode() 를 부르면 3D 로 바뀐다.
+//   근접 재생은 발신자 폰에 이 컴포넌트를 붙이고 그 함수를 부르는 방식이다.
+//   무전 재생(무전기 액터 + 필터)은 V6·V7 에서 붙인다.
+>>>>>>> upstream/DayilyMarge
 =======
 //   V3. 기본은 2D(루프백용)이고, SetProximityMode() 를 부르면 3D 로 바뀐다.
 //   근접 재생은 발신자 폰에 이 컴포넌트를 붙이고 그 함수를 부르는 방식이다.
@@ -93,7 +99,10 @@ public:
 	int32 GetOverflowCount() const { return OverflowCounter.GetValue(); }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	/**
 	 * 근접 3D 재생으로 설정한다(발화 모드에 맞는 거리 감쇠 포함).
 	 *
@@ -110,6 +119,9 @@ public:
 	/** 지금 3D 로 설정돼 있는지. 루프백(2D)과 구분하는 데 쓴다. */
 	bool IsSpatialized() const { return bSpatialConfigured; }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 protected:
 	// --- USynthComponent ---------------------------------------------------
@@ -153,7 +165,10 @@ private:
 	/** 렌더 스레드가 마지막으로 처리한 비우기 요청 번호. **렌더 스레드 전용.** */
 	int32 LastHandledFlushRequest = 0;
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 
 	/**
 	 * 지금 적용돼 있는 발화 모드.
@@ -165,5 +180,8 @@ private:
 
 	/** SetProximityMode 가 한 번이라도 불렸는지. 2D(루프백)와 구분한다. */
 	bool bSpatialConfigured = false;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 };

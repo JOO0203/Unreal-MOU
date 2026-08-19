@@ -72,7 +72,10 @@ public:
 	void OnReputationUpdated(int32 NewReputation);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 
 	// ==============================================
 	// Debt
@@ -110,6 +113,9 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
 	void OnDebtCycleUpdated(int32 NewDebtCycle);
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 protected:
 	UFUNCTION()
@@ -119,13 +125,19 @@ protected:
 	void OnRep_Reputation();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	UFUNCTION()
 	void OnRep_CurrentDebt();
 
 	UFUNCTION()
 	void OnRep_DebtCycle();
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	virtual void GetLifetimeReplicatedProps(
 		TArray<FLifetimeProperty>& OutLifetimeProps) const override;

@@ -10,6 +10,10 @@ class UInputMappingContext;
 class UUserWidget;
 class ULoginWidgetBase;
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+class UVoiceComponent;
+>>>>>>> upstream/DayilyMarge
 =======
 class UVoiceComponent;
 >>>>>>> upstream/DayilyMarge
@@ -75,6 +79,7 @@ protected:
 	TSubclassOf<ULoginWidgetBase> LoginWidgetClass;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/** 로그인 위젯의 ServerHost/ServerPort 로 그대로 넘어간다. */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	FString ChatServerHost = TEXT("127.0.0.1");
@@ -82,6 +87,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	int32 ChatServerPort = 9000;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	/**
 	 * 이 컨트롤러만 다른 채팅 서버를 보게 할 때 쓰는 **예외용** 값. 평소에는 비워둔다.
 	 *
@@ -96,6 +103,9 @@ protected:
 	/** 0 이면 ChatServerHostOverride 와 마찬가지로 설정값을 쓴다. */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	int32 ChatServerPortOverride = 0;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 
 	/** Gameplay initialization */

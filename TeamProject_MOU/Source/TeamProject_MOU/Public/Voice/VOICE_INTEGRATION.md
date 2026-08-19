@@ -2,9 +2,12 @@
 
 작성: 2026-08-12
 <<<<<<< HEAD
+<<<<<<< HEAD
 최종 갱신: 2026-08-13 (요구사항 반영 — 무전 채널 삭제, 전원/송신 키 분리, 사망자 처리)
 상태: **V0·V1 구현 완료 + 실사용 검증됨** (2026-08-13). 마이크 음소거(C) UI 도 구현. 나머지는 설계만.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 최종 갱신: 2026-08-18 (V3 네트워크 라우팅 구현 — 14-5절 신설)
 상태:
 - **V0·V1** 구현 완료 + 실사용 검증됨 (2026-08-13). 마이크 음소거(C) UI 포함.
@@ -12,6 +15,9 @@
 - **V3**(RPC + 서버 라우팅 + 3D 재생) 구현 완료 + 빌드 통과 (2026-08-18).
   **에디터에서 한 번도 실행하지 않았다**(14-5절 마지막 항목).
 - V4 이후는 설계만.
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 
 이 문서는 `SERVER_INTEGRATION.md` 와 같은 규칙을 따른다 — 무엇을 하는지보다 **왜 그렇게 했는지**를 남긴다.
@@ -125,15 +131,21 @@ C 를 A/B 와 엮으면 규칙 하나로 게임이 만들어진다.
    VoiceCaptureSource  (★게임 스레드 - 6절 각주 참고)
      │  20ms 프레이밍 + RMS(음량) 계산 + VAD(무음 컷, 감도는 옵션에서 조절)
 <<<<<<< HEAD
+<<<<<<< HEAD
      │  Opus 인코딩 (~40~80바이트/프레임, V2 예정)
      ▼ (직접 호출)
    VoiceSubsystem (게임 스레드)
      │  근접 음소거(C) 여부 / X=무전 송신 중인지, 발화 모드(속삭임·보통·외침)
 =======
+=======
+>>>>>>> upstream/DayilyMarge
      ▼ (직접 호출. PCM 그대로 넘긴다 - 14-4절)
    VoiceSubsystem (게임 스레드)
      │  근접 음소거(C) 여부 / X=무전 송신 중인지, 발화 모드(속삭임·보통·외침)
      │  FMOUVoiceEncoder: Opus 인코딩 (~50~70바이트/프레임)
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
      ▼
    VoiceComponent (PlayerController 에 부착)
@@ -274,6 +286,10 @@ Source/TeamProject_MOU/
     VoiceTypes.h                      (헤더 전용)
     VoiceCaptureSource.h              VoiceCaptureSource.cpp
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+    VoiceCodec.h                      VoiceCodec.cpp
+>>>>>>> upstream/DayilyMarge
 =======
     VoiceCodec.h                      VoiceCodec.cpp
 >>>>>>> upstream/DayilyMarge
@@ -290,7 +306,13 @@ Source/TeamProject_MOU/
 |---|---|---|---|
 | `FVoiceCaptureSource` | (없음, 순수 클래스) | **클라 게임 스레드** ← 아래 ★ | 마이크 폴링 → 20ms 프레이밍 → RMS/VAD |
 <<<<<<< HEAD
+<<<<<<< HEAD
 | `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 캡처 생명주기, 음소거(C)/루프백 상태, 마이크 감도 옵션 |
+=======
+| `FMOUVoiceEncoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**보내는 쪽 1개**) | PCM → Opus. 엔진 `IVoiceEncoder` 래퍼 |
+| `FMOUVoiceDecoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**스트림마다 1개**) | Opus → PCM. 상태가 있어 공유 불가 (14-4절 ★) |
+| `UVoiceSubsystem` | `ULocalPlayerSubsystem` | 클라 게임 스레드 | 캡처 생명주기, 인코딩, 음소거(C)/루프백 상태, 마이크 감도 옵션 |
+>>>>>>> upstream/DayilyMarge
 =======
 | `FMOUVoiceEncoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**보내는 쪽 1개**) | PCM → Opus. 엔진 `IVoiceEncoder` 래퍼 |
 | `FMOUVoiceDecoder` | (없음, 순수 클래스) | 클라 게임 스레드 (**스트림마다 1개**) | Opus → PCM. 상태가 있어 공유 불가 (14-4절 ★) |
@@ -829,8 +851,14 @@ APlayerState* GetHolder() const;
 | 이름 | 기본값 | 설명 |
 |---|---|---|
 <<<<<<< HEAD
+<<<<<<< HEAD
 | `SampleRate` | 16000 | 바꾸면 인코더/디코더 양쪽 |
 | `FrameMs` | 20 | 40 으로 올리면 대역폭 절반, 지연 +20ms |
+=======
+| `SampleRate` | 16000 | 바꾸면 인코더/디코더 양쪽. **8000·12000·16000·24000·48000 만 허용** |
+| `FrameMs` | 20 | **★ 아래 주의** — 40 으로 올리면 대역폭이 줄긴 하지만 이유가 다르다 |
+| `OpusBitrate` | 24000 | 프레임당 바이트를 결정. 12절 대역폭 계산의 근거 |
+>>>>>>> upstream/DayilyMarge
 =======
 | `SampleRate` | 16000 | 바꾸면 인코더/디코더 양쪽. **8000·12000·16000·24000·48000 만 허용** |
 | `FrameMs` | 20 | **★ 아래 주의** — 40 으로 올리면 대역폭이 줄긴 하지만 이유가 다르다 |
@@ -842,13 +870,19 @@ APlayerState* GetHolder() const;
 | `VadHangoverMs` | 200 | 말끝이 잘리지 않게 |
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 > **★ `FrameMs` 는 사실상 20 에 고정이다 (V2 에서 확인).**
 > 엔진 Opus 래퍼가 `FrameSize = SampleRate / 50` 로 하드코딩돼 있어 **320샘플
 > 단위로만** 인코딩한다. 40 으로 바꾸면 "40ms 프레임" 이 되는 게 아니라
 > **"한 패킷에 20ms 프레임 2개"** 가 되고, 대역폭이 주는 이유는 **헤더 공유**다.
 > **320 의 배수가 아닌 값으로 바꾸면 나머지가 조용히 버려진다.** 자세한 것은 14-4절.
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 **발화 모드 — 밸런스의 핵심**
 
@@ -891,8 +925,13 @@ APlayerState* GetHolder() const;
 | **V0** | **`MOU.Voice.FakeNoise` 콘솔 명령만 먼저** | **NPC 팀원이 즉시 병렬 작업 시작 가능** ← 최우선 | **✅ 완료** |
 | **V1** | `Voice` 모듈 활성화, 캡처 → **로컬 루프백 재생** (네트워크 없음) | 내 목소리가 내 헤드폰에 0.1초 뒤 들린다 | **✅ 완료 + 실사용 확인**(PIE 에서 말하니 실제로 들림) |
 <<<<<<< HEAD
+<<<<<<< HEAD
 | **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | 다음 |
 | **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 |
+=======
+| **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | **✅ 구현 완료** (2026-08-18). **귀로 확인 필요** |
+| **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 | **✅ 구현 완료 + 빌드 통과** (2026-08-18). **PIE 실행 검증 안 됨** |
+>>>>>>> upstream/DayilyMarge
 =======
 | **V2** | Opus 인코딩/디코딩 삽입 (여전히 로컬) | 음질이 전화 수준. 지연 증가 미미 | **✅ 구현 완료** (2026-08-18). **귀로 확인 필요** |
 | **V3** | `VoiceComponent` RPC + 서버 라우팅(근접만) + 3D 재생 | PIE 2창. 가까이 가면 들리고 멀어지면 사라진다 | **✅ 구현 완료 + 빌드 통과** (2026-08-18). **PIE 실행 검증 안 됨** |
@@ -1005,7 +1044,10 @@ class FVoiceCaptureWindows : public IVoiceCapture, public FTSTickerObjectBase
   `재생버퍼=...ms` 로 본다.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 ### 14-4. V2 구현 결과 — 엔진 Opus 래퍼의 실제 모습 (2026-08-18)
 
 **만든 파일**
@@ -1184,6 +1226,9 @@ V3 은 문서가 "위험 구간" 으로 표시한 단계고, 실제로 **에러 
 - `MOU.Voice.Stat` 의 `전송 / [서버]라우팅·전달 / [수신]재생` 이 어디서 0 이 되는지.
   **이 세 숫자로 송신·서버·수신 중 어디가 문제인지 바로 갈린다** — 안 들릴 때 여기부터 본다.
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 **콘솔 명령 (기존 `MOU.Chat.*` 규칙과 통일)**
 
@@ -1195,6 +1240,11 @@ MOU.Voice.ShowRadius <0|1>    ★ 말할 때 소리 도달 범위를 링으로 �
 MOU.Voice.Mode <0|1|2>        발화 모드 (0=속삭임 1=보통 2=외침)
 MOU.Voice.Loopback <0|1>      로컬 루프백 (V1 검증용. V3 이후엔 디버그 전용)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+MOU.Voice.Codec [0|1]         ★ Opus 우회 (V2 검증용). 인자 없으면 토글
+                                 0=원본 PCM / 1=압축 통과. 왕복하며 음질 A/B 비교
+>>>>>>> upstream/DayilyMarge
 =======
 MOU.Voice.Codec [0|1]         ★ Opus 우회 (V2 검증용). 인자 없으면 토글
                                  0=원본 PCM / 1=압축 통과. 왕복하며 음질 A/B 비교
@@ -1233,10 +1283,13 @@ MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키와 동일)                
 - `SynthComponent` 를 매 발화마다 `NewObject` 하면 GC 압력이 생긴다. **스트림 풀을 만들어 재사용한다.**
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 **네트워크**
 
 - Unreliable RPC 는 **한 패킷에 들어가야 한다.** 페이로드가 커지면 조용히 버려진다. 128바이트 상한은 이 때문이기도 하다.
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 **코덱 (V2 에서 실제로 부딪힌 것들 — 자세한 것은 14-4절)**
 
 - **★ 디코딩 출력 버퍼가 6프레임(3840바이트)보다 작으면 조용히 0샘플이 나온다.**
@@ -1252,6 +1305,9 @@ MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키와 동일)                
 
 - Unreliable RPC 는 **한 패킷에 들어가야 한다.** 페이로드가 커지면 조용히 버려진다. 128바이트 상한은 이 때문이기도 하다.
   **V2 에 감시를 심어뒀다** — 압축 프레임이 128바이트를 넘으면 경고가 한 번 뜬다(14-4절).
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 - 폰이 relevant 하지 않으면 그 폰의 RPC 는 안 간다. **그래서 `PlayerController` 에 컴포넌트를 둔다.**(6절)
 - **리슨서버의 호스트 본인은 RPC 를 타지 않는다.** 서버=클라 동일 프로세스이므로 라우팅 결과를
@@ -1338,6 +1394,7 @@ V0·V1 을 구현하면서 아래는 **엔진 헤더에서 직접 확인했다.*
   `bAutoActivate` 와 명시적 `Start()` 가 겹쳐도 `Init()` 은 한 번만 불린다.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### 17-2. V2 이후에 확인할 것
 
 | 확인할 것 | 어디서 |
@@ -1346,6 +1403,8 @@ V0·V1 을 구현하면서 아래는 **엔진 헤더에서 직접 확인했다.*
 | Opus 가 허용하는 프레임 길이 (20ms 를 쓸 계획) | 위와 동일 |
 | `USoundEffectSourcePresetChain` 사용법 (무전 필터, V7) | `AudioExtensions` |
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 ### 17-2. 확인 완료 (V2, 2026-08-18)
 
 V2 를 구현하며 엔진 소스에서 직접 확인했다. **자세한 것과 함정은 14-4절.**
@@ -1370,4 +1429,7 @@ V2 를 구현하며 엔진 소스에서 직접 확인했다. **자세한 것과 
 | Unreliable RPC 의 실제 페이로드 상한 (128바이트 가정이 맞는지) | UE 네트워킹 | V3 |
 | 리슨서버 호스트 본인에게 RPC 가 안 가는 문제의 처리 (15절) | — | V3 |
 | `USoundEffectSourcePresetChain` 사용법 (무전 필터) | `AudioExtensions` | V7 |
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge

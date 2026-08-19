@@ -11,7 +11,11 @@ class USceneComponent;
  * 전투 아이템 - 테이저건 (원거리 즉발 무기). 좌클릭(OnUse) 시 카메라 조준 방향으로
  * 피아식별 트레이스(WeaponItemBase::FireHitscan)를 발사해 맞은 캐릭터를
 <<<<<<< HEAD
+<<<<<<< HEAD
  * 일정 시간 기절(State.Stunned) 상태로 만든다.
+=======
+ * 일정 시간 감전(State.CC.Electirc) 상태로 만든다.
+>>>>>>> upstream/DayilyMarge
 =======
  * 일정 시간 감전(State.CC.Electirc) 상태로 만든다.
 >>>>>>> upstream/DayilyMarge

@@ -85,11 +85,17 @@ protected:
 	virtual void Fire();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// [WEAPON-013] 이 발사에서 사용횟수(WeaponUseCount)를 차감할지 여부.
 	// 기본 true(소모). 부메랑처럼 손으로 돌아오는 무기는 false로 override해 소모하지 않는다.
 	virtual bool ShouldConsumeUseOnFire() const { return true; }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 private:
 	// [WEAPON-008] 클라이언트에서 눌렀을 때 서버로 발사 위임 (서버에서 차감+발사)

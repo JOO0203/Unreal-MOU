@@ -13,6 +13,10 @@
 #include "Chat/ChatClientRunnable.h"
 #include "Chat/ChatFraming.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+#include "Chat/ChatServerSettings.h"
+>>>>>>> upstream/DayilyMarge
 =======
 #include "Chat/ChatServerSettings.h"
 >>>>>>> upstream/DayilyMarge
@@ -133,7 +137,10 @@ UChatSubsystem* UChatSubsystem::Get(const UObject* WorldContextObject)
 void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 {
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// 인자가 비어 있으면 코드가 주소를 정하지 않는다. 설정(Config/DefaultGame.ini) 또는
 	// 실행 인자가 정한다. 이렇게 해야 "서버를 켠 PC 만 되는" 문제가 생기지 않는다.
 	FString Host = InHost;
@@ -151,6 +158,9 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 		UE_LOG(LogMOUChat, Log, TEXT("접속 대상: %s:%d — 출처 %s"), *Host, Port, *Source);
 	}
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	if (ChatThread != nullptr)
 	{
@@ -161,7 +171,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	ChatClient = new FChatClientRunnable(InHost, InPort);
+=======
+	ChatClient = new FChatClientRunnable(Host, Port);
+>>>>>>> upstream/DayilyMarge
 =======
 	ChatClient = new FChatClientRunnable(Host, Port);
 >>>>>>> upstream/DayilyMarge
@@ -171,7 +185,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	ChatThread = FRunnableThread::Create(
 		ChatClient,
 <<<<<<< HEAD
+<<<<<<< HEAD
 		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *InHost, InPort),
+=======
+		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *Host, Port),
+>>>>>>> upstream/DayilyMarge
 =======
 		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *Host, Port),
 >>>>>>> upstream/DayilyMarge
@@ -187,7 +205,11 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *InHost, InPort));
+=======
+	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *Host, Port));
+>>>>>>> upstream/DayilyMarge
 =======
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *Host, Port));
 >>>>>>> upstream/DayilyMarge
@@ -814,7 +836,13 @@ void UChatSubsystem::SetConnectionState(EChatConnectionState NewState, const FSt
 //
 // PIE 에서 ` 키를 눌러 콘솔을 열고 아래 명령을 입력한다.
 <<<<<<< HEAD
+<<<<<<< HEAD
 //   MOU.Chat.Connect 127.0.0.1 9000
+=======
+//   MOU.Chat.Server                    (지금 어느 서버를 보고 있는지 확인 — 접속 문제는 여기부터)
+//   MOU.Chat.Connect                  (설정된 서버로 접속. 주소를 직접 줄 수도 있다)
+//   MOU.Chat.SetServer 192.168.0.32 9000   (이 PC 에만 다른 주소 저장, 인자 없으면 초기화)
+>>>>>>> upstream/DayilyMarge
 =======
 //   MOU.Chat.Server                    (지금 어느 서버를 보고 있는지 확인 — 접속 문제는 여기부터)
 //   MOU.Chat.Connect                  (설정된 서버로 접속. 주소를 직접 줄 수도 있다)
@@ -844,7 +872,11 @@ namespace
 	FAutoConsoleCommandWithWorldAndArgs GChatConnectCommand(
 		TEXT("MOU.Chat.Connect"),
 <<<<<<< HEAD
+<<<<<<< HEAD
 		TEXT("채팅 서버에 접속한다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
+=======
+		TEXT("채팅 서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
+>>>>>>> upstream/DayilyMarge
 =======
 		TEXT("채팅 서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
 >>>>>>> upstream/DayilyMarge
@@ -854,21 +886,30 @@ namespace
 				if (UChatSubsystem* Chat = FindChatSubsystem(World))
 				{
 <<<<<<< HEAD
+<<<<<<< HEAD
 					const FString HostArg = Args.IsValidIndex(0) ? Args[0] : TEXT("127.0.0.1");
 					const int32   PortArg = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 9000;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 					// 인자를 생략하면 빈 값을 넘긴다 -> ConnectToChatServer 가 설정에서 읽는다.
 					// 예전처럼 127.0.0.1 을 기본값으로 두면 콘솔로 테스트할 때마다
 					// 자기 PC 로 붙어버려서 다시 같은 함정에 빠진다.
 					const FString HostArg = Args.IsValidIndex(0) ? Args[0] : FString();
 					const int32   PortArg = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 0;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 					Chat->ConnectToChatServer(HostArg, PortArg);
 				}
 			}));
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	/**
 	 * 지금 어느 서버를 보고 있는지 확인한다. "왜 나만 접속이 안 되지?" 를
 	 * 제일 빨리 가르는 명령이라 따로 뒀다.
@@ -910,6 +951,9 @@ namespace
 				}
 			}));
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	FAutoConsoleCommandWithWorldAndArgs GChatLoginCommand(
 		TEXT("MOU.Chat.Login"),

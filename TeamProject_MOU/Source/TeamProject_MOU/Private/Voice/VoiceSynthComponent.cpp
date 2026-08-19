@@ -6,11 +6,17 @@
 #include "Voice/VoiceSynthComponent.h"
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 #include "Components/AudioComponent.h"
 #include "Engine/Attenuation.h"
 #include "Sound/SoundAttenuation.h"
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 UVoiceSynthComponent::UVoiceSynthComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -19,8 +25,13 @@ UVoiceSynthComponent::UVoiceSynthComponent(const FObjectInitializer& ObjectIniti
 	NumChannels = MOUVoice::NumChannels;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// V1 은 루프백(내 목소리를 내가 듣기)이라 2D 로 낸다.
 	// V3 에서 발신자 폰에 붙일 때 true 로 바꾸고 AttenuationSettings 를 건다.
+=======
+	// 기본은 2D 다. 루프백(내 목소리를 내가 듣기)은 월드 위치가 없으므로 그게 맞다.
+	// 근접 재생은 SetProximityMode() 가 켠다.
+>>>>>>> upstream/DayilyMarge
 =======
 	// 기본은 2D 다. 루프백(내 목소리를 내가 듣기)은 월드 위치가 없으므로 그게 맞다.
 	// 근접 재생은 SetProximityMode() 가 켠다.
@@ -33,7 +44,10 @@ UVoiceSynthComponent::UVoiceSynthComponent(const FObjectInitializer& ObjectIniti
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 namespace
 {
 	/**
@@ -117,6 +131,9 @@ void UVoiceSynthComponent::SetProximityMode(EVoiceMode Mode)
 	bSpatialConfigured = true;
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 bool UVoiceSynthComponent::Init(int32& SampleRate)
 {
@@ -142,6 +159,7 @@ void UVoiceSynthComponent::PushSamples(const int16* Samples, int32 NumSamples)
 	//
 	// 스택 배열을 쓰는 이유: 매 프레임 TArray 를 할당하면 20ms 마다 힙을 때려
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// GC 압력과 프레임 스파이크가 생긴다. 한 프레임은 320샘플로 고정이므로
 	// 상한이 명확해 스택으로 충분하다.
 	float Converted[MOUVoice::SamplesPerFrame];
@@ -160,6 +178,8 @@ void UVoiceSynthComponent::PushSamples(const int16* Samples, int32 NumSamples)
 	{
 		OverflowCounter.Add(CountToConvert - Pushed);
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// GC 압력과 프레임 스파이크가 생긴다.
 	//
 	// ★ 320샘플씩 끊어서 도는 이유 - 예전에는 `Min(NumSamples, 320)` 으로
@@ -195,6 +215,9 @@ void UVoiceSynthComponent::PushSamples(const int16* Samples, int32 NumSamples)
 
 		Cursor    += ChunkSize;
 		Remaining -= ChunkSize;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	}
 }

@@ -1,11 +1,17 @@
 #include "Item/ConsumableItemBase.h"
 #include "Net/UnrealNetwork.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 #include "Components/CarryingComponent.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 
 AConsumableItemBase::AConsumableItemBase()
@@ -99,23 +105,32 @@ void AConsumableItemBase::TryConsumeOnServer()
 	MulticastPlayUseEffect();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 다 쓰면 아이템 소멸
 	if (ConsumeUseCount <= 0)
 	{
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// 다 쓰면 손을 비운 뒤 아이템 소멸
 	if (ConsumeUseCount <= 0)
 	{
 		// [CONSUME-013] 손(CarriedActor)을 명시적으로 비워야 Carry 포즈가 풀리고 무게가 빠짐.
 		// (Destroy만 하면 다음 GC 전까지 CarriedActor가 남아 애니메이션이 안 돌아옴)
 		ReleaseFromHolderHand();
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 		Destroy();
 	}
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 // [CONSUME-013] 소유 캐릭터의 CarryingComponent에서 이 아이템을 비운다.
 void AConsumableItemBase::ReleaseFromHolderHand()
 {
@@ -146,6 +161,9 @@ void AConsumableItemBase::ReleaseFromHolderHand()
 	}
 }
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 // [CONSUME-008] 클라이언트 → 서버 소비 위임 (서버에서 차감+효과)
 void AConsumableItemBase::ServerConsume_Implementation()
@@ -166,10 +184,13 @@ void AConsumableItemBase::ApplyEffect_Implementation()
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // [CONSUME-005] 효과 연출 멀티캐스트 → BP 훅 호출
 void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 {
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 // [CONSUME-005] 효과 연출 멀티캐스트 → 사용 애니메이션 + BP 훅 호출
 void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 {
@@ -191,6 +212,9 @@ void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 	}
 
 	// VFX/사운드 등 BP 연출 훅
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	OnUseEffect();
 }

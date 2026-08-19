@@ -2,6 +2,10 @@
 
 #include "Blueprint/WidgetTree.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+#include "Chat/ChatServerSettings.h"
+>>>>>>> upstream/DayilyMarge
 =======
 #include "Chat/ChatServerSettings.h"
 >>>>>>> upstream/DayilyMarge
@@ -189,8 +193,11 @@ void ULoginWidgetBase::EnsureConnected()
 	if (Chat->GetConnectionState() == EChatConnectionState::Disconnected)
 	{
 <<<<<<< HEAD
+<<<<<<< HEAD
 		Chat->ConnectToChatServer(ServerHost, ServerPort);
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 		// 비워두면 ConnectToChatServer 가 설정에서 주소를 읽는다. 위젯이 굳이
 		// 기본 주소를 알 필요는 없다 — 아는 곳이 여러 군데면 다시 어긋난다.
 		Chat->ConnectToChatServer(ServerHost, ServerPort);
@@ -201,6 +208,9 @@ void ULoginWidgetBase::EnsureConnected()
 			? UMOUChatServerSettings::GetResolvedEndpointText()
 			: FString::Printf(TEXT("%s:%d"), *ServerHost, ServerPort);
 		UE_LOG(LogMOUChat, Log, TEXT("로그인 화면이 접속을 시작한다: %s"), *Target);
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	}
 }
@@ -364,16 +374,22 @@ void ULoginWidgetBase::HandleStateChanged(EChatConnectionState NewState, const F
 	{
 		SetBusy(false);
 <<<<<<< HEAD
+<<<<<<< HEAD
 		SetMessage(Detail.IsEmpty()
 			? TEXT("채팅 서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.")
 			: FString::Printf(TEXT("연결 끊김: %s"), *Detail), true);
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 		// 어느 서버에 실패했는지까지 같이 보여준다. 팀 작업에서는 "서버가 꺼져 있다" 보다
 		// "엉뚱한 주소를 보고 있다" 가 훨씬 흔한 원인이라 주소가 화면에 있어야 한다.
 		const FString Target = UMOUChatServerSettings::GetResolvedEndpointText();
 		SetMessage(Detail.IsEmpty()
 			? FString::Printf(TEXT("채팅 서버(%s)에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요."), *Target)
 			: FString::Printf(TEXT("연결 끊김: %s (대상 %s)"), *Detail, *Target), true);
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	}
 }

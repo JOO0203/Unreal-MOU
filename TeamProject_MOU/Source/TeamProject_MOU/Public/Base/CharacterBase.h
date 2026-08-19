@@ -112,6 +112,9 @@ protected:
 	void HandleHealthChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxHealthChanged(const FOnAttributeChangeData& Data);
 	 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	// 스태미나 변경 콜백 핸들러
 	virtual void HandleSteminaChanged(const FOnAttributeChangeData& Data);

@@ -100,14 +100,20 @@ void AWeaponItemBase::TryFireOnServer()
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 서버에서 차감 → WeaponUseCount 복제되어 모든 클라 화면에 동기화
 	WeaponUseCount--;
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// 소모형 무기만 차감(복제되어 모든 클라 화면에 동기화). 부메랑 등 회수형은 차감 안 함. [WEAPON-013]
 	if (ShouldConsumeUseOnFire())
 	{
 		WeaponUseCount--;
 	}
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 
 	Fire();

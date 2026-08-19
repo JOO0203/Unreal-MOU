@@ -14,8 +14,14 @@ class UGameplayEffect;
  * "다용성"은 클래스를 여러 개 만들지 않고 GameplayEffect 목록으로 해결한다:
  *   - 체력 회복  = Health를 올리는 Instant/Periodic GE
 <<<<<<< HEAD
+<<<<<<< HEAD
  *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
  *   - 경량화/소지량 증가 = MaxWeight를 올리는(또는 CurrentWeight를 낮추는) Duration GE
+=======
+ *   - 힘 증가    = LiftPower/MaxLiftPower를 올리는 Duration GE
+ *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
+ *   - 경량화     = MaxWeight를 올리는(또는 CurrentWeight를 낮추는) Duration GE
+>>>>>>> upstream/DayilyMarge
 =======
  *   - 힘 증가    = LiftPower/MaxLiftPower를 올리는 Duration GE
  *   - 속도 증가  = MoveSpeed/MaxMoveSpeed를 올리는 Duration GE
@@ -48,7 +54,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion")
 	FGameplayTagContainer TagsToRemove;
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 
 	// 부여할 상태이상 태그 (감전 등). 테이저와 동일하게 Loose 태그로 부여.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion")
@@ -73,6 +82,9 @@ protected:
 	// 충돌 발동 시 효과가 미치는 반경(cm)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion|Throw")
 	float ImpactRadius = 400.0f;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 #pragma endregion
 
@@ -80,7 +92,10 @@ protected:
 	// [POTION-001] 소비 효과: 대상 ASC에 GE 적용 + 상태이상 태그 제거 (서버에서만 호출됨)
 	virtual void ApplyEffect_Implementation() override;
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 
 	// [POTION-002] 투척형: 던지면 충돌 감지 준비 (부모 물리 투척 후 OnComponentHit 바인딩)
 	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
@@ -98,6 +113,9 @@ private:
 
 	// 중복 발동 방지 (OnComponentHit이 여러 번 불릴 수 있음)
 	bool bHasImpacted = false;
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 #pragma endregion
 };

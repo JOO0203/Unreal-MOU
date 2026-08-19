@@ -33,7 +33,10 @@ public:
 	int32 SavedReputation = 0;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> upstream/DayilyMarge
 	// ====================================
 	// Debt Save Data
 	// ====================================
@@ -53,6 +56,9 @@ public:
 	int32 SavedDebtCycle = 0;
 
 
+<<<<<<< HEAD
+>>>>>>> upstream/DayilyMarge
+=======
 >>>>>>> upstream/DayilyMarge
 	// 경제 데이터가 저장되어있는지 확인
 	// 첫 게임 시작 시에는 저장데이터가 없으므로 false, SavedEconmyData 정상적으로 실행하면 true
@@ -65,7 +71,11 @@ public:
 	// ====================================
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// 현재 GameState의 골드/평판을 GameInstance에 임시 저장
+=======
+	// 현재 GameState의 골드/평판/부채/상환 주기를 GameInstance에 임시 저장
+>>>>>>> upstream/DayilyMarge
 =======
 	// 현재 GameState의 골드/평판/부채/상환 주기를 GameInstance에 임시 저장
 >>>>>>> upstream/DayilyMarge
@@ -74,9 +84,15 @@ public:
 	void SaveEconomyData();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// GameInstance에 보관되어 있는 골드/평판을 현재 맵에 새로운 GameState에 복원
 	// 맵 이동 후 새로운 GameState가 만들어지고 
 	// 복원된 GameState값은 GameState Replicatio을 통해 각 client에 자동 전달
+=======
+	// GameInstance에 보관되어 있는 골드/평판/부채/상환 주기를 현재 맵에 새로운 GameState에 복원
+	// 맵 이동 후 새로운 GameState가 만들어지고 
+	// 복원된 GameState값은 GameState Replication을 통해 각 client에 자동 전달
+>>>>>>> upstream/DayilyMarge
 =======
 	// GameInstance에 보관되어 있는 골드/평판/부채/상환 주기를 현재 맵에 새로운 GameState에 복원
 	// 맵 이동 후 새로운 GameState가 만들어지고 
