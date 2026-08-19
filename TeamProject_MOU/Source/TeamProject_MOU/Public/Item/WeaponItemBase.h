@@ -71,10 +71,10 @@ protected:
 	virtual void PickUp_Implementation(AActor* Picker) override;
 
 	// [WEAPON-011] 놓을 때 소유권 해제
-	virtual void Drop_Implementation(FVector DropLocation) override;
+	virtual void Drop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;
 
 	// [WEAPON-012] 던질 때 소유권 해제
-	virtual void Throw_Implementation(FVector ThrowVelocity) override;
+	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
 #pragma endregion
 
 #pragma region [WEAPON] 사용/발사 흐름 (공통)
@@ -83,6 +83,10 @@ protected:
 
 	// [WEAPON-007] 실제 발사 로직. 자식이 override (테이저=트레이스, 칼=콜라이더 등)
 	virtual void Fire();
+
+	// [WEAPON-013] 이 발사에서 사용횟수(WeaponUseCount)를 차감할지 여부.
+	// 기본 true(소모). 부메랑처럼 손으로 돌아오는 무기는 false로 override해 소모하지 않는다.
+	virtual bool ShouldConsumeUseOnFire() const { return true; }
 
 private:
 	// [WEAPON-008] 클라이언트에서 눌렀을 때 서버로 발사 위임 (서버에서 차감+발사)

@@ -49,25 +49,25 @@ void AWeaponItemBase::PickUp_Implementation(AActor* Picker)
 }
 
 // [WEAPON-011] 놓을 때 소유권 해제
-void AWeaponItemBase::Drop_Implementation(FVector DropLocation)
+void AWeaponItemBase::Drop_Implementation(FVector DropLocation, AActor* Dropper)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
 	}
 
-	Super::Drop_Implementation(DropLocation);
+	Super::Drop_Implementation(DropLocation, Dropper);
 }
 
 // [WEAPON-012] 던질 때 소유권 해제
-void AWeaponItemBase::Throw_Implementation(FVector ThrowVelocity)
+void AWeaponItemBase::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
 	}
 
-	Super::Throw_Implementation(ThrowVelocity);
+	Super::Throw_Implementation(ThrowVelocity, Thrower);
 }
 
 // [WEAPON-000] 좌클릭: 발사는 항상 서버에서 처리 (차감/판정/복제 신뢰성)
@@ -99,8 +99,11 @@ void AWeaponItemBase::TryFireOnServer()
 		return;
 	}
 
-	// 서버에서 차감 → WeaponUseCount 복제되어 모든 클라 화면에 동기화
-	WeaponUseCount--;
+	// 소모형 무기만 차감(복제되어 모든 클라 화면에 동기화). 부메랑 등 회수형은 차감 안 함. [WEAPON-013]
+	if (ShouldConsumeUseOnFire())
+	{
+		WeaponUseCount--;
+	}
 
 	Fire();
 }

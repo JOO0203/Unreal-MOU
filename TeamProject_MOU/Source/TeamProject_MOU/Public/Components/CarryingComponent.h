@@ -34,7 +34,24 @@ public:
 	bool IsCarrying() const { return CarriedActor != nullptr; }
 
 	UFUNCTION(BlueprintCallable, Category = "Carrying")
+	bool IsCarryingCharacter() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Carrying")
 	AActor* GetCarriedActor() const { return CarriedActor; }
+
+	// 인벤토리 등에서 특정 아이템을 손에 강제로 쥐어줄 때 사용
+	UFUNCTION(BlueprintCallable, Category = "Carrying")
+	void EquipItem(AActor* ItemToEquip);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastEquipItem(AActor* ItemToEquip);
+
+	// 손에 든 물건을 인벤토리에 넣거나 파괴할 때 손을 비우기 위해 사용
+	UFUNCTION(BlueprintCallable, Category = "Carrying")
+	void ClearCarriedItem();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastClearCarriedItem();
 
 	UPROPERTY(BlueprintAssignable, Category = "Carrying")
 	FOnCarriedStateChanged OnCarriedStateChanged;
