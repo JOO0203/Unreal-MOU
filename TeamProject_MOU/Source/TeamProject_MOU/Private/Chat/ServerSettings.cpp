@@ -1,4 +1,4 @@
-﻿#include "Chat/ChatServerSettings.h"
+﻿#include "Chat/ServerSettings.h"
 
 #include "Chat/ChatTypes.h"
 #include "Misc/CommandLine.h"
@@ -24,29 +24,29 @@ namespace
 	/**
 	 * GConfig 로 직접 읽고 쓸 때 필요한 섹션 이름.
 	 * UObject 의 config 로딩이 쓰는 규칙(클래스 경로)과 같아서 항상 일치한다.
-	 *   -> "/Script/TeamProject_MOU.MOUChatServerSettings"
+	 *   -> "/Script/TeamProject_MOU.MOUServerSettings"
 	 */
 	FString GetConfigSection()
 	{
-		return UMOUChatServerSettings::StaticClass()->GetPathName();
+		return UMOUServerSettings::StaticClass()->GetPathName();
 	}
 }
 
-UMOUChatServerSettings::UMOUChatServerSettings()
+UMOUServerSettings::UMOUServerSettings()
 	: ServerHost(kFallbackHost)
 	, ServerPort(kFallbackPort)
 {
 }
 
-FName UMOUChatServerSettings::GetCategoryName() const
+FName UMOUServerSettings::GetCategoryName() const
 {
 	return TEXT("Game");
 }
 
-void UMOUChatServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FString* OutSource)
+void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FString* OutSource)
 {
 	// 1) ini 계층(Base -> Default -> Saved) 이 이미 병합된 값. 개인 설정이 있으면 그것이 들어있다.
-	const UMOUChatServerSettings* Settings = GetDefault<UMOUChatServerSettings>();
+	const UMOUServerSettings* Settings = GetDefault<UMOUServerSettings>();
 	OutHost = Settings->ServerHost;
 	OutPort = Settings->ServerPort;
 
@@ -67,7 +67,7 @@ void UMOUChatServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, F
 	const TCHAR* CmdLine = FCommandLine::Get();
 
 	FString Combined;
-	if (FParse::Value(CmdLine, TEXT("MOUChatServer="), Combined))
+	if (FParse::Value(CmdLine, TEXT("MOUServer="), Combined))
 	{
 		Combined.TrimStartAndEndInline();
 
@@ -78,7 +78,7 @@ void UMOUChatServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, F
 			if (!HostPart.IsEmpty())
 			{
 				OutHost = HostPart;
-				Source  = TEXT("실행 인자 -MOUChatServer");
+				Source  = TEXT("실행 인자 -MOUServer");
 			}
 			const int32 ParsedPort = FCString::Atoi(*PortPart);
 			if (IsValidPort(ParsedPort))
@@ -89,7 +89,7 @@ void UMOUChatServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, F
 		else if (!Combined.IsEmpty())
 		{
 			OutHost = Combined;
-			Source  = TEXT("실행 인자 -MOUChatServer");
+			Source  = TEXT("실행 인자 -MOUServer");
 		}
 	}
 
@@ -118,7 +118,7 @@ void UMOUChatServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, F
 	}
 }
 
-FString UMOUChatServerSettings::GetResolvedServerHost()
+FString UMOUServerSettings::GetResolvedServerHost()
 {
 	FString Host;
 	int32   Port = 0;
@@ -126,7 +126,7 @@ FString UMOUChatServerSettings::GetResolvedServerHost()
 	return Host;
 }
 
-int32 UMOUChatServerSettings::GetResolvedServerPort()
+int32 UMOUServerSettings::GetResolvedServerPort()
 {
 	FString Host;
 	int32   Port = 0;
@@ -134,7 +134,7 @@ int32 UMOUChatServerSettings::GetResolvedServerPort()
 	return Port;
 }
 
-FString UMOUChatServerSettings::GetResolvedEndpointText()
+FString UMOUServerSettings::GetResolvedEndpointText()
 {
 	FString Host;
 	int32   Port = 0;
@@ -143,7 +143,7 @@ FString UMOUChatServerSettings::GetResolvedEndpointText()
 	return FString::Printf(TEXT("%s:%d (%s)"), *Host, Port, *Source);
 }
 
-void UMOUChatServerSettings::SaveEndpointOverrideForThisMachine(const FString& InHost, int32 InPort)
+void UMOUServerSettings::SaveEndpointOverrideForThisMachine(const FString& InHost, int32 InPort)
 {
 	if (GConfig == nullptr)
 	{
@@ -168,12 +168,12 @@ void UMOUChatServerSettings::SaveEndpointOverrideForThisMachine(const FString& I
 	GConfig->Flush(false, GGameIni);
 
 	// 지금 돌고 있는 세션에도 즉시 반영한다. (다음 접속부터 적용)
-	GetMutableDefault<UMOUChatServerSettings>()->ReloadConfig();
+	GetMutableDefault<UMOUServerSettings>()->ReloadConfig();
 
 	UE_LOG(LogMOUChat, Log, TEXT("채팅 서버 주소를 이 PC 에만 저장했다: %s"), *GetResolvedEndpointText());
 }
 
-void UMOUChatServerSettings::ClearEndpointOverrideForThisMachine()
+void UMOUServerSettings::ClearEndpointOverrideForThisMachine()
 {
 	if (GConfig == nullptr)
 	{
@@ -185,7 +185,7 @@ void UMOUChatServerSettings::ClearEndpointOverrideForThisMachine()
 	GConfig->RemoveKey(*Section, TEXT("ServerPort"), GGameIni);
 	GConfig->Flush(false, GGameIni);
 
-	GetMutableDefault<UMOUChatServerSettings>()->ReloadConfig();
+	GetMutableDefault<UMOUServerSettings>()->ReloadConfig();
 
 	UE_LOG(LogMOUChat, Log, TEXT("개인 채팅 서버 설정을 지웠다. 팀 공유 설정으로 돌아간다: %s"),
 		*GetResolvedEndpointText());

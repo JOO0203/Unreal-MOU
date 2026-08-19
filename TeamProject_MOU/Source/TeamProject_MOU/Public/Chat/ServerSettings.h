@@ -20,39 +20,39 @@
 //
 // [우선순위] 위가 이긴다.
 //   1. 실행 인자
-//        -MOUChatServer=192.168.0.32:9000
+//        -MOUServer=192.168.0.32:9000
 //        -MOUChatHost=192.168.0.32  -MOUChatPort=9000
 //      개인 PC 에서 임시로 다른 서버를 볼 때 쓴다. 아무 파일도 건드리지 않는다.
 //   2. 개인 설정  Saved/Config/WindowsEditor/Game.ini
 //      Saved/ 는 .gitignore 대상이라 남의 환경에 영향을 주지 않는다.
 //      런타임에 만들려면 콘솔에서  MOU.Chat.SetServer <주소> [포트]
 //   3. 팀 공유 설정  Config/DefaultGame.ini   ← 평소에는 이것만 쓰면 된다
-//        [/Script/TeamProject_MOU.MOUChatServerSettings]
+//        [/Script/TeamProject_MOU.MOUServerSettings]
 //        ServerHost=192.168.0.32
 //        ServerPort=9000
 //   4. 127.0.0.1:9000 — ini 가 통째로 없을 때만 오는 최후의 값
 //
 // [에디터에서 바꾸기]
-//   Project Settings -> Game -> MOU Chat Server
+//   Project Settings -> Game -> MOU Server
 //   여기서 저장하면 Config/DefaultGame.ini 에 쓰이므로 그대로 커밋하면 팀에 퍼진다.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
-#include "ChatServerSettings.generated.h"
+#include "ServerSettings.generated.h"
 
 /**
  * 채팅/로그인 서버의 접속 대상. 코드 어디에서도 주소를 직접 적지 않고
  * 반드시 ResolveEndpoint() 를 거치게 하는 것이 이 클래스의 목적이다.
  */
-UCLASS(config = Game, defaultconfig, BlueprintType, meta = (DisplayName = "MOU Chat Server"))
-class TEAMPROJECT_MOU_API UMOUChatServerSettings : public UDeveloperSettings
+UCLASS(config = Game, defaultconfig, BlueprintType, meta = (DisplayName = "MOU Server"))
+class TEAMPROJECT_MOU_API UMOUServerSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
-	UMOUChatServerSettings();
+	UMOUServerSettings();
 
 	/** Project Settings 의 Game 카테고리에 표시한다. */
 	virtual FName GetCategoryName() const override;
