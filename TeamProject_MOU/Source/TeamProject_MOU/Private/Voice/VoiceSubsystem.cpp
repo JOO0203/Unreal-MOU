@@ -9,6 +9,10 @@
 #include "Voice/VoiceSubsystem.h"
 
 #include "Voice/VoiceCaptureSource.h"
+#include "Voice/VoiceCodec.h"
+#include "Voice/VoiceComponent.h"
+#include "Voice/VoicePlaybackComponent.h"
+#include "Voice/VoiceRouter.h"
 #include "Voice/VoiceSynthComponent.h"
 
 #include "DrawDebugHelpers.h"
@@ -23,6 +27,31 @@
 // ---------------------------------------------------------------------------
 // 서브시스템 수명
 // ---------------------------------------------------------------------------
+
+namespace
+{
+	/**
+	 * 이 프로세스에서 마이크를 잡고 있는 서브시스템.
+	 *
+	 * ★ PIE 다중 창 대비책이다(VOICE_INTEGRATION.md 6절).
+	 *
+	 *   PIE 로 창 두 개를 띄우면 한 프로세스 안에 로컬 플레이어가 둘 생기고,
+	 *   서브시스템도 둘이 된다. 둘 다 **같은 물리 마이크를 열려고 해서** 장치
+	 *   경합이 난다. 나쁜 것은 실패 방식이다 - 둘째 창이 조용히 실패하거나,
+	 *   더 나쁘게는 첫 창의 캡처를 망가뜨려서 **"아까는 됐는데 왜 지금 안 되지"**
+	 *   가 된다.
+	 *
+	 *   그래서 먼저 온 쪽만 마이크를 잡는다. 나머지 창은 **재생만** 한다 -
+	 *   V3 의 검증 방법(PIE 2창에서 거리에 따라 들리고 안 들리는지)에는
+	 *   말하는 쪽이 하나면 충분하다.
+	 *
+	 *   진짜 양방향 통화 테스트는 프로세스를 두 개 띄워서 한다.
+	 *
+	 * 약참조인 이유: 이 포인터를 역참조할 일은 없지만, 서브시스템이 예기치 않게
+	 * 사라졌을 때 자리가 영영 안 풀리는 것을 막는다.
+	 */
+	TWeakObjectPtr<UVoiceSubsystem> GVoiceCaptureOwner;
+}
 
 void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -52,11 +81,33 @@ void UVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			TEXT("Config/DefaultEngine.ini 에 [Voice] bEnabled=true 가 있는지, ")
 			TEXT("그리고 에디터를 재시작했는지 확인할 것(ini 는 시작 시 한 번만 읽는다)."));
 	}
+	else if (GVoiceCaptureOwner.IsValid())
+	{
+		// 이 프로세스에서 이미 다른 창이 마이크를 잡았다(위 GVoiceCaptureOwner 주석).
+		// 재생은 정상 동작하므로 여기서 끝내도 된다 - 남의 목소리는 들린다.
+		UE_LOG(LogMOUVoice, Log,
+			TEXT("이 창은 마이크를 열지 않는다(같은 프로세스의 다른 창이 이미 사용 중). ")
+			TEXT("듣기만 한다. 양방향 테스트는 프로세스를 두 개 띄울 것."));
+	}
 	else
 	{
+		GVoiceCaptureOwner = this;
+
 		// 마이크 열기. 실패해도 게임은 정상 진행된다(재생만 동작).
 		CaptureSource = MakeUnique<FVoiceCaptureSource>();
 		CaptureSource->Start();
+
+		// 코덱은 마이크와 독립적으로 만든다.
+		//
+		// ★ 마이크가 없어도 디코더는 필요하다. V3 에서 마이크 없는 팀원도
+		//   남의 목소리는 들어야 하기 때문이다(15절: "마이크가 없거나 권한이
+		//   없으면 전체 시스템이 죽지 않고 재생만 동작해야 한다").
+		//   지금부터 그 구조로 만들어 두면 V3 에서 손댈 것이 없다.
+		Encoder = MakeUnique<FMOUVoiceEncoder>();
+		Encoder->Initialize();
+
+		Decoder = MakeUnique<FMOUVoiceDecoder>();
+		Decoder->Initialize();
 	}
 
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -91,6 +142,19 @@ void UVoiceSubsystem::Deinitialize()
 	// 마이크를 닫는다. 게임 스레드에서만 도는 객체라 스레드 종료 대기가 필요 없다.
 	// (워커 스레드였을 때는 Kill(true) 순서가 필수였지만 이제 해당 없음)
 	CaptureSource.Reset();
+
+	// 코덱은 캡처 뒤에 정리한다. 캡처가 살아있는 동안 인코더가 사라지면
+	// 남은 프레임을 처리하다 죽은 인코더를 만질 수 있다.
+	Encoder.Reset();
+	Decoder.Reset();
+
+	// 마이크 자리를 놓아준다. 안 놓으면 PIE 를 껐다 켰을 때 **아무도 마이크를
+	// 못 잡는다** - 죽은 서브시스템이 자리를 차지한 채로 남기 때문이다.
+	// (약참조라 자동으로 풀리긴 하지만, 여기서 명시적으로 놓는 편이 읽기 쉽다)
+	if (GVoiceCaptureOwner.Get() == this)
+	{
+		GVoiceCaptureOwner.Reset();
+	}
 
 	Super::Deinitialize();
 }
@@ -144,20 +208,81 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 		++FramesReceived;
 		bIsSpeaking = Frame.bIsSpeaking;
 
-		if (!bLoopbackEnabled || !PlaybackComponent)
-		{
-			// 루프백이 꺼져 있으면 프레임을 그냥 버린다.
-			// V3 에서는 여기가 "서버로 전송" 으로 바뀐다.
-			continue;
-		}
-
-		// 무음 구간은 재생하지 않는다. 대역폭 절감이자, 루프백에서 마이크
-		// 잡음이 계속 되돌아오는 것을 막는다.
+		// 무음 구간은 여기서 끝낸다. 인코딩도 하지 않는다.
+		//
+		// VAD 로 무음을 걸러내는 것은 대역폭 절감이기도 하지만, 더 중요하게는
+		// **"지금 소리를 내고 있는가" 가 곧 게임 규칙**이기 때문이다(7-1절).
+		// V8 의 NPC 소음 이벤트도 같은 판정을 입력으로 쓴다. 그래서 걸러내는
+		// 지점이 여기 한 곳이어야 전송·소음·재생이 서로 어긋나지 않는다.
 		if (!Frame.bIsSpeaking)
 		{
 			continue;
 		}
 
+		// --- 1. 인코딩 ------------------------------------------------------
+		//
+		// ★ 루프백 여부와 무관하게 인코딩한다.
+		//   V3 에서 이 자리가 "서버로 전송" 이 되기 때문이다. 지금 루프백 분기
+		//   안쪽에 넣어두면 V3 에서 다시 끄집어내야 한다.
+		//   부수적으로, 루프백을 끈 채로도 MOU.Voice.Stat 의 압축률을 볼 수 있다.
+		bool bEncoded = false;
+		if (bCodecEnabled && Encoder.IsValid() && Encoder->IsReady())
+		{
+			bEncoded = Encoder->Encode(Frame.Samples.GetData(), Frame.Samples.Num(), EncodedScratch);
+		}
+
+		// --- 2. 서버로 전송 (V3) ---------------------------------------------
+		//
+		// 여기부터 남이 듣는다. 아래 루프백은 이제 **디버그 전용**이다.
+		//
+		// ★ 코덱이 꺼져 있으면 아무것도 못 보낸다. 네트워크로 나가는 형식이
+		//   Opus 바이트라서 원본 PCM 을 실을 자리가 없기 때문이다.
+		//   MOU.Voice.Codec 0 은 그래서 "루프백으로만 들어보는" 모드가 된다.
+		if (bEncoded)
+		{
+			if (UVoiceComponent* Voice = GetVoiceComponent())
+			{
+				Voice->SendVoiceFrame(EncodedScratch, Frame.Loudness, VoiceMode, EVoiceRoute::Proximity);
+				++FramesTransmitted;
+			}
+		}
+
+		if (!bLoopbackEnabled || !PlaybackComponent)
+		{
+			// 루프백이 꺼져 있으면 여기서 끝. 남에게는 위에서 이미 보냈다.
+			continue;
+		}
+
+		// --- 3. 로컬 루프백 (디버그 전용) ------------------------------------
+		//
+		// 내 목소리를 내가 듣는 경로다. 서버는 발신자 본인에게 프레임을 보내지
+		// 않으므로(에코 방지), 이 경로가 없으면 자기 소리를 확인할 방법이 없다.
+		//
+		// 코덱이 꺼져 있으면 원본 PCM 이 그대로 간다. 켜고 끄며 비교하는 것이
+		// V2 의 검증 방법이다(MOU.Voice.Codec).
+		const int16* PlaybackSamples = Frame.Samples.GetData();
+		int32        PlaybackCount   = Frame.Samples.Num();
+
+		if (bEncoded)
+		{
+			const bool bDecoded = Decoder.IsValid()
+				&& Decoder->Decode(EncodedScratch.GetData(), EncodedScratch.Num(), DecodedScratch);
+
+			if (!bDecoded)
+			{
+				// ★ 실패했을 때 원본 PCM 으로 대신 재생하지 않는다.
+				//   그렇게 하면 코덱이 완전히 고장나 있어도 소리는 멀쩡히 나서
+				//   V3 에 가서야 문제를 발견하게 된다. 지금은 조용한 편이 낫다 -
+				//   실패 횟수는 MOU.Voice.Stat 에 남는다.
+				continue;
+			}
+
+			PlaybackSamples = DecodedScratch.GetData();
+			PlaybackCount   = DecodedScratch.Num();
+		}
+
+		// --- 4. 재생 --------------------------------------------------------
+		//
 		// 지연이 쌓이는 것을 막는다.
 		//
 		// 마이크 입력이 재생 소비보다 빠르면 버퍼가 계속 차서 "지금 말한 것이
@@ -172,7 +297,7 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 			++FramesDropped;
 		}
 
-		PlaybackComponent->PushSamples(Frame.Samples.GetData(), Frame.Samples.Num());
+		PlaybackComponent->PushSamples(PlaybackSamples, PlaybackCount);
 	}
 
 	// ★ 프레임이 아예 안 오는 경우에도 발화 상태를 내려야 한다.
@@ -191,6 +316,21 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 	{
 		bIsSpeaking = false;
 	}
+
+	// ★ 발화가 끝나는 순간 디코더 상태를 초기화한다.
+	//
+	// Opus 디코더는 직전 프레임을 참고해 다음 프레임을 복원한다. 발화 사이에
+	// 몇 초의 공백이 있어도 디코더는 그것을 모르므로, 새 발화의 첫 프레임을
+	// **공백 전의 소리를 참고해서** 푼다. 그러면 말 첫머리가 짧게 지직거린다.
+	//
+	// 여기서 잡는 이유: 이 전환(true -> false)은 위의 hangover 로직까지 다 돌고
+	// 나야 확정된다. 루프 안에서 프레임 단위로 보면 hangover 로 아직 살아있는
+	// 구간을 발화 종료로 오판한다.
+	if (bWasSpeaking && !bIsSpeaking && Decoder.IsValid())
+	{
+		Decoder->Reset();
+	}
+	bWasSpeaking = bIsSpeaking;
 
 	DrawRadiusDebug();
 
@@ -254,6 +394,51 @@ void UVoiceSubsystem::DrawRadiusDebug()
 // ---------------------------------------------------------------------------
 // 루프백
 // ---------------------------------------------------------------------------
+
+APlayerController* UVoiceSubsystem::GetOwningPlayerController() const
+{
+	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	UWorld* World = LocalPlayer ? LocalPlayer->GetWorld() : nullptr;
+
+	// ★ 인자 없는 ULocalPlayer::GetPlayerController() 는 존재하지 않는다.
+	//   (그건 FLocalPlayerContext 의 것이다) UPlayer 의 월드 인자 버전을 쓴다.
+	return (LocalPlayer && World) ? LocalPlayer->GetPlayerController(World) : nullptr;
+}
+
+UVoiceComponent* UVoiceSubsystem::GetVoiceComponent()
+{
+	// 캐시가 살아있으면 그대로 쓴다. 컨트롤러가 갈리면 약참조가 풀려 아래로 떨어진다.
+	if (UVoiceComponent* Cached = CachedVoiceComponent.Get())
+	{
+		return Cached;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	UVoiceComponent* Found = UVoiceComponent::Find(PC);
+
+	if (!Found)
+	{
+		// ★ 여기 걸리면 원인은 거의 항상 하나다: 쓰고 있는 PlayerController 클래스가
+		//   ATeamProject_MOUPlayerController 를 상속하지 않는다.
+		//   증상이 "내 목소리가 아무에게도 안 들린다" 뿐이라 알아채기 어려워서,
+		//   PC 가 있는데 컴포넌트만 없는 경우에만 한 번 크게 남긴다.
+		//   (PC 자체가 아직 없는 것은 레벨 로드 중 정상 상황이라 조용히 넘어간다)
+		static bool bWarnedMissingComponent = false;
+		if (PC && !bWarnedMissingComponent)
+		{
+			bWarnedMissingComponent = true;
+			UE_LOG(LogMOUVoice, Error,
+				TEXT("★ PlayerController(%s)에 UVoiceComponent 가 없다. 음성이 서버로 나가지 않는다. ")
+				TEXT("게임모드의 PlayerController 클래스가 ATeamProject_MOUPlayerController 를 ")
+				TEXT("상속하는지 확인할 것."),
+				*GetNameSafe(PC->GetClass()));
+		}
+		return nullptr;
+	}
+
+	CachedVoiceComponent = Found;
+	return Found;
+}
 
 void UVoiceSubsystem::EnsurePlaybackComponent()
 {
@@ -338,6 +523,39 @@ void UVoiceSubsystem::SetLoopbackEnabled(bool bEnabled)
 	}
 }
 
+void UVoiceSubsystem::SetCodecEnabled(bool bEnabled)
+{
+	if (bCodecEnabled == bEnabled)
+	{
+		return;
+	}
+
+	bCodecEnabled = bEnabled;
+
+	// 경로가 바뀌는 순간이므로 양쪽 다 정리한다.
+	// 코덱을 켜고 끄는 사이에 남은 소리가 섞이면 A/B 비교의 의미가 없다.
+	if (PlaybackComponent)
+	{
+		PlaybackComponent->RequestFlush();
+	}
+	if (Decoder.IsValid())
+	{
+		Decoder->Reset();
+	}
+
+	if (bEnabled && Encoder.IsValid() && !Encoder->IsReady())
+	{
+		// 시작할 때 실패했을 수 있다(마이크 권한과 무관하게 모듈 문제 등).
+		// 여기서 한 번 더 시도해 본다 - 콘솔로 켜는 시점엔 상황이 달라졌을 수 있다.
+		Encoder->Initialize();
+	}
+
+	UE_LOG(LogMOUVoice, Log, TEXT("Opus 코덱 %s. %s"),
+		bEnabled ? TEXT("ON") : TEXT("OFF"),
+		bEnabled ? TEXT("압축을 통과한 소리가 들린다.")
+		         : TEXT("원본 PCM 이 그대로 들린다(비교용)."));
+}
+
 void UVoiceSubsystem::SetVoiceMode(EVoiceMode NewMode)
 {
 	if (VoiceMode == NewMode)
@@ -378,6 +596,14 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 		{
 			PlaybackComponent->RequestFlush();
 		}
+
+		// 음소거는 Tick 의 발화 종료 감지를 우회한다(위쪽에서 early return 한다).
+		// 그래서 여기서 직접 처리해야 음소거를 풀었을 때 첫마디가 지직거리지 않는다.
+		if (Decoder.IsValid())
+		{
+			Decoder->Reset();
+		}
+		bWasSpeaking = false;
 	}
 
 	UE_LOG(LogMOUVoice, Log, TEXT("마이크 %s."), bMuted ? TEXT("음소거") : TEXT("음소거 해제"));
@@ -386,6 +612,12 @@ void UVoiceSubsystem::SetMuted(bool bInMuted)
 bool UVoiceSubsystem::IsCaptureReady() const
 {
 	return CaptureSource.IsValid() && CaptureSource->IsReady();
+}
+
+bool UVoiceSubsystem::IsCodecReady() const
+{
+	return Encoder.IsValid() && Encoder->IsReady()
+		&& Decoder.IsValid() && Decoder->IsReady();
 }
 
 float UVoiceSubsystem::GetCurrentLoudness() const
@@ -413,10 +645,74 @@ FString UVoiceSubsystem::GetStatsString() const
 	const int32 Underrun = PlaybackComponent ? PlaybackComponent->GetUnderrunCount() : 0;
 	const int32 Overflow = PlaybackComponent ? PlaybackComponent->GetOverflowCount() : 0;
 
+	// --- 코덱 통계 ----------------------------------------------------------
+	//
+	// 평균 프레임 크기가 12절의 대역폭 계산을 실측으로 검증하는 값이다.
+	// 설계는 프레임당 ~60바이트(= 초당 50프레임 x 60 = 3KB/s)를 전제로 했다.
+	// 여기 숫자가 그와 크게 다르면 12절의 대역폭 표를 다시 계산해야 한다.
+	FString CodecStats;
+	if (Encoder.IsValid() && Encoder->GetFrameCount() > 0)
+	{
+		const float AvgBytes = Encoder->GetAverageFrameBytes();
+
+		// 초당 프레임 수는 고정(1000/FrameMs = 50)이므로 초당 바이트를 바로 낸다.
+		const float BytesPerSec = AvgBytes * (1000.f / MOUVoice::FrameMs);
+
+		CodecStats = FString::Printf(
+			TEXT(" | 코덱=%s 인코딩=%d프레임 평균%.1f바이트(최대%d) 압축률%.1f:1 %.1fKB/s 디코딩=%d실패=%d"),
+			bCodecEnabled ? TEXT("ON") : TEXT("OFF"),
+			Encoder->GetFrameCount(),
+			AvgBytes,
+			Encoder->GetMaxFrameBytes(),
+			AvgBytes > 0.f ? MOUVoice::BytesPerFrame / AvgBytes : 0.f,
+			BytesPerSec / 1024.f,
+			Decoder.IsValid() ? Decoder->GetFrameCount() : 0,
+			Decoder.IsValid() ? Decoder->GetFailureCount() : 0);
+	}
+	else
+	{
+		CodecStats = FString::Printf(TEXT(" | 코덱=%s (아직 인코딩한 프레임 없음)"),
+			bCodecEnabled ? TEXT("ON") : TEXT("OFF"));
+	}
+
+	// --- V3 네트워크 통계 ---------------------------------------------------
+	//
+	// 세 줄로 나눠 보여주는 이유: "안 들린다" 의 원인이 송신/서버/수신 중
+	// 어디인지가 이 숫자들의 조합으로 바로 갈린다.
+	//   전송=0        -> 마이크나 코덱 문제 (또는 VoiceComponent 가 없다)
+	//   전송>0 라우팅=0 -> 서버까지 안 갔다 (RPC 문제)
+	//   라우팅>0 전달=0 -> 서버가 수신자를 못 찾았다 (거리, 폰 없음)
+	//   전달>0 재생=0   -> 받는 쪽 문제 (디코딩, 발신자 폰 못 찾음)
+	FString NetStats = FString::Printf(TEXT(" | 전송=%d"), FramesTransmitted);
+
+	const UWorld* World = GetLocalPlayer() ? GetLocalPlayer()->GetWorld() : nullptr;
+
+	// ★ 라우터 통계는 **서버일 때만** 보여준다.
+	//
+	//   월드 서브시스템이라 클라이언트에도 객체는 생긴다. 그런데 클라의 라우터는
+	//   한 번도 안 불리므로 항상 0 이다. 그걸 그대로 찍으면 "라우팅=0" 을 보고
+	//   **서버가 일을 안 한다고 오진하게 된다** - 실제로는 내 화면에 남의 서버
+	//   상태가 보일 리 없는 것뿐인데. 아예 안 보여주는 편이 덜 헷갈린다.
+	if (World && World->GetNetMode() != NM_Client)
+	{
+		if (const UVoiceRouter* Router = UVoiceRouter::Get(World))
+		{
+			NetStats += FString::Printf(TEXT(" | [서버] %s"), *Router->GetStatsString());
+		}
+	}
+
+	if (const APlayerController* PC = GetOwningPlayerController())
+	{
+		if (const UVoicePlaybackComponent* Playback = PC->FindComponentByClass<UVoicePlaybackComponent>())
+		{
+			NetStats += FString::Printf(TEXT(" | [수신] %s"), *Playback->GetStatsString());
+		}
+	}
+
 	return FString::Printf(
 		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
 		TEXT("| 수신프레임=%d 버림=%d ")
-		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d"),
+		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d%s%s"),
 		IsCaptureReady() ? TEXT("준비됨") : TEXT("없음"),
 		bMuted ? TEXT("ON") : TEXT("OFF"),
 		bLoopbackEnabled ? TEXT("ON") : TEXT("OFF"),
@@ -431,7 +727,9 @@ FString UVoiceSubsystem::GetStatsString() const
 		Buffered,
 		Buffered * 1000.f / MOUVoice::SampleRate,
 		Underrun,
-		Overflow);
+		Overflow,
+		*CodecStats,
+		*NetStats);
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +737,8 @@ FString UVoiceSubsystem::GetStatsString() const
 //
 // 사용 예:
 //   MOU.Voice.Loopback 1          내 목소리를 내 헤드폰으로 (V1 검증)
-//   MOU.Voice.Stat                통계 출력
+//   MOU.Voice.Codec 0             Opus 우회 - 원본과 압축을 A/B 비교 (V2 검증)
+//   MOU.Voice.Stat                통계 출력 (압축률과 프레임 크기 포함)
 //   MOU.Voice.Sensitivity 0.01    마이크 감도
 //   MOU.Voice.FakeNoise 1500      마이크 없이 NPC 소음만 발생 (V0, NPC 팀원용)
 //
@@ -469,6 +768,34 @@ namespace
 				{
 					const bool bEnable = Args.IsValidIndex(0) ? (FCString::Atoi(*Args[0]) != 0) : true;
 					Voice->SetLoopbackEnabled(bEnable);
+				}
+				else
+				{
+					UE_LOG(LogMOUVoice, Warning, TEXT("음성 서브시스템을 찾지 못했다."));
+				}
+			}));
+
+	/**
+	 * V2 검증의 핵심 도구.
+	 *
+	 * 루프백을 켠 채로 이 명령을 0/1 로 왕복하며 같은 말을 반복하면
+	 * **압축이 음질을 얼마나 깎는지** 직접 비교할 수 있다.
+	 * "전화 수준이면 합격" 이라는 기준은 이렇게만 판정할 수 있다 - 숫자로는 안 된다.
+	 */
+	FAutoConsoleCommandWithWorldAndArgs GVoiceCodecCommand(
+		TEXT("MOU.Voice.Codec"),
+		TEXT("Opus 코덱을 켜고 끈다(끄면 원본 PCM 이 그대로 재생된다. 음질 비교용). ")
+		TEXT("인자 없이 부르면 토글. 사용법: MOU.Voice.Codec [0|1]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					const bool bEnable = Args.IsValidIndex(0)
+						? (FCString::Atoi(*Args[0]) != 0)
+						: !Voice->IsCodecEnabled();
+
+					Voice->SetCodecEnabled(bEnable);
 				}
 				else
 				{
@@ -613,6 +940,18 @@ namespace
 						TEXT("   -> 헤드셋을 꽂은 뒤 에디터를 켰다면, 장치 목록이 갱신되도록 ")
 						TEXT("에디터를 재시작해볼 것."));
 					return;
+				}
+
+				// 5단계: 코덱. 마이크와 별개로 실패할 수 있으므로 따로 찍는다.
+				// "마이크는 잡히는데 소리가 안 난다" 의 원인이 여기일 수 있다.
+				UE_LOG(LogMOUVoice, Log, TEXT("5) Opus 코덱         : %s (%s)"),
+					Voice->IsCodecEnabled() ? TEXT("사용") : TEXT("우회 중"),
+					Voice->IsCodecReady() ? TEXT("인코더/디코더 준비됨") : TEXT("X  <- 생성 실패"));
+
+				if (Voice->IsCodecEnabled() && !Voice->IsCodecReady())
+				{
+					UE_LOG(LogMOUVoice, Log,
+						TEXT("   -> 코덱 없이 들어보려면 MOU.Voice.Codec 0 으로 우회할 수 있다."));
 				}
 
 				UE_LOG(LogMOUVoice, Log, TEXT("모두 정상. %s"), *Voice->GetStatsString());
