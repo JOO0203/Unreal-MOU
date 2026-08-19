@@ -26,11 +26,11 @@
 //   레지스트리 전부 월드가 바뀌면 갈아엎어야 한다. GameInstanceSubsystem 으로
 //   두면 레벨 이동 때 옛 월드의 액터를 붙들고 있게 된다.
 //
-// [현재 구현 단계 - V3]
-//   근접만. 아래가 아직 없고, 각각 자리를 주석으로 표시해 두었다:
+// [현재 구현 단계 - V8]
+//   근접·무전 라우팅, 사망자 차단, NPC 소음 발행까지 들어있다.
 //     V5  사망자 차단 (3중 방어의 서버 몫)
 //     V6  무전 라우팅 + 무전기 레지스트리 + 반이중 중재
-//     V8  소음 이벤트 발행
+//     V8  소음 이벤트 발행 - RouteFrame 말미와 RouteRadio 안
 //
 // [대응하는 문서]
 //   VOICE_INTEGRATION.md 5절, 6절, 7-2절(근접 라우팅), 14절 V3
@@ -110,13 +110,46 @@ private:
 	 *   **양쪽 조건에 다 걸린다.** 둘 다 보내면 같은 목소리가 두 번 겹쳐 에코가 된다.
 	 */
 	int32 RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
-		const TSet<APlayerController*>& AlreadyRouted);
+		const TSet<APlayerController*>& AlreadyRouted, double Now);
 
 	/**
 	 * 반이중 채널을 이 발신자가 쓸 수 있는지 확인하고 점유한다.
 	 * @return 송신해도 되면 true.
 	 */
 	bool TryAcquireRadioChannel(int32 SpeakerId, double Now);
+
+	// --- 소음 이벤트 (V8) ---------------------------------------------------
+
+	/**
+	 * 발화자 위치에서 NPC 용 소음을 낸다. 집계 창(0.3초) 안이면 아무것도 안 한다.
+	 *
+	 * @param bOnRadio  무전 송신 중인가. true 면 반경이 좁아지고 태그가 바뀐다.
+	 */
+	void ReportSpeakerNoise(const APawn* SenderPawn, int32 SpeakerId,
+		EVoiceMode Mode, bool bOnRadio, double Now);
+
+	/** 무전기 스피커 위치에서 소음을 낸다. 마찬가지로 창 단위로 억제한다. */
+	void ReportRadioSpeakerNoise(URadioComponent* Radio, double Now);
+
+	/**
+	 * 발화자별 마지막 소음 보고 시각.
+	 *
+	 * ★ 창이 끝날 때 모아 쏘는 대신 **창의 첫 프레임에 쏘고 나머지를 억제**한다.
+	 *   보고 빈도(초당 3.3회)는 같으면서 두 가지가 낫다:
+	 *     · 말하기 시작한 순간 NPC 가 반응한다. 0.3초 지연은 공포 게임에서 크다
+	 *     · 0.3초보다 짧은 발화("헉!")가 통째로 누락되지 않는다
+	 *   창 안의 최대 음량을 취하는 원래 안은 Loudness 를 1.0 으로 고정하면서
+	 *   의미가 없어졌다(NoiseEventLoudness 주석 참고).
+	 */
+	TMap<int32, double> LastSpeakerNoiseTime;
+
+	/**
+	 * 무전기별 마지막 소음 보고 시각.
+	 *
+	 * 무전기가 PoweredRadios 에서 빠질 때 여기서도 같이 지운다. 파괴돼서 약참조가
+	 * 이미 끊긴 경우엔 키를 못 만들어 남는데, 그건 항목 하나라 무해하다.
+	 */
+	TMap<TWeakObjectPtr<URadioComponent>, double> LastRadioNoiseTime;
 
 	/**
 	 * 초당 프레임 수를 제한한다.
@@ -178,4 +211,12 @@ private:
 
 	/** 무전기가 없거나 꺼져 있어서 무전 송신이 거부된 프레임 수. */
 	int32 FramesNoRadio = 0;
+
+	/**
+	 * 실제로 발행한 소음 이벤트 수(V8).
+	 *
+	 * ★ 이 값과 FramesRouted 의 비율이 집계 창이 도는지 보여준다.
+	 *   둘이 비슷하게 오르면 창이 안 먹고 프레임마다 쏘고 있다는 뜻이다.
+	 */
+	int32 NoiseEventsReported = 0;
 };

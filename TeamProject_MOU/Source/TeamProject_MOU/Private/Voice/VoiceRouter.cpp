@@ -12,6 +12,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "Perception/AISense_Hearing.h"
 
 UVoiceRouter* UVoiceRouter::Get(const UWorld* World)
 {
@@ -148,16 +149,114 @@ void UVoiceRouter::RouteFrame(APlayerController* SenderPC, const FVoiceFrame& Fr
 	if (bRadioAllowed)
 	{
 		Out.Route = EVoiceRoute::Radio;
-		const int32 RadioDelivered = RouteRadio(SenderPC, Out, AlreadyRouted);
+		const int32 RadioDelivered = RouteRadio(SenderPC, Out, AlreadyRouted, Now);
 
 		FramesDelivered += RadioDelivered;
 		FramesRadio     += (RadioDelivered > 0) ? 1 : 0;
 	}
 
-	// >>> V8: 여기에 소음 이벤트 집계가 들어간다.
-	//         ★ 프레임마다 쏘면 안 된다 - 초당 50회 x 인원수의 perception 갱신이
-	//         돌아 서버가 죽는다. 0.3초 창의 최대 음량을 모아 한 번 보고한다(7-5절).
-	//         무전 수신 소음은 **무전기 액터 위치**에서, SpeakerNoiseRadius 로 쏜다.
+	// --- 9. NPC 소음 발행 (V8) ----------------------------------------------
+	//
+	// ★ 여기가 "목소리가 게임플레이가 되는" 지점이다. 위의 라우팅은 사람에게
+	//   들리게 하는 일이고, 이 한 줄이 **NPC 에게 들리게** 한다.
+	//
+	// ★ 사망자는 이 줄에 도달하지 못한다(1-2 단계에서 return). 죽은 사람의
+	//   목소리로 NPC 를 끌어오는 일은 없다.
+	//
+	// 무전 수신 소음(무전기 스피커)은 여기가 아니라 RouteRadio 안에서 쏜다.
+	// 위치가 발화자가 아니라 **무전기 액터**라서, 무전기를 순회하는 그쪽이
+	// 자연스럽다. 바닥에 떨어진 무전기도 거기서 같이 처리된다.
+	ReportSpeakerNoise(SenderPawn, SpeakerId, Mode, bRadioAllowed, Now);
+}
+
+// ---------------------------------------------------------------------------
+// 소음 이벤트 (V8)
+// ---------------------------------------------------------------------------
+
+void UVoiceRouter::ReportSpeakerNoise(const APawn* SenderPawn, int32 SpeakerId,
+	EVoiceMode Mode, bool bOnRadio, double Now)
+{
+	UWorld* World = GetWorld();
+
+	if (!World || !SenderPawn)
+	{
+		return;
+	}
+
+	// --- 집계 창 ------------------------------------------------------------
+	//
+	// ★ 이 검사가 없으면 20ms 마다, 즉 초당 50회 x 말하는 사람 수만큼
+	//   perception 갱신이 돈다. 몇 명만 동시에 떠들어도 서버가 주저앉는다(11절).
+	if (const double* LastTime = LastSpeakerNoiseTime.Find(SpeakerId))
+	{
+		if (Now - *LastTime < MOUVoice::NoiseWindowSec)
+		{
+			return;
+		}
+	}
+
+	LastSpeakerNoiseTime.Add(SpeakerId, Now);
+
+	// --- 반경 --------------------------------------------------------------
+	//
+	// ★ 숫자를 여기 적으면 안 된다. MOUVoice:: 함수 하나에서만 나와야
+	//   디버그 링(MOU.Voice.ShowRadius)과 실제 판정이 어긋나지 않는다.
+	float NoiseRange = MOUVoice::GetNoiseRange(Mode);
+
+	// 무전을 치는 중이면 무전기에 대고 낮게 말하므로 육성이 덜 퍼진다(7-5절).
+	if (bOnRadio)
+	{
+		NoiseRange *= MOUVoice::RadioSpeakingNoiseScale;
+	}
+
+	// ★ Instigator 는 "소리가 난 위치에 있는 대상" 이다. NPC 는 이 값으로
+	//   누구를 쫓을지 정한다 - 잘못 넣으면 엉뚱한 사람을 쫓는다(7-5절).
+	UAISense_Hearing::ReportNoiseEvent(
+		World,
+		SenderPawn->GetActorLocation(),
+		MOUVoice::NoiseEventLoudness,
+		const_cast<APawn*>(SenderPawn),
+		NoiseRange,
+		bOnRadio ? MOUVoice::GetRadioNoiseTag() : MOUVoice::GetProximityNoiseTag());
+
+	++NoiseEventsReported;
+}
+
+void UVoiceRouter::ReportRadioSpeakerNoise(URadioComponent* Radio, double Now)
+{
+	UWorld* World = GetWorld();
+	AActor* RadioActor = Radio ? Radio->GetOwner() : nullptr;
+
+	if (!World || !RadioActor)
+	{
+		return;
+	}
+
+	if (const double* LastTime = LastRadioNoiseTime.Find(Radio))
+	{
+		if (Now - *LastTime < MOUVoice::NoiseWindowSec)
+		{
+			return;
+		}
+	}
+
+	LastRadioNoiseTime.Add(Radio, Now);
+
+	// ★ 여기서 소리를 내는 것은 발화자가 아니라 **무전기**다.
+	//   그래서 위치도 Instigator 도 무전기 쪽이다. 바닥에 떨어진 무전기도
+	//   주인이 없을 뿐 똑같이 소리를 내고, NPC 는 그 무전기를 향해 온다(7-4절).
+	//
+	// ★ 위치는 GetSpeakerLocation() 을 쓴다. 사람이 듣는 기준점과 NPC 가 듣는
+	//   기준점이 다르면, 손에 든 무전기와 바닥에 둔 무전기에서 둘이 어긋난다.
+	UAISense_Hearing::ReportNoiseEvent(
+		World,
+		Radio->GetSpeakerLocation(),
+		MOUVoice::NoiseEventLoudness,
+		RadioActor,
+		Radio->SpeakerNoiseRadius * Radio->SpeakerVolume * MOUVoice::RadioSpeakerNoiseScale,
+		MOUVoice::GetRadioSpeakerNoiseTag());
+
+	++NoiseEventsReported;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +335,7 @@ int32 UVoiceRouter::RouteProximity(APlayerController* SenderPC, const FVector& S
 // ---------------------------------------------------------------------------
 
 int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
-	const TSet<APlayerController*>& AlreadyRouted)
+	const TSet<APlayerController*>& AlreadyRouted, double Now)
 {
 	UWorld* World = GetWorld();
 
@@ -260,6 +359,10 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 		if (!Radio || !Radio->IsPoweredOn())
 		{
 			// 파괴됐거나 꺼졌다. 순회하는 김에 정리한다.
+			// 소음 타임스탬프도 같이 지운다 - 안 지우면 껐다 켤 때마다 항목이
+			// 하나씩 쌓인다(무전기가 파괴된 경우엔 키가 이미 죽어서 못 지우는데,
+			// 그건 죽은 약참조 하나라 무해하다).
+			LastRadioNoiseTime.Remove(PoweredRadios[Index]);
 			PoweredRadios.RemoveAtSwap(Index);
 			continue;
 		}
@@ -277,6 +380,16 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 
 		// 이 무전기에서 나는 소리라고 표시한다. 받는 쪽은 이 액터 위치에서 재생한다.
 		Out.RadioActor = Radio->GetOwner();
+
+		// --- NPC 소음 (V8) --------------------------------------------------
+		//
+		// ★ 사람에게 보내는 루프 **밖**, 무전기당 한 번이다. 안에 넣으면
+		//   듣는 사람 수만큼 같은 소음이 중복 발행된다.
+		//
+		// ★ 듣는 사람이 하나도 없어도 쏜다. 무전기는 스피커라서 **아무도 없는
+		//   방에 떨어져 있어도 소리를 낸다.** 그 소리에 NPC 가 오는 것이
+		//   무전기를 미끼로 쓰는 플레이의 핵심이다(7-4절).
+		ReportRadioSpeakerNoise(Radio, Now);
 
 		for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
 		{
@@ -450,8 +563,10 @@ FString UVoiceRouter::GetStatsString() const
 {
 	return FString::Printf(
 		TEXT("라우팅=%d 전달=%d 리밋=%d 거부=%d 사망차단=%d 발신자=%d명 ")
-		TEXT("| 무전=%d 켜진무전기=%d 채널점유중=%d 무전기없음=%d"),
+		TEXT("| 무전=%d 켜진무전기=%d 채널점유중=%d 무전기없음=%d ")
+		TEXT("| NPC소음=%d"),
 		FramesRouted, FramesDelivered, FramesRateLimited, FramesRejected,
 		FramesFromDead, RateWindows.Num(),
-		FramesRadio, PoweredRadios.Num(), FramesChannelBusy, FramesNoRadio);
+		FramesRadio, PoweredRadios.Num(), FramesChannelBusy, FramesNoRadio,
+		NoiseEventsReported);
 }

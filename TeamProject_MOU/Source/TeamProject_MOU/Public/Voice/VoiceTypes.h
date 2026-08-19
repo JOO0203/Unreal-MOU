@@ -280,7 +280,28 @@ namespace MOUVoice
 		}
 	}
 
-	/** 소음 이벤트의 Loudness 배율. 측정된 RMS 에 곱해서 쓴다. */
+	/**
+	 * 소음 이벤트의 Loudness 배율. 측정된 RMS 에 곱해서 쓴다.
+	 *
+	 * ★★ 주의: 이 값은 "크기" 가 아니라 **반경 배율로도 동작한다.** ★★
+	 *
+	 * `UAISense_Hearing::Update` 는 거리 비교를 이렇게 한다(엔진 소스):
+	 *
+	 *     DistSq > HearingRangeSq * Square(Loudness)          -> 안 들림
+	 *     DistSq > Square(Event.MaxRange * Loudness)          -> 안 들림
+	 *
+	 * 즉 **NPC 가 실제로 듣는 거리 = GetNoiseRange() x GetLoudnessScale()** 이다.
+	 * 위의 GetNoiseRange 표를 그대로 믿으면 안 된다:
+	 *
+	 *     속삭임  700 x 0.35 =  245 cm   (표의 700 이 아니다)
+	 *     보통   1800 x 1.00 = 1800 cm
+	 *     외침   4000 x 1.60 = 6400 cm   (표의 4000 이 아니다)
+	 *
+	 * ★ V8 의 결정: **소음 발행에는 이 값을 쓰지 않는다.**
+	 *   Loudness 는 NoiseEventLoudness(1.0)로 고정하고 거리는 GetNoiseRange 만으로
+	 *   표현한다. 이유는 그 상수의 주석에 적어두었다.
+	 *   이 함수는 이제 MOU.Voice.FakeNoise 의 기본 인자에서만 쓴다.
+	 */
 	inline constexpr float GetLoudnessScale(EVoiceMode Mode)
 	{
 		switch (Mode)
@@ -502,6 +523,62 @@ namespace MOUVoice
 	 *   안전 거리를 학습하기가 너무 쉬워진다(7-4절). 이 비율이 난이도의 주 손잡이다.
 	 */
 	inline constexpr float DefaultSpeakerNoiseRadius = 1200.f;  // 12m - NPC 가 듣는 거리
+
+	// -----------------------------------------------------------------------
+	// 소음 이벤트 (V8) — NPC 팀원에게 넘기는 계약 (7-5절)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * 소음 보고 집계 창(초). 한 발화자/무전기당 이 간격보다 자주 쏘지 않는다.
+	 *
+	 * ★ 프레임마다(20ms) 쏘면 초당 50회 x 인원수의 perception 갱신이 돌아
+	 *   서버가 죽는다. 0.3초면 초당 3.3회로 떨어진다(7-5절).
+	 */
+	inline constexpr float NoiseWindowSec = 0.3f;
+
+	/**
+	 * 소음 이벤트에 넣는 Loudness. **1.0 고정이다.**
+	 *
+	 * ★ 왜 발화 모드별로 다르게 주지 않는가:
+	 *   UAISense_Hearing::Update 는 Loudness 를 **반경 배율로 쓴다**(위 GetLoudnessScale
+	 *   주석 참고). 모드별 값을 그대로 넣으면 NPC 가 듣는 거리가
+	 *   GetNoiseRange x GetLoudnessScale 로 바뀌어 아래 두 가지가 동시에 깨진다:
+	 *
+	 *     · MOU.Voice.ShowRadius 의 빨간 원이 실제 판정과 어긋난다
+	 *     · NPC 에디터의 `듣기 범위` 도 Loudness 만큼 축소·확대된다
+	 *       (첫 번째 비교식이 리스너의 HearingRangeSq 에도 곱하기 때문)
+	 *
+	 *   1.0 으로 고정하면 판정이 이렇게 단순해진다:
+	 *
+	 *       실제로 들리는 거리 = min(NPC 의 듣기 범위, GetNoiseRange(모드))
+	 *
+	 *   양쪽이 각자 뚜렷한 의미를 갖는다 - NPC 는 "이 개체가 들을 수 있는 최대치",
+	 *   우리는 "이 발화가 퍼지는 거리". 속삭임과 외침의 차이는 **반경으로만**
+	 *   표현한다(700 vs 4000). NPC 입장에서 "가까이서만 들리는 소리 = 작은 소리" 다.
+	 */
+	inline constexpr float NoiseEventLoudness = 1.0f;
+
+	/**
+	 * 무전 송신 중 **육성** 소음의 반경 배율.
+	 *
+	 * 무전을 치는 동안에도 입으로는 소리가 난다(2절). 다만 무전기에 대고
+	 * 낮게 말하므로 평소보다 좁게 퍼진다.
+	 */
+	inline constexpr float RadioSpeakingNoiseScale = 0.35f;
+
+	/** 무전기 스피커에서 나는 소음의 반경 배율. SpeakerNoiseRadius 에 곱한다. */
+	inline constexpr float RadioSpeakerNoiseScale = 0.8f;
+
+	/**
+	 * 소음 태그. **NPC 담당자가 이 값으로 반응을 분기한다 - 함부로 바꾸면 안 된다.**
+	 *
+	 * ★ 전역 FName 상수로 두지 않고 함수로 감싼 이유: FName 은 정적 초기화 순서에
+	 *   의존하는데, 전역 객체로 두면 FName 테이블이 준비되기 전에 생성될 수 있다.
+	 *   호출은 0.3초에 한 번뿐이라 매번 만들어도 비용이 문제되지 않는다.
+	 */
+	inline FName GetProximityNoiseTag()    { return FName(TEXT("Voice.Proximity")); }
+	inline FName GetRadioNoiseTag()        { return FName(TEXT("Voice.Radio")); }
+	inline FName GetRadioSpeakerNoiseTag() { return FName(TEXT("Voice.RadioSpeaker")); }
 
 	/**
 	 * 네트워크로 받은 enum 을 신뢰 가능한 범위로 자른다.

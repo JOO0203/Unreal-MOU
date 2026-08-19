@@ -9,7 +9,7 @@
 - **V4**(지터버퍼 + PLC) 구현 완료 + 빌드 통과 (14-6절).
 - **V5**(사망 3중 차단) / **V6**(무전기 + 반이중) / **V7**(무전 톤)
   구현 완료 + 클린 리빌드 무경고 통과 (14-7절).
-- V8(NPC 소음) 이후는 설계만.
+- V8(NPC 소음)까지 구현. 이후는 설계만.
 
 > **★ V3 이후는 전부 "빌드까지" 다. 실행 검증이 하나도 안 됐다.**
 > 루프백(V1·V2)은 귀로 확인했지만 그건 네트워크 라우팅을 거치지 않는 경로다.
@@ -574,9 +574,34 @@ UAISense_Hearing::ReportNoiseEvent(
 
 ```
 집계 창(NoiseWindow) = 0.3초
-  창 안의 프레임 Loudness 중 최댓값을 취해 창이 끝날 때 한 번 보고
-  → 초당 3.3회. "가장 크게 낸 소리" 기준이라 속삭임에 묻히지 않는다
+  창의 첫 프레임에 한 번 쏘고, 남은 창 동안은 억제
+  → 초당 3.3회
 ```
+
+> **구현 시 바뀐 점 (V8):** 원안은 "창 안의 최댓값을 모아 창이 **끝날 때** 보고"였다.
+> 아래 Loudness 결정으로 최댓값을 취할 의미가 사라졌고, 끝에 몰아 쏘면 두 가지가 나빴다:
+> 말하기 시작하고 NPC 반응까지 0.3초가 밀리고, 0.3초보다 짧은 발화("헉!")가 통째로 누락된다.
+> 보고 빈도는 그대로이므로 **첫 프레임 즉시 발행 + 억제**로 바꿨다.
+
+#### ★ Loudness 는 1.0 고정이다 — 엔진 동작 주의
+
+`UAISense_Hearing::Update` 는 Loudness 를 **음량이 아니라 반경 배율로 쓴다**(엔진 소스):
+
+```cpp
+if (DistSq > HearingRangeSq * Square(Loudness))            continue;  // 리스너 설정에도 곱해진다
+else if (MaxRange > 0 && DistSq > Square(MaxRange * Loudness)) continue;
+```
+
+모드별 배율(0.35 / 1.0 / 1.6)을 그대로 넣으면 13절 반경표가 그만큼 어긋나고,
+NPC 에디터의 `듣기 범위` 까지 같이 축소·확대된다. 그래서 `NoiseEventLoudness = 1.0` 으로
+고정하고 거리는 `GetNoiseRange()` 만으로 표현한다. 그러면 판정이 이렇게 단순해진다:
+
+```
+실제로 들리는 거리 = min(NPC 의 듣기 범위, GetNoiseRange(발화모드))
+```
+
+속삭임과 외침의 차이는 **반경으로만** 낸다(700 vs 4000). NPC 입장에서
+"가까이서만 들리는 소리 = 작은 소리" 이므로 표현력에 손해가 없다.
 
 **보고 지점 (NPC 팀원에게 넘기는 계약)**
 
@@ -592,6 +617,27 @@ UAISense_Hearing::ReportNoiseEvent(
 
 **NPC 팀원이 할 일** (이 문서 범위 밖, 인터페이스만 명시):
 `AIPerceptionComponent` 에 `AISenseConfig_Hearing` 을 추가하고, 위 Tag 로 반응을 분기한다.
+
+> #### ★★ 함정: 지금은 `아군 탐지`를 켜야 들린다 ★★
+>
+> 현재 프로젝트에 `IGenericTeamAgentInterface` 구현이 **하나도 없다.** 그래서 NPC 도
+> 플레이어도 팀이 `NoTeam(255)` 이다. 엔진의 기본 판정은 이렇다:
+>
+> ```cpp
+> // AIInterfaces.cpp — DefaultTeamAttitudeSolver
+> return A != B ? ETeamAttitude::Hostile : ETeamAttitude::Friendly;
+> ```
+>
+> `255 == 255` 라서 **플레이어는 NPC 에게 "아군"** 으로 분류된다. 중립이 아니다.
+> `AISenseConfig_Hearing` 의 `Detection by Affiliation` 에서 **`아군 탐지`** 를 켜야
+> 목소리가 들린다. `중립 탐지` 만 켜면 아무리 가까워도 안 들린다.
+>
+> 팀을 제대로 배정하면(`AAIController::SetGenericTeamId` + 플레이어 폰에
+> `IGenericTeamAgentInterface` 구현) `적 탐지` 로 정리된다. **NPC 담당자 영역.**
+>
+> 참고로 `FGenericTeamId::GetAttitude(액터, 액터)` 오버로드는 상대가 인터페이스를
+> 구현하지 않으면 무조건 `Neutral` 을 돌려준다. 퍼셉션이 쓰는 것은 TeamId 오버로드라
+> 결과가 다르다 — 디버깅할 때 이 둘을 섞으면 원인을 못 찾는다.
 
 **★ NPC 팀원이 우리를 기다리지 않게 하는 장치:**
 `MOU.Voice.FakeNoise <반경>` 콘솔 명령을 **V1 에 가장 먼저 만든다.**
@@ -886,7 +932,7 @@ APlayerState* GetHolder() const;
 | **V5** | **사망자 차단 3중 방어** | 죽으면 말도 못 하고 듣지도 못한다 | **구현 완료 + 빌드 통과** (2026-08-18) |
 | **V6** | `RadioComponent` + `Z` 전원 + `X` 송신 + 반이중 | 맵 반대편에서 무전이 오간다. 동시 송신 시 "사용 중" | **구현 완료 + 빌드 통과** (2026-08-18) |
 | **V7** | 무전 필터(EQ/노이즈/스퀄치) + **무전기 액터 3D 출력** | 무전기 같은 소리가 무전기 위치에서 난다 | **구현 완료 + 빌드 통과** (2026-08-18) |
-| **V8** | **소음 이벤트 3종 발행** (에디터 반경 노출) | `FakeNoise` 로 검증하던 NPC 가 진짜 목소리에 반응 |
+| **V8** | **소음 이벤트 3종 발행** (에디터 반경 노출) | `FakeNoise` 로 검증하던 NPC 가 진짜 목소리에 반응 | **✅ 완료** |
 | **V9** | 옵션 UI (감도 슬라이더 + 입력 게이지, 키 리매핑) | 마이크 환경이 다른 팀원도 쓸 수 있다 |
 | V10 | 말하는 사람 표시, 뮤트, 떨어진 무전기 연출 다듬기 | 손맛 |
 
@@ -1274,7 +1320,7 @@ if (!InCompressedData || (CompressedDataSize < HeaderSize))
 > 전부 새는 것**이다.
 
 **상태를 어디에 두었나**: `UVoiceComponent::bVoiceDead` (서버 권위, 복제).
-아직 `AMainCharacter::bIsDead` 와 엮지 않았다 — `MOU.Voice.Die` 로만 바뀐다.
+아직 `AMainCharacter::bIsDead` 와 엮지 않았다 — `MOU.Voice.Die` / `MOU.Voice.Revive` 로만 바뀐다.
 
 > **나중에 실제 사망과 엮을 때 고칠 곳은 한 군데다.** 판정을
 > `UVoiceComponent::IsVoiceDead()` 안에 모아뒀으므로, 거기서 캐릭터 상태를
@@ -1349,7 +1395,7 @@ V8 에서는 NPC 도 듣는다**(7-4절). 바닥에 떨어진 무전기도 주�
 **아직 확인하지 못한 것**
 
 - **전부 빌드까지만 했다.** 클린 리빌드로 신규 파일 전부 컴파일·무경고 확인.
-- V5: `MOU.Voice.Die 1` 후 상대에게 안 들리는지, 상대 말도 안 들리는지
+- V5: `MOU.Voice.Die 1` 후 상대에게 안 들리는지, 상대 말도 안 들리는지 → `MOU.Voice.Revive` 로 둘 다 돌아오는지
 - V6: 무전기를 떨군 뒤 **그 자리에서** 소리가 나는지. 동시 송신 시 뒤쪽이 막히는지
 - V7: 무전 톤이 실제로 "무전기 같은지" — **숫자로 판정할 수 없다. 귀로 들어야 한다**
 - 스퀄치(송수신 시작·끝 삑 소리)는 아직 없다. 사운드 에셋이 필요하다
@@ -1359,6 +1405,8 @@ V8 에서는 NPC 도 듣는다**(7-4절). 바닥에 떨어진 무전기도 주�
 ```
 MOU.Voice.FakeNoise [반경] [음량] [태그]  마이크 없이 소음만 발생 ← ★ V0. NPC 팀원용
                                           (인자 생략 시 현재 발화 모드의 실제 값 사용)
+MOU.Voice.HearTest [지연초=1.5]           ★ 소음 + 청각 진단을 한 번에 ← V8 디버깅은 이걸로
+MOU.Voice.HearDebug                       NPC 청각 설정·현재 감지 목록을 즉시 덤프
 MOU.Voice.ShowRadius <0|1>    ★ 말할 때 소리 도달 범위를 링으로 표시
                                  초록=사람이 듣는 거리 / 빨강=NPC 가 듣는 거리
 MOU.Voice.Mode <0|1|2>        발화 모드 (0=속삭임 1=보통 2=외침)
@@ -1374,6 +1422,7 @@ MOU.Voice.Calibrate [초=2]    ★ 잡음을 재서 감도 자동 설정. 측정
 MOU.Voice.Reopen              마이크 다시 열기 (새로 꽂은 장치는 못 잡는다 - 14-4절)
 
 MOU.Voice.Die [0|1]           ★ 음성 사망 토글 (말하기·듣기 모두 차단)      (V5)
+MOU.Voice.Revive              ★ 음성 사망 해제 (말하기·듣기 모두 복구)        (V5)
 
 MOU.Voice.Radio.Spawn         테스트용 무전기를 손에 든다 (임시)            (V6)
 MOU.Voice.Radio.Drop          그 자리에 놓는다 - 켜져 있으면 거기서 소리가 난다

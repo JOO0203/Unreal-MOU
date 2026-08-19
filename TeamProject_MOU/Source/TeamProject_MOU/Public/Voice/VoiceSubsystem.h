@@ -177,7 +177,7 @@ public:
 	bool IsRadioTransmitting() const { return bRadioTransmitting; }
 
 	/**
-	 * 사망 상태를 서버에 요청한다(테스트용, `MOU.Voice.Die`).
+	 * 사망 상태를 서버에 요청한다(테스트용, `MOU.Voice.Die` / `MOU.Voice.Revive`).
 	 *
 	 * ★ 나중에 실제 게임 로직(체력 0 -> 사망)과 엮이면 이 함수는 사라진다.
 	 *   사망 판정은 서버가 하는 것이지 클라가 요청할 일이 아니다.
