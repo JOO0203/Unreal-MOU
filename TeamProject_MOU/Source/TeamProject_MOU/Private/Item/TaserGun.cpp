@@ -65,7 +65,7 @@ void ATaserGun::Fire()
 	MulticastPlayFireEffect(FxStart, FxEnd, bHit);
 }
 
-// [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 기절 태그 부여 + 타이머로 해제 예약
+// [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 감전 태그 부여 + 타이머로 해제 예약
 void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit)
 {
 	ACharacterBase* TargetCharacter = Cast<ACharacterBase>(HitActor);
@@ -84,34 +84,35 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 		return;
 	}
 
-	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
-	if (!StunTag.IsValid())
+	// 감전 태그 (DefaultGameplayTags.ini에 등록됨. 철자 'Electirc' 그대로여야 매칭됨)
+	static const FGameplayTag ElectricTag = FGameplayTag::RequestGameplayTag(FName("State.CC.Electirc"), false);
+	if (!ElectricTag.IsValid())
 	{
-		// [DEBUG-TASER] State.Stunned 태그가 프로젝트에 정의 안 됨 - 확인 후 제거
-		UE_LOG(LogTemp, Warning, TEXT("[TASER] StunTag 'State.Stunned' is INVALID (not registered)"));
+		// [DEBUG-TASER] State.CC.Electirc 태그가 프로젝트에 정의 안 됨 - 확인 후 제거
+		UE_LOG(LogTemp, Warning, TEXT("[TASER] ElectricTag 'State.CC.Electirc' is INVALID (not registered)"));
 		return;
 	}
 
-	// 기절 부여 (StatusComponent가 GAS Loose Tag까지 처리 + 복제)
-	StatusComp->AddStatusTag(StunTag);
+	// 감전 부여 (StatusComponent가 GAS Loose Tag까지 처리 + 복제)
+	StatusComp->AddStatusTag(ElectricTag);
 
-	// [DEBUG-TASER] 기절 부여 성공 로그 + 화면 메시지 - 확인 후 제거
-	UE_LOG(LogTemp, Warning, TEXT("[TASER] STUN applied to %s for %.1fs"), *GetNameSafe(TargetCharacter), StunDuration);
+	// [DEBUG-TASER] 감전 부여 성공 로그 + 화면 메시지 - 확인 후 제거
+	UE_LOG(LogTemp, Warning, TEXT("[TASER] ELECTRIC applied to %s for %.1fs"), *GetNameSafe(TargetCharacter), StunDuration);
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, StunDuration, FColor::Cyan,
-			FString::Printf(TEXT("STUN! %s (%.1fs)"), *GetNameSafe(TargetCharacter), StunDuration));
+			FString::Printf(TEXT("ELECTRIC! %s (%.1fs)"), *GetNameSafe(TargetCharacter), StunDuration));
 	}
 
-	// StunDuration 후 기절 해제 예약 (대상 캐릭터 기준 타이머)
+	// StunDuration 후 감전 해제 예약 (대상 캐릭터 기준 타이머)
 	FTimerHandle StunTimerHandle;
 	TWeakObjectPtr<UStatusComponent> WeakStatus = StatusComp;
 	FTimerDelegate ClearDelegate = FTimerDelegate::CreateLambda([WeakStatus]()
 	{
-		static const FGameplayTag ClearStunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
-		if (WeakStatus.IsValid() && ClearStunTag.IsValid())
+		static const FGameplayTag ClearElectricTag = FGameplayTag::RequestGameplayTag(FName("State.CC.Electirc"), false);
+		if (WeakStatus.IsValid() && ClearElectricTag.IsValid())
 		{
-			WeakStatus->RemoveStatusTag(ClearStunTag);
+			WeakStatus->RemoveStatusTag(ClearElectricTag);
 		}
 	});
 
