@@ -50,6 +50,12 @@ protected:
 	// 부여한 태그의 지속시간(초). 0 이하면 자동 해제 안 함.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion")
 	float AppliedTagDuration = 5.0f;
+
+	// 대상에게 보낼 상태이상 발동 이벤트 태그 (예: Event.Reaction.Eletric).
+	// 지정하면 대상 ASC에 Grant된 상태이상 GA를 발동시켜 GE적용+애니+자동해제를 GA에 위임한다.
+	// 비워두면(None) 아무 이벤트도 보내지 않는다. (정석 방식: 태그 직접 부여 대신 이 이벤트 사용)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion", meta = (Categories = "Event"))
+	FGameplayTag StatusEventTag;
 #pragma endregion
 
 #pragma region [POTION] 투척 설정값
