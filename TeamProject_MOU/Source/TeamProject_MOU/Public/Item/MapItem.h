@@ -42,9 +42,17 @@ public:
 #pragma endregion
 
 #pragma region [FOG] 지도별 누적 Fog 마스크
-	// 이 지도의 밝힘 기록 (지도 아이템에 귀속, 맵 전체 크기 고정)
+	// 이 지도의 밝힘 기록 (방문한 곳 회색으로 누적, 맵 전체 크기 고정)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
 	TObjectPtr<UTextureRenderTarget2D> FogMaskRT;
+
+	// 현재 시야 마스크 (플레이어 현재 위치만 밝힘, 매번 갱신)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
+	TObjectPtr<UTextureRenderTarget2D> FogRevealRT;
+
+	// 방문한 곳 회색 밝기 (현재 위치는 항상 1.0)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
+	float VisitedIntensity = 0.5f;
 
 	// 마스크에 밝힘 원을 그리는 머티리얼 (에디터 지정)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
@@ -94,6 +102,9 @@ private:
 	// [MAP-005] 레벨의 MapBounds 태그 볼륨을 찾아 Origin/Size 자동 설정
 	void ResolveMapBoundsFromVolume();
 
+	// [MAP-006] 레벨 로딩 시 지형을 1회만 캡처 (이후 고정)
+	void CaptureMapOnce();
+
 	// [CAP-001] 캡처 카메라를 소지 플레이어 위로 이동/정렬
 	void UpdateCaptureTransform();
 
@@ -110,6 +121,12 @@ private:
 
 	// Fog 주기 갱신 타이머 핸들
 	FTimerHandle FogUpdateTimerHandle;
+
+	// 지형 1회 캡처 완료 여부 (중복 캡처 방지)
+	bool bMapCaptured = false;
+
+	// 지형 캡처 지연 타이머 (레벨 로드 대기용)
+	FTimerHandle CaptureDelayTimerHandle;
 
 	// 오버레이 열림 상태
 	bool bMapOpen = false;

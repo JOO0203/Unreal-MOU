@@ -3,6 +3,7 @@
 #include "Base/CharacterBase.h"
 
 #include "Base/BaseAttributeSet.h"
+#include "Components/GrabFollowComponent.h"
 #include "Components/StatusComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "Components/CapsuleComponent.h"
@@ -20,6 +21,9 @@ ACharacterBase::ACharacterBase()
 	// 플레이어 및 방해 NPC 공통 상태 관리 컴포넌트 생성
 	StatusComponent = CreateDefaultSubobject<UStatusComponent>(TEXT("StatusComponent"));
 
+	// 잡힌 캐릭터의 위치 및 회전을 운반자 소켓에 동기화하는 컴포넌트 생성
+	GrabFollowComponent = CreateDefaultSubobject<UGrabFollowComponent>(TEXT("GrabFollowComponent"));
+
 	// 캡슐 콜리전 기본 크기 설정
 	GetCapsuleComponent()->InitCapsuleSize(35.0f, 90.0f);
 
@@ -34,7 +38,7 @@ ACharacterBase::ACharacterBase()
 	// 이동 물리 및 점프 관련 기본값 설정
 	GetCharacterMovement()->JumpZVelocity = 500.0f;
 	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 500.0f;
+	GetCharacterMovement()->MaxWalkSpeed = 300.0f;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.0f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.0f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
@@ -47,6 +51,19 @@ ACharacterBase::ACharacterBase()
 void ACharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// ASC가 Character에 있으므로 서버와 모든 클라이언트에서 ActorInfo를 초기화합니다.
+	// AI NPC는 클라이언트에서 PlayerState가 없어 OnRep_PlayerState가 호출되지 않을 수 있습니다.
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+		AbilitySystemComponent->SetReplicationMode(AscReplicationMode);
+	}
+
+	if (HasAuthority() && BaseAttribute)
+	{
+		BaseAttribute->SetMaxWeight(DefaultMaxWeight);
+	}
 
 	// Attribute 변경 감지 델리게이트 바인딩
 	BindAttributeChangeDelegates();
@@ -184,6 +201,12 @@ void ACharacterBase::BindAttributeChangeDelegates()
 	AbilitySystemComponent
 		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxWeightAttribute())
 		.AddUObject(this, &ACharacterBase::HandleMaxWeightChanged);
+
+	// 초기 속도 값 동기화
+	if (GetCharacterMovement())
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseAttribute->GetMoveSpeed();
+	}
 }
 
 void ACharacterBase::HandleHealthChanged(const FOnAttributeChangeData& Data)
@@ -269,51 +292,128 @@ void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWe
 
 	float WeightRatio = InCurrentWeight / InMaxWeight;
 
-	// 과적 비율별 상태(디버프) 태그 부여 (블루프린트/GAS 기반 적용을 위한 태그 요청)
-	static const FGameplayTag Encumbered_HeavyTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Heavy"), false);
-	static const FGameplayTag Encumbered_OverloadedTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Overloaded"), false);
-	static const FGameplayTag Encumbered_ImmobileTag = FGameplayTag::RequestGameplayTag(FName("State.Encumbered.Immobile"), false);
+	static const FGameplayTag Encumbered_HeavyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Heavy"), false);
+	static const FGameplayTag Encumbered_OverloadedTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Overloaded"), false);
+	static const FGameplayTag Encumbered_ImmobileTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Immobile"), false);
+
+	if (HasAuthority() && AbilitySystemComponent)
+	{
+		if (ActiveEncumbranceEffectHandle.IsValid())
+		{
+			AbilitySystemComponent->RemoveActiveGameplayEffect(ActiveEncumbranceEffectHandle);
+			ActiveEncumbranceEffectHandle.Invalidate();
+		}
+
+		TSubclassOf<UGameplayEffect> EffectToApply = nullptr;
+
+		if (WeightRatio > 1.5f)
+		{
+			EffectToApply = EncumberedTier3Effect;
+		}
+		else if (WeightRatio > 1.3f)
+		{
+			EffectToApply = EncumberedTier2Effect;
+		}
+		else if (WeightRatio > 1.0f)
+		{
+			EffectToApply = EncumberedTier1Effect;
+		}
+
+		if (EffectToApply)
+		{
+			FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
+			Context.AddSourceObject(this);
+			ActiveEncumbranceEffectHandle = AbilitySystemComponent->ApplyGameplayEffectToSelf(
+				EffectToApply.GetDefaultObject(), 1.0f, Context);
+		}
+		else if (BaseAttribute)
+		{
+			// GE가 할당되지 않았거나 과적이 해제(<= 1.0f)되었을 때 C++ 속도 직접 복구 및 적용 폴백
+			float TargetSpeed = 300.0f;
+			if (WeightRatio > 1.5f)
+			{
+				TargetSpeed = 0.0f;
+			}
+			else if (WeightRatio > 1.3f)
+			{
+				TargetSpeed = 150.0f;
+			}
+			else if (WeightRatio > 1.0f)
+			{
+				TargetSpeed = 255.0f;
+			}
+
+			BaseAttribute->SetMoveSpeed(TargetSpeed);
+			if (GetCharacterMovement())
+			{
+				GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
+			}
+		}
+	}
 
 	if (StatusComponent)
 	{
-		// 1. 기존 과적 태그 일괄 제거
 		StatusComponent->RemoveStatusTag(Encumbered_HeavyTag);
 		StatusComponent->RemoveStatusTag(Encumbered_OverloadedTag);
 		StatusComponent->RemoveStatusTag(Encumbered_ImmobileTag);
 
-		// 2. 구간별(Tier) 디버프 적용 (옵션 A)
 		if (WeightRatio > 1.5f)
 		{
-			// 이동 불가 (150% 초과) - 속도 극감 및 상태 이상
 			StatusComponent->AddStatusTag(Encumbered_ImmobileTag);
-			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 이동 불가 (무게 비율: %f)"), WeightRatio);
 		}
 		else if (WeightRatio > 1.3f)
 		{
-			// 과적 (130% ~ 150%) - 달리기 불가 등
 			StatusComponent->AddStatusTag(Encumbered_OverloadedTag);
-			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 달리기 불가 (무게 비율: %f)"), WeightRatio);
 		}
 		else if (WeightRatio > 1.0f)
 		{
-			// 무거움 (100% ~ 130%) - 속도 약간 감소
 			StatusComponent->AddStatusTag(Encumbered_HeavyTag);
-			UE_LOG(LogTemp, Warning, TEXT("과적 상태: 속도 감소 (무게 비율: %f)"), WeightRatio);
 		}
 	}
 }
 
+void ACharacterBase::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
+{
+	TagContainer.Reset();
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->GetOwnedGameplayTags(TagContainer);
+	}
+}
+
+bool ACharacterBase::HasMatchingGameplayTag(FGameplayTag TagToCheck) const
+{
+	if (AbilitySystemComponent)
+	{
+		return AbilitySystemComponent->HasMatchingGameplayTag(TagToCheck);
+	}
+	return false;
+}
+
+bool ACharacterBase::HasAllMatchingGameplayTags(const FGameplayTagContainer& TagContainer) const
+{
+	if (AbilitySystemComponent)
+	{
+		return AbilitySystemComponent->HasAllMatchingGameplayTags(TagContainer);
+	}
+	return false;
+}
+
+bool ACharacterBase::HasAnyMatchingGameplayTags(const FGameplayTagContainer& TagContainer) const
+{
+	if (AbilitySystemComponent)
+	{
+		return AbilitySystemComponent->HasAnyMatchingGameplayTags(TagContainer);
+	}
+	return false;
+}
+
 float ACharacterBase::GetPushResistance_Implementation() const
 {
-	// 플레이어는 저항이 없으므로 항상 밀림
 	return 0.0f;
 }
 
 void ACharacterBase::Push_Implementation(AActor* Pusher, FVector PushDirection)
 {
-	// TODO: 플레이어가 밀렸을 때 넘어지는 애니메이션 몽타주 실행 및 넉백 처리
-	UE_LOG(LogTemp, Log, TEXT("플레이어가 밀렸습니다! 넘어지는 애니메이션 연출 필요. 방향: %s"), *PushDirection.ToString());
-	
-	// 가벼운 넉백 (예시)
 	LaunchCharacter(PushDirection * 500.0f + FVector(0, 0, 200.0f), true, true);
 }

@@ -90,12 +90,13 @@ void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	UStatusComponent* StatusComp = MainCharacter->GetStatusComponent();
 	if (StatusComp)
 	{
-		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Pushing"), false);
+		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Pushing"), false);
 		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
-		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
+		static const FGameplayTag PrimaryStunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
+		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
 		
 		bIsPushing = MainCharacter->bIsPushingMode;
-		bIsStunned = (StunTag.IsValid() && StatusComp->HasStatusTag(StunTag));
+		bIsStunned = (StunTag.IsValid() && StatusComp->HasStatusTag(StunTag)) || (PrimaryStunTag.IsValid() && StatusComp->HasStatusTag(PrimaryStunTag));
 		bIsHeld = (HeldTag.IsValid() && StatusComp->HasStatusTag(HeldTag));
 	}
 	else
