@@ -38,7 +38,7 @@
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v5) |
+| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v6) |
 | 2 | 세션 구조체 (`Session.h/.cpp`) | 완료 |
 | 3 | 길이 프리픽스 프레이밍 (`Framing.h/.cpp`) | 완료 (split/merge/bad 3종 통과) |
 | 4 | 로그인 — 계정(아이디/비밀번호) 인증 | **완료** (PBKDF2 해시, UserId 영속) |
@@ -50,7 +50,8 @@
 | 로비 | 방 생성 / 목록 / 참여 (서버 + 클라이언트 API) | **완료** |
 | 로비-UI | 메인메뉴 / 방 생성창 / 방 목록·참여창 | **완료** (WBP 불필요) |
 | 대기실 | 방 멤버 추적 / 준비완료 / 게임시작 / 방장 이탈 처리 | **완료** (v5) |
-| 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 스위치만 있음 (기본 꺼짐, 맵 미정) |
+| 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 참여자 쪽 **완료** (v6, 호스트 준비 신호). 방장 쪽은 맵 이름 미정 |
+| 로비-백엔드 | `ILobbyBackend` 로 계정/세션 탐색 분리 (EOS 전환 대비) | **완료** (v6). EOS 구현체는 뼈대 |
 | 로비-보안 | `PreLogin` 에서 방 비밀번호 재검사 | **미착수** ← 진짜 관문 |
 | 8 | 리슨서버 → 채팅서버 신원 미러링 | **미착수** |
 | 9 | 귓속말 | **미착수** |
@@ -274,16 +275,35 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
 보내고, 그들은 "방장이 나가서 방이 사라졌습니다" 안내와 함께 메인메뉴로 돌아간다.
 **정상 종료든 랜선이 뽑혔든 같은 경로로 처리된다.**
 
-**여행(리슨서버 접속)은 게임 시작 때만 일어나고, 아직 스위치가 꺼져 있다.**
+**여행(리슨서버 접속)은 게임 시작 때만, 그리고 두 박자로 나뉘어 일어난다. (v6)**
 
-| 프로퍼티 | 기본값 | 켜면 |
+```
+방장이 "게임 시작"
+      │
+      ├─▶ RoomStart ─────▶ 방장   : OpenLevel(맵, "listen") 시작
+      │              └───▶ 참여자 : "방장이 서버를 여는 중입니다..." (아직 떠나지 않는다)
+      │
+      │   (방장의 맵 로딩… 몇 초가 걸릴 수도, 금방 끝날 수도 있다)
+      │
+      ├─ UChatSubsystem 이 리슨서버 넷드라이버가 뜬 것을 감지
+      ├─▶ RoomHostReadyReq ─▶ 서버
+      └─▶ RoomHostReady ────▶ 참여자 : 지금 ClientTravel
+```
+
+| 프로퍼티 | 기본값 | 설명 |
 |---|---|---|
-| `HostMapName` | (비어있음) | 방장이 `OpenLevel(맵, "listen?RoomPassword=…")` 로 리슨서버를 연다 |
-| `bAutoTravelOnGameStart` | false | 참여자가 `ClientTravel(호스트주소?RoomPassword=…)` |
-| `GuestTravelDelay` | 3초 | 방장이 리슨서버를 다 열 때까지 참여자가 기다리는 시간 |
+| `HostMapName` | (비어있음) | 채우면 방장이 `OpenLevel(맵, "listen?RoomPassword=…")` 로 리슨서버를 연다 |
+| `bAutoTravelOnGameStart` | **true** | 참여자가 호스트 준비 신호를 받으면 `ClientTravel(호스트주소?RoomPassword=…)` |
 
-기본값을 꺼둔 이유: 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 된다.
+`HostMapName` 만 기본값이 비어 있다. 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 되기 때문이다.
 맵이 정해지면 채우거나 `OnGameStarted` 훅에서 직접 처리하면 된다.
+
+> **v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.**
+> 그 3초에는 근거가 없었다 — 방장이 큰 맵을 저사양 PC 에서 열면 모자라서 참여자가
+> 아직 없는 서버에 붙으려다 튕겼고, 반대로 금방 열려도 3초를 그냥 버렸다.
+> 이제 방장 쪽 `UChatSubsystem` 이 리슨서버가 실제로 뜬 것을 확인한 뒤에 신호를 보낸다.
+> 상한은 `HostReadyTimeoutSeconds`(기본 60초)이고, 넘기면 신호를 보내지 않는다 —
+> 열리지도 않은 주소로 참여자를 보내는 것보다 대기실에 남겨두는 편이 낫다.
 
 ### 4-2-1. 로비 흐름 — 콘솔 (UI 없이)
 
@@ -323,8 +343,25 @@ PIE 플레이어 수를 2~3 으로 올린다. 창마다 GameInstance 가 따로 
 TestClient.exe 127.0.0.1 9000 아이디 비밀번호 --register 닉네임
 ```
 
-접속 후 대화형 모드에서 `/host`, `/rooms`, `/join`, `/start`, `/close` 로 로비를 검증할 수 있다.
+접속 후 대화형 모드에서 `/host`, `/rooms`, `/join`, `/close` 로 로비를 검증할 수 있다.
 `MOU.Chat.ShowLogin` 도 참고하면 실제 게임 클라이언트가 어떻게 동작하는지 알 수 있다.
+
+**호스트 준비 신호(v6)를 콘솔로 검증하기** — 창 두 개로 한다.
+
+| 순서 | 방장 창 | 참여자 창 | 기대 결과 |
+|---|---|---|---|
+| 1 | `/host 테스트방` | | 방 생성 |
+| 2 | | `/rooms` → `/join 1` | 참여 성공, 호스트 주소 수신 |
+| 3 | | `/ready` | 방장 쪽 명단에 준비완료 |
+| 4 | `/go` | | 양쪽에 `[게임 시작]`. **참여자는 "호스트가 서버를 여는 중" 까지만** |
+| 5 | `/hostready` | | 참여자에게만 `[호스트 준비 완료] → 지금 접속하면 된다` |
+
+4번과 5번 사이에 참여자 화면이 멈춰 있는 것이 정상이다. 그 구간이 실제 게임에서는
+방장의 맵 로딩 시간이고, 언리얼 클라이언트는 그 끝을 감지해 5번을 자동으로 보낸다
+(`UChatSubsystem::PollListenServer`). 콘솔에는 감지할 리슨서버가 없으므로 손으로 친다.
+
+순서를 뒤집어(`/go` 없이 `/hostready`) 서버 콘솔에 `사유 11`(NotStarted)이 찍히는지도
+확인해두면 좋다. 아직 열리지도 않은 게임으로 사람을 보내지 않는다는 뜻이다.
 
 ### 4-4. 채팅창 조작
 
@@ -416,7 +453,10 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
   ┌────────────────────────────────────────────────┐
   │ FChatClientRunnable   (워커 스레드)              │  소켓/바이트만 다룸
   │        ↕ TQueue (SPSC)                          │  UObject 접근 절대 금지
-  │ UChatSubsystem        (게임 스레드)              │  패킷 조립 / 델리게이트
+  │ FSocketLobbyBackend   (게임 스레드)              │  패킷 조립 ─┐
+  │        │  implements ILobbyBackend              │            ├ 교체 지점
+  │        │  (FEOSLobbyBackend 로 갈아끼울 수 있다) │            ─┘
+  │ UChatSubsystem        (게임 스레드)              │  상태 보관 / 델리게이트
   │        ↓ OnChatMessageReceived 등                │
   │ UChatWidgetBase / ULoginWidgetBase   (UMG)      │  로그·입력창 / 로그인·가입
   │ ULobbyWidgetBase                     (UMG)      │  메인메뉴 + 대기실
@@ -449,6 +489,45 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 방 생성/조회/참여는 메타데이터 교환이다. 참여가 승인되면 클라이언트는 호스트에게
 **직접** `ClientTravel` 한다. 그래서 로비 서버 부하는 방 개수와 무관하게 낮다.
 대신 이 구조는 **같은 네트워크(NAT 없음)에서만** 동작한다 — 자세한 내용은 11절 참고.
+
+### 백엔드 교체 (v6에서 추가)
+
+**계정 인증과 세션 탐색은 `ILobbyBackend` 뒤에 숨어 있다.** 설정값 하나로 갈아끼운다.
+
+```
+Project Settings → Game → MOU Server → Lobby Backend
+  자체 서버 (TCP)   FSocketLobbyBackend   ← 현재 기본값
+  EOS               FEOSLobbyBackend      ← 뼈대만 있음
+```
+
+| | 자체 서버 | EOS |
+|---|---|---|
+| 계정 | `accounts` 테이블 (SQLite) | EOS Connect (`ProductUserId`) |
+| 방 목록 | `Rooms.cpp` (메모리) | EOS Session / Lobby |
+| **NAT 통과** | **안 됨 (포트포워딩 필요)** | **됨 (P2P 릴레이)** |
+| 사망자 채널 | 됨 | **안 됨** — 게임 상태를 아는 쪽만 판정할 수 있다 |
+| 채팅 로그 영속화 | 됨 | **안 됨** |
+| 준비물 | 없음 | Epic Dev Portal 등록, 플러그인 3종, SDK |
+
+**왜 지금 자체 서버인가.** 외부 SDK·Epic 계정·인터넷 없이 바로 돌아가고,
+사망자 채널과 채팅 로그처럼 **EOS 로 옮길 수 없는 기능**이 이미 여기에 있다.
+채팅 때문에 어차피 상시 프로세스가 하나 필요했고, 방 목록과 계정을 거기에 얹은 것이다 —
+로비 전용 서버를 새로 띄운 게 아니라 프로세스를 하나로 합친 쪽이다.
+
+**왜 언젠가 EOS 인가.** 자체 서버가 못 푸는 문제는 방 목록이 아니라 **NAT** 다.
+참가자는 호스트의 공인 IP:7777 로 직접 붙는데, 호스트가 포트포워딩을 하지 않으면
+공유기가 그 접속을 막는다. 각자 집에서 붙는 시연을 하려면 릴레이가 필요하다.
+
+**교체할 때 바뀌는 것과 안 바뀌는 것.**
+
+| | |
+|---|---|
+| **안 바뀜** | `UChatSubsystem` 의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
+| **바뀜** | `FEOSLobbyBackend` 의 내용, 그리고 그것을 고르는 설정값 한 줄 |
+
+현실적인 최종 구성은 **"EOS = 계정·세션, 자체 서버 = 채팅·게임 데이터"** 다.
+EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장하면 둘이 이어진다.
+붙이는 순서는 `Chat/EOSLobbyBackend.h` 주석에 단계별로 적어뒀다.
 
 ### 스레드 경계 상세
 
@@ -497,10 +576,14 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 | 파일 | 역할 |
 |---|---|
 | `Public/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUChat` |
-| `Public/Chat/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP` |
+| `Public/Chat/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP`, `EMOULobbyBackendType` |
+| `Public/Chat/LobbyBackend.h`<br>`Private/Chat/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FChatClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
+| `Public/Chat/SocketLobbyBackend.h`<br>`Private/Chat/SocketLobbyBackend.cpp` | 자체 서버 백엔드. **패킷 조립은 여기서만 한다.** 워커 스레드 수명도 여기가 소유 |
+| `Public/Chat/EOSLobbyBackend.h`<br>`Private/Chat/EOSLobbyBackend.cpp` | EOS 백엔드 **뼈대.** 각 함수가 어떤 EOS API 로 바뀌는지, 붙이는 순서가 주석에 있다 |
+| `Public/Chat/ServerSettings.h`<br>`Private/Chat/ServerSettings.cpp` | `UDeveloperSettings`. 서버 주소 / 백엔드 종류 / 호스트 준비 대기 상한. 우선순위: 실행 인자 > 개인 ini > 팀 공유 ini |
 | `Public/Chat/ChatFraming.h`<br>`Private/Chat/ChatFraming.cpp` | 프레이밍의 `TArray` 버전 + UTF-8 변환. 서버 `Framing.cpp` 와 로직 동일. BP enum ↔ 서버 enum `static_assert` 전부 여기 모여있다 |
-| `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱 (채팅/로그인/가입/로비 전부) |
-| `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다** |
+| `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
+| `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 패킷은 조립하지 않는다 |
 | `Public/Chat/ChatWidgetBase.h`<br>`Private/Chat/ChatWidgetBase.cpp` | `UUserWidget`. 채팅 로그 + 입력창. PIE 다중 창 지원(`TMap<World, Widget>`) |
 | `Public/Chat/LoginWidgetBase.h`<br>`Private/Chat/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 채팅 위젯 + 로비 자동 생성 |
 | `Public/Chat/LobbyWidgetBase.h`<br>`Private/Chat/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
@@ -573,7 +656,7 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `JoinRoom(RoomId, RoomPassword)` | 방에 입장. 성공하면 **대기실 멤버가 된다** (`OnRoomJoinCompleted` → `OnRoomMembersChanged`) |
 | `LeaveRoom()` | 지금 있는 방에서 나간다. **방장이 나가면 방이 사라진다** |
 | `SetReady(bReady)` | 준비 상태 변경. 응답은 없고 갱신된 명단이 `OnRoomMembersChanged` 로 온다 |
-| `StartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만. 성공하면 멤버 전원에게 `OnRoomGameStarted` |
+| `StartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만. 성공하면 멤버 전원에게 `OnRoomGameStarted`, 이어서 방장의 리슨서버가 뜨면 참여자에게 `OnRoomHostReady` |
 | `UpdateRoomState(RoomId, CurrentPlayers, bInGame)` | 방 진행상태 통지. **v5 부터 인원수는 서버가 직접 세므로 무시된다** — 새로 쓸 일은 거의 없다 |
 | `IsValidRoomPassword(Pw)` *(static)* | 숫자 4자리 규칙 검사 |
 | `GetRoomResultText(Result)` *(static)* | 방 관련 실패 사유를 사용자 문구로 변환 |
@@ -583,6 +666,8 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `GetRoomMembers()` | 마지막으로 받은 대기실 명단 (`TArray<FMOURoomMember>`) |
 | `AreAllMembersReady()` | 참여자 전원이 준비했는지. **서버가 판정해 내려준 값** |
 | `IsSelfReady()` | 내 준비 상태 |
+| `IsWaitingForListenServer()` | **방장 전용.** 지금 "내 리슨서버가 열리기" 를 기다리는 중인가. UI 에 "서버 여는 중..." 을 띄울 때 |
+| `GetBackendName()` | 지금 쓰고 있는 백엔드 이름 ("자체 서버(TCP)" / "EOS"). 디버그 표시용 |
 
 > `GetMyRoomId()` 와 `GetCurrentRoomId()` 를 나눠 둔 이유: 참여자는 방에 있어도 방장이 아니다.
 > 하나로 합치면 "방장인가" 와 "방에 있는가" 를 구분할 수 없어서 대기실 UI 가 갈라지지 않는다.
@@ -600,7 +685,8 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `OnRoomJoinCompleted` | `(const FMOURoomJoinResult& Result)` |
 | `OnRoomMembersChanged` | `(int32 RoomId, const TArray<FMOURoomMember>& Members, bool bAllReady)` |
 | `OnRoomClosed` | `(int32 RoomId, EMOURoomCloseReasonBP Reason)` |
-| `OnRoomGameStarted` | `(const FMOURoomJoinResult& Host, bool bIsHost)` |
+| `OnRoomGameStarted` | `(const FMOURoomJoinResult& Host, bool bIsHost)` — **떠날 때가 아니다.** 방장은 리슨서버를 열고, 참여자는 기다린다 |
+| `OnRoomHostReady` | `(const FMOURoomJoinResult& Host)` — **참여자는 여기서 떠난다.** 방장에게는 오지 않는다 |
 
 **`Connected` 와 `LoggedIn` 은 다르다.**
 `Connected` = TCP 는 붙었지만 아직 `UserId` 가 없다. 이 상태로 채팅/로비 요청을 보내면 서버가 거부한다.
@@ -684,13 +770,21 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `RoomCreateWidgetClass` / `RoomListWidgetClass` | (비어있음) | 디자이너 WBP 로 갈아끼울 때 |
 | `HostPort` | 7777 | 방 생성창에 그대로 넘어간다. **게임의 리슨서버 포트와 같아야 한다** |
 | `HostMapName` | (비어있음) | 채우면 **게임 시작 시** 방장이 `OpenLevel(맵, "listen")` |
-| `bAutoTravelOnGameStart` | false | 켜면 게임 시작 시 참여자가 호스트로 `ClientTravel` |
-| `GuestTravelDelay` | 3초 | 참여자가 떠나기 전 대기. 방장이 리슨서버를 다 열기 전에 붙으면 튕긴다 |
+| `bAutoTravelOnGameStart` | **true** | 켜면 **호스트 준비 신호를 받은 뒤** 참여자가 호스트로 `ClientTravel` |
 | `bHideWhileChildOpen` | true | 자식 창이 열려 있는 동안 이 화면을 접는다 |
 | `bManageMouseCursor` | true | 로비가 커서/입력 모드를 관리한다. **자식 창은 자동으로 false 가 된다** |
 
-> **여행 시점이 v5 에서 바뀌었다.** 예전에는 방을 만들거나 참여하는 즉시 떠났다.
-> 이제는 **게임 시작 때만** 떠난다. 그 사이가 대기실이다.
+블루프린트 훅도 여행 시점에 맞춰 둘로 나뉜다.
+
+| 훅 | 언제 | 누구에게 |
+|---|---|---|
+| `OnGameStarted(Host, bIsHost, RoomPassword)` | 게임이 시작됐다 | 방 전원 |
+| `OnHostReady(Host, RoomPassword)` | 방장의 리슨서버가 열렸다 | **참여자만** |
+
+> **여행 시점이 v5 에서 한 번, v6 에서 한 번 바뀌었다.**
+> v4 까지는 방을 만들거나 참여하는 즉시 떠났다. v5 부터 **게임 시작 때만** 떠나고
+> 그 사이가 대기실이 됐다. v6 부터는 참여자가 떠나는 시점이 게임 시작이 아니라
+> **방장의 리슨서버가 실제로 열린 시점**이다.
 
 ### `URoomCreateWidgetBase` — 방 생성창
 
@@ -808,7 +902,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 
 ## 8. 프로토콜 레퍼런스
 
-원본: `MOU_Server/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v5**.
+원본: `MOU_Server/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v6**.
 
 ### 버전 이력
 
@@ -819,6 +913,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 | 3 | 계정 시스템. `LoginReqBody` 가 이름 대신 아이디/비밀번호를 보낸다. `RegisterReq/Ack` 추가. `UserId` 가 접속 일련번호에서 계정 고유번호로 바뀜 |
 | 4 | 로비(방 목록). `RoomCreateReq/Ack`, `RoomListReq/Ack`, `RoomJoinReq/Ack`, `RoomLeaveReq`, `RoomStateUpdate` 추가 |
 | 5 | 대기실. **서버가 방 멤버를 추적한다.** `RoomMemberList`, `RoomReadyReq`, `RoomClosed`, `RoomStartReq/RoomStart` 추가. `RoomJoin` 이 "주소 조회" 에서 "실제 입장" 으로, `RoomLeaveReq` 가 방장 전용에서 전원용으로 바뀜. 인원수는 호스트 신고값이 아니라 서버가 센 값 |
+| 6 | 호스트 준비 신호. `RoomHostReadyReq/RoomHostReady` 추가. **`RoomStart` 의 의미가 "떠나라" 에서 "시작됐다" 로 좁아졌다** — 참여자가 실제로 떠나는 시점은 `RoomHostReady` 가 정한다. `ERoomResult::NotStarted` 추가 |
 
 ### 패킷 헤더 (6바이트 고정, `#pragma pack(1)`)
 
@@ -859,7 +954,9 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 | 21 | `RoomReadyReq` | C → S | 사용 중 |
 | 22 | `RoomClosed` | S → C | 사용 중 (방장이 나갔을 때 남은 멤버에게) |
 | 23 | `RoomStartReq` | C → S | 사용 중 (방장만) |
-| 24 | `RoomStart` | S → C | 사용 중 (방 전원에게 호스트 주소와 함께) |
+| 24 | `RoomStart` | S → C | 사용 중 (방 전원에게. **"떠나라" 가 아니라 "시작됐다" 다**) |
+| 25 | `RoomHostReadyReq` | C → S | 사용 중 (방장만. 리슨서버가 실제로 열렸다) |
+| 26 | `RoomHostReady` | S → C | 사용 중 (참여자에게. **여기서 떠난다**) |
 
 ### 로그인 / 가입 실패 사유 (`ELoginResult`)
 
@@ -1088,12 +1185,15 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 - **방장이 나가면 방이 사라진다. 호스트 이양은 하지 않는다.** 호스트가 곧 리슨서버라
   이양하려면 리슨서버 재개설 + 전원 재접속 + 상태 복원이 필요한데 UE 가 기본 지원하지 않는다.
   남은 멤버는 `RoomClosed` 를 받고 메인메뉴로 돌아간다.
-- **로비 UI 는 여행을 하지 않는다(기본값).** 게임을 시작해도 호스트 주소만 화면에 뜬다.
-  맵이 정해지면 `ULobbyWidgetBase` 의 `HostMapName` / `bAutoTravelOnGameStart` 로 켠다.
-- **게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다.** 방장이 `OpenLevel` 로 리슨서버를
-  여는 데 시간이 걸리는데, 서버는 양쪽에 `RoomStart` 를 동시에 보낸다. 지금은
-  `GuestTravelDelay`(기본 3초)로 시차를 두어 때운다. 제대로 하려면 호스트가
-  "리슨서버 준비 완료" 를 서버에 알리고 그때 참여자에게 출발 신호를 보내야 한다.
+- **방장 쪽 여행은 아직 맵 이름을 기다린다.** `ULobbyWidgetBase::HostMapName` 이 비어 있으면
+  `OpenLevel` 을 부르지 않는다. 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 되기 때문이다.
+  참여자 쪽(`bAutoTravelOnGameStart`)은 v6 부터 기본으로 켜져 있다.
+- ~~게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다~~ → **해결됨 (v6).**
+  방장 쪽 `UChatSubsystem` 이 리슨서버 넷드라이버가 뜬 것을 확인하고 `RoomHostReadyReq` 를
+  보내면, 서버가 참여자에게 `RoomHostReady` 를 넘긴다. 참여자는 그때 떠난다.
+  v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.
+  **남은 한계:** 호스트가 끝내 리슨서버를 열지 못하면 참여자는 대기실에 남는다
+  (`HostReadyTimeoutSeconds`, 기본 60초). 방장이 방을 나가면 `RoomClosed` 로 정리된다.
 - **방을 나갔다 다른 방에 들어갈 때 순서가 꼬일 수 있다.** 이전 방의 명단이 늦게 도착하는
   경우가 있어 클라이언트가 `RoomId` 를 확인하고 버린다. 서버는 다른 방에 있는 사람의
   `Join` 을 `InvalidRequest` 로 거부한다 — 조용히 옮겨주면 원래 방에 알릴 기회를 놓친다.
@@ -1137,13 +1237,11 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 1. ~~**UI 위젯 3종**~~ → **완료.** 메인메뉴(`ULobbyWidgetBase`), 방 생성창(`URoomCreateWidgetBase`),
    방 목록창(`URoomListWidgetBase`). WBP 없이 동작하고, WBP 로 갈아끼울 수도 있다. [7절](#7-api-레퍼런스) 참고
-2. **여행 연결** — 코드는 있고 **스위치가 꺼져 있다.** 맵 이름이 정해지면
-   `ULobbyWidgetBase::HostMapName` 을 채우고 `bAutoTravelOnGameStart` 를 켠다.
-   그 전까지는 게임을 시작해도 화면에 호스트 주소만 뜬다.
+2. **여행 연결** — 참여자 쪽은 끝났고, **방장 쪽은 맵 이름만 채우면 된다.**
+   `ULobbyWidgetBase::HostMapName` 에 맵 이름을 넣으면 게임 시작 시
+   `OpenLevel(맵, "listen")` 이 돌고, 리슨서버가 뜨는 즉시 참여자에게 출발 신호가 나간다.
    결정해야 할 것: **게임 맵으로 바로 갈 것인가, 인게임 로딩 맵을 따로 둘 것인가.**
-   같이 고칠 것: 참여자가 호스트보다 먼저 붙는 경쟁 상태(11절 참고).
-   `GuestTravelDelay` 로 때우고 있는데, 호스트가 "리슨서버 준비 완료" 를 서버에 알리고
-   그때 참여자에게 출발 신호를 보내는 쪽이 옳다
+   ~~같이 고칠 것: 참여자가 호스트보다 먼저 붙는 경쟁 상태~~ → **v6 에서 해결됨.**
 3. **`AGameModeBase::PreLogin` 에서 `RoomPassword` URL 옵션 재검사** ← **진짜 관문. 다음 할 일.**
    로비 서버 검사는 UX 용이고, 이게 없으면 목록을 안 거치고 IP 직접 접속으로 뚫린다.
    지금 방 비밀번호는 `ULobbyWidgetBase::GetMyRoomPassword()` 에 임시로만 들고 있다 —

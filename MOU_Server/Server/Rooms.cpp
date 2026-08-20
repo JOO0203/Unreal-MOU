@@ -318,6 +318,40 @@ ERoomResult StartGame(uint64_t HostUserId, uint32_t& OutRoomId,
 	return ERoomResult::Success;
 }
 
+ERoomResult MarkHostReady(uint64_t HostUserId, uint32_t& OutRoomId,
+                          std::string& OutHostAddress, uint16_t& OutHostPort,
+                          std::vector<uint64_t>& OutNotifyUserIds)
+{
+	OutRoomId = 0;
+	OutNotifyUserIds.clear();
+
+	std::lock_guard<std::mutex> Lock(GMutex);
+
+	Room* R = FindRoomOfMember(HostUserId);
+	if (R == nullptr)
+	{
+		return ERoomResult::NotInRoom;
+	}
+	if (R->HostUserId != HostUserId)
+	{
+		return ERoomResult::NotHost;
+	}
+	// StartGame 이 State 를 InGame 으로 바꾼다. 그 전에 온 신고는 순서가 뒤집힌 것이므로
+	// 중계하지 않는다. 대기실에 있는 사람을 아직 열리지도 않은 게임으로 보낼 수는 없다.
+	if (R->State != ERoomState::InGame)
+	{
+		return ERoomResult::NotStarted;
+	}
+
+	OutRoomId      = R->RoomId;
+	OutHostAddress = R->HostAddress;
+	OutHostPort    = R->HostPort;
+
+	// 방장은 뺀다. 이 신호를 보낸 당사자이고, 이미 자기 리슨서버 안에 있다.
+	CollectMemberIds(*R, /*Except=*/HostUserId, OutNotifyUserIds);
+	return ERoomResult::Success;
+}
+
 bool GetMembers(uint32_t RoomId, std::vector<RoomMemberInfo>& OutMembers,
                 bool& bOutAllReady, std::vector<uint64_t>& OutNotifyUserIds)
 {
