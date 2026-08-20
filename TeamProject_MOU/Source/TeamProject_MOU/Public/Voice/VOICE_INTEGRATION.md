@@ -1,7 +1,7 @@
 # MOU 음성 시스템 설계 (근접 음성 / 무전기 / NPC 청각)
 
 작성: 2026-08-12
-최종 갱신: 2026-08-18 (V5·V6·V7 구현 — 14-7절 신설)
+최종 갱신: 2026-08-20 (V9 — 무전기 아이템화. 6-1절·14-8절 신설)
 상태:
 - **V0·V1** 구현 완료 + 실사용 검증됨 (2026-08-13). 마이크 음소거(C) UI 포함.
 - **V2**(Opus 코덱) 구현 완료 + **루프백으로 귀 검증됨** (2026-08-18).
@@ -9,16 +9,19 @@
 - **V4**(지터버퍼 + PLC) 구현 완료 + 빌드 통과 (14-6절).
 - **V5**(사망 3중 차단) / **V6**(무전기 + 반이중) / **V7**(무전 톤)
   구현 완료 + 클린 리빌드 무경고 통과 (14-7절).
-- V8(NPC 소음)까지 구현. 이후는 설계만.
+- **V8**(NPC 소음) 구현 완료.
+- **V9**(`ARadio` — `AItemBase` 상속, 손/인벤 구분, 배터리, 드롭 시 OFF)
+  구현 완료 + 빌드 통과 (2026-08-20, **6-1절**·**14-8절**).
 
 > **★ V3 이후는 전부 "빌드까지" 다. 실행 검증이 하나도 안 됐다.**
 > 루프백(V1·V2)은 귀로 확인했지만 그건 네트워크 라우팅을 거치지 않는 경로다.
 > PIE 2창에서 실제로 들리는지, 거리에 따라 사라지는지, 무전이 오가는지는
 > **아직 한 번도 확인하지 않았다.** 각 절의 "아직 확인하지 못한 것" 참고.
 
-**감도 보정 도구 추가** (2026-08-18): `MOU.Voice.Calibrate` / 상태 위젯의 입력 게이지.
-기본 임계값 0.02 는 어떤 마이크에도 맞지 않는 값이라 3.5mm 아날로그 입력에서
-"가만히 있어도 계속 말하는 중" 이 된다 — 9절이 예고한 문제가 실제로 나왔다.
+> **★★ V9 는 지금 구조적으로 검증이 불가능하다.** `AItemBase::PickUp` 이
+> 캐릭터에 attach 를 하지 않아서(아이템 파트 `TODO`) `GetHolder()` 가 계속
+> null 이다. **아이템·캐릭터 파트의 attach 처리가 들어와야 무전기가 동작한다** —
+> 14절 "지금 바로 다음에 할 일" 과 17-4절 참고.
 
 **감도 보정 도구 추가** (2026-08-18): `MOU.Voice.Calibrate` / 상태 위젯의 입력 게이지.
 기본 임계값 0.02 는 어떤 마이크에도 맞지 않는 값이라 3.5mm 아날로그 입력에서
@@ -291,8 +294,15 @@ Source/TeamProject_MOU/
     VoicePlaybackComponent.h          VoicePlaybackComponent.cpp
     VoiceSynthComponent.h             VoiceSynthComponent.cpp
     RadioComponent.h                  RadioComponent.cpp
-    VoiceDebugRadio.h                 VoiceDebugRadio.cpp   ← ★ 임시(아이템 완성 시 삭제)
+    Radio.h                           Radio.cpp             ← ★ 무전기 아이템(AItemBase 상속)
+    VoiceDebugRadio.h                 VoiceDebugRadio.cpp   ← ★ 임시(아이템 검증 끝나면 삭제)
 ```
+
+> **★ `Radio.h/cpp` 가 `Item/` 이 아니라 `Voice/` 에 있는 이유.**
+> 무전기 아이템은 **음성 파트가 소유한다.** 아이템 공통 동작(`AItemBase`)은
+> 다른 파트 것이고 건드리지 않지만, 그것을 상속해 만든 무전기 자체는
+> 무전 규칙(전원·송신 자격·배터리)이 전부라 음성 쪽에서 관리하는 편이
+> 손이 덜 간다. **`Base/ItemBase.h` 는 읽기만 하고 절대 수정하지 않는다.**
 
 | 클래스 | 부모 | 어디 사는가 | 역할 |
 |---|---|---|---|
@@ -305,7 +315,8 @@ Source/TeamProject_MOU/
 | `UVoiceRouter` | `UWorldSubsystem` | **서버 전용** | 무전기 레지스트리, 수신자 결정, 반이중 중재, 레이트 리밋, 소음 이벤트 (V6 이후) |
 | `UVoicePlaybackComponent` | `UActorComponent` | 클라 (내 PC) | 지터버퍼 + 디코더 풀. 스트림마다 Synth 를 만들고 붙인다 (V3 이후) |
 | `UVoiceSynthComponent` | `USynthComponent` | 클라 (폰/무전기에 부착) | 링버퍼에서 PCM 을 꺼내 오디오 렌더 스레드에 공급 |
-| **`URadioComponent`** | `UActorComponent` | **무전기 아이템 액터** | 전원 상태, 소리 반경. **아이템 파트가 붙여줄 인터페이스** (V6 이후) |
+| **`URadioComponent`** | `UActorComponent` | **무전기 아이템 액터** | 전원·손에듦 상태, 소리 반경. **아이템에 요구하는 인터페이스 전부** (V6 이후) |
+| **`ARadio`** | **`AItemBase`** | 월드 (아이템 액터) | 실제 무전기 아이템. 아이템 조작(줍기/장착/드롭)을 위 컴포넌트로 옮겨준다 + 배터리 |
 
 > **★ `FVoiceCaptureSource` 가 워커 스레드가 아니라 게임 스레드인 이유.**
 > 처음에는 `FRunnable` 워커로 설계했다가 구현 중 되돌렸다. 엔진의 Windows 캡처
@@ -324,13 +335,65 @@ Source/TeamProject_MOU/
 
 ### 왜 `URadioComponent` 가 플레이어가 아니라 아이템에 붙는가
 
-**무전기는 떨어뜨릴 수 있는 물건이기 때문이다.** 플레이어에 붙이면 죽어서 떨군 무전기가
-계속 소리를 내는 것을 표현할 수 없다. 컴포넌트를 아이템 액터에 두면:
+**무전기는 떨어뜨릴 수 있는 물건이기 때문이다.** 컴포넌트를 아이템 액터에 두면
+소리가 나야 하는 위치가 **언제나 "이 액터 위치" 하나**로 정해진다 — 손에 들었든
+가방에 넣었든 코드가 경우를 나눌 필요가 없다.
 
-- 손에 들고 있을 때 → 액터가 플레이어에 붙어 있으니 소리도 플레이어 위치에서 난다
-- 바닥에 떨어졌을 때 → 액터가 바닥에 있으니 소리도 거기서 난다
+### 6-1. `ARadio` — `AItemBase` 를 어떻게 상속하는가
 
-**코드가 두 경우를 구분할 필요가 없다.** 항상 "무전기 액터 위치" 하나만 쓰면 된다.
+**무전기 아이템은 `AItemBase` 를 직접 상속한다.** `AWeaponItemBase` 가 아니다 —
+무전기는 무기가 아니고, 무기 쪽 상태(`WeaponUseCount`, `Fire`, 피아식별)를 하나도
+쓰지 않는다.
+
+```
+AActor
+  └ AItemBase                ← 아이템 파트 소유. **읽기 전용, 수정 금지**
+      ├ AWeaponItemBase        (무기 계열)
+      ├ AConsumableItemBase    (소모품 계열)
+      └ ★ ARadio               ← 음성 파트 소유
+             └ URadioComponent (CreateDefaultSubobject 로 부착)
+```
+
+**`ARadio` 가 하는 일은 "아이템 조작을 무전 API 로 옮기는 것" 뿐이다.** 무전이
+실제로 어떻게 라우팅되는지는 `URadioComponent` 와 `UVoiceRouter` 가 안다.
+
+| `AItemBase` 의 훅 | `ARadio` 가 override 해서 하는 일 |
+|---|---|
+| `PickUp_Implementation` | `SetOwner(Picker)` — **없으면 클라의 Server RPC 가 버려진다**("No owning connection") |
+| `OnEquipped_Implementation` | `RadioComponent->SetInHand(true)` — 송신 자격 부여. **전원은 안 건드린다** |
+| `OnUnequipped_Implementation` | `SetInHand(false)` + 송신 중단. **전원은 유지**(가방 안에서도 수신) |
+| `Drop_Implementation` | **전원 OFF** + `SetInHand(false)` + 소유권 해제 |
+| `Throw_Implementation` | Drop 과 동일 |
+| `OnUse_Implementation` | **의도적으로 비어 있다** (아래 ★) |
+
+**`AItemBase` 에서 그대로 물려받아 쓰는 것** (건드릴 필요 없음): 물리/콜리전 토글,
+`Multicast*` 동기화, `IInteractableInterface`(E키 줍기), 정보 위젯, `LastOwner` 추적.
+
+#### ★ 왜 `OnUse`(좌클릭)를 비워 두었나
+
+전원은 `Z`, 송신은 `X` 다. 좌클릭으로는 **두 조작 다 제대로 안 된다** — 무전기가
+특이해서가 아니라 좌클릭 경로 자체의 한계다:
+
+1. **좌클릭은 인벤토리 아이템에 닿지 않는다.** `AMainCharacter::OnUse` 는
+   `CarryingComponent` 가 들고 있는 것만 호출한다(인벤토리 연동은 아직 `TODO`).
+   그런데 무전기는 **가방에 넣은 채로도 켜져서 수신하고 배터리가 닳으므로**,
+   가방 안의 무전기를 끌 수단이 반드시 필요하다. `Z` 는 전역키라서 된다.
+2. **좌클릭에는 뗀 순간이 없다.** `UseAction` 은 `ETriggerEvent::Started` 에만
+   바인딩돼 있다. PTT 는 누름과 뗌이 다 필요한데, `Completed` 를 붙이려면
+   `AMainCharacter` 를 고쳐야 하고 그건 다른 파트 소유다.
+
+그리고 `Z` 가 이미 전원을 담당하는데 좌클릭도 토글하면 중복일 뿐 아니라
+**무기를 쏘려다, 문을 열려다 무전기가 켜지는** 오조작이 난다 — 이 게임에서
+무전기가 켜지는 것은 곧 위치가 새는 것이다.
+
+#### ★ `CurrentUseCount` 가 아니라 `CurrentDurability` 를 쓰는 이유
+
+`AItemBase::CurrentUseCount` 는 **복제되지 않는다.** `CurrentDurability` 는
+복제되고(`ReplicatedUsing = OnRep_CurrentDurability`) UI 갱신 훅까지 붙어 있다.
+그래서 배터리는 `CurrentDurability` 를 그대로 재사용한다 — 새 변수를 만들지 않는다.
+
+> `AWeaponItemBase` 는 같은 문제를 만나 별도 복제 변수(`WeaponUseCount`)를 팠다.
+> 무전기는 이미 복제되는 쪽을 쓰면 되므로 그럴 필요가 없었다.
 
 ### 왜 `UVoiceSubsystem` 이 `LocalPlayerSubsystem` 인가
 
@@ -808,14 +871,19 @@ struct FVoiceFrameOut
 
 **Opus 상한 128바이트.** 16kHz/24kbps/20ms 면 정상값이 60바이트 근처다. 넘으면 조작이다.
 
-### `URadioComponent` — 아이템 파트가 붙여줄 인터페이스
+### `URadioComponent` — 무전기 액터에 붙는 인터페이스
 
-**무전기 아이템 액터에 붙인다** (플레이어가 아니라).
+**무전기 아이템 액터에 붙인다** (플레이어가 아니라). `ARadio` 생성자가
+`CreateDefaultSubobject` 로 붙인다.
 
 ```cpp
 /** 전원. Z 키로 토글. 서버가 권위. */
-UPROPERTY(ReplicatedUsing = OnRep_Power, BlueprintReadOnly, Category = "Radio")
+UPROPERTY(ReplicatedUsing = OnRep_Power)
 bool bPoweredOn = false;
+
+/** ★ 손에 들려 있는가. 송신 자격을 가른다. 서버가 권위. */
+UPROPERTY(Replicated)
+bool bInHand = false;
 
 /** 사람이 들을 수 있는 거리 */
 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radio|Sound")
@@ -828,13 +896,60 @@ float SpeakerNoiseRadius = 1200.f;
 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radio|Sound")
 float SpeakerVolume = 1.0f;
 
+/** 인벤토리에 있을 때 위 두 반경에 곱하는 배율 */
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radio|Sound")
+float StowedRadiusScale = 0.5f;
+
 // --- 서버 전용 -------------------------------------------------
 /** 전원을 바꾸고 VoiceRouter 레지스트리에 등록/해제한다. */
 void SetPowered(bool bOn);
 
-/** 이 무전기를 지금 들고 있는 사람. 없으면 바닥에 떨어진 것. */
+/** 손에 들었는지 알려준다. ARadio 의 OnEquipped/OnUnequipped 가 부른다. */
+void SetInHand(bool bNowInHand);
+
+// --- 조회 (양쪽) -----------------------------------------------
+/** 이 무전기를 지금 가지고 있는 사람. **없으면 바닥에 떨어진 것.** */
 APlayerState* GetHolder() const;
+
+/** ★ 라우터와 재생 경로는 반드시 이쪽을 쓴다 (아래 ★★) */
+float GetEffectiveHearRadius() const;
+float GetEffectiveNoiseRadius() const;
 ```
+
+> **★★ 반경을 직접 읽으면 안 된다.** `SpeakerHearRadius` / `SpeakerNoiseRadius`
+> 를 라우터나 재생 경로에서 그대로 쓰면 **인벤토리 감쇠가 적용되지 않는다.**
+> 손에 듦/인벤토리 계산은 `GetEffective*` 안에서만 일어나야, 사람이 듣는 반경 ·
+> NPC 가 듣는 반경 · 클라 공간화 감쇠 셋이 서로 어긋나지 않는다.
+
+### `ARadio` — 아이템 파트·캐릭터 파트가 부를 것
+
+```cpp
+// --- 캐릭터 입력에서 쓴다 --------------------------------------
+/** 이 폰이 가진 무전기(손·인벤토리 둘 다). 부착 관계만 타므로
+ *  인벤토리 구조를 몰라도 된다. */
+static ARadio* FindCarriedBy(const APawn* Pawn);
+
+void TogglePower();               // Z
+void SetPowered(bool bOn);        // 클라에서 불러도 서버로 위임된다
+
+void StartTransmit();             // X 누름  (로컬 클라 전용)
+void StopTransmit();              // X 뗌    (로컬 클라 전용)
+
+// --- UI 에서 쓴다 ----------------------------------------------
+bool  IsPoweredOn() const;
+bool  IsInHand() const;
+float GetBatteryPercent() const;  // 0~1
+bool  HasBattery() const;
+
+// --- 배터리 아이템 등에서 쓴다 (서버 전용) ----------------------
+void RechargeBattery(float Amount);
+```
+
+**`FindCarriedBy` 를 쓰는 이유**: `Z`/`X` 는 전역키라 "내가 가진 무전기" 를
+찾아야 하는데, 특히 `Z` 는 **가방 안의 무전기도 끌 수 있어야 한다.**
+`CarryingComponent`(손에 든 것만 안다)로는 부족하다. 이 함수는 부착 관계를
+재귀로 훑으므로 손에 든 것도 인벤토리에 넣은 것도 찾는다 — 아이템 파트의
+인벤토리 구현이 바뀌어도 깨지지 않는다.
 
 **등록/해제는 반드시 `URadioComponent` 가 `UVoiceRouter` 에 통지한다.**
 라우터가 매 프레임 월드의 모든 액터를 훑으면 안 된다 — 무전 프레임마다 O(N) 이 된다.
@@ -978,11 +1093,56 @@ APlayerState* GetHolder() const;
 | **V6** | `RadioComponent` + `Z` 전원 + `X` 송신 + 반이중 | 맵 반대편에서 무전이 오간다. 동시 송신 시 "사용 중" | **구현 완료 + 빌드 통과** (2026-08-18) |
 | **V7** | 무전 필터(EQ/노이즈/스퀄치) + **무전기 액터 3D 출력** | 무전기 같은 소리가 무전기 위치에서 난다 | **구현 완료 + 빌드 통과** (2026-08-18) |
 | **V8** | **소음 이벤트 3종 발행** (에디터 반경 노출) | `FakeNoise` 로 검증하던 NPC 가 진짜 목소리에 반응 | **✅ 완료** |
-| **V9** | 옵션 UI (감도 슬라이더 + 입력 게이지, 키 리매핑) | 마이크 환경이 다른 팀원도 쓸 수 있다 |
-| V10 | 말하는 사람 표시, 뮤트, 떨어진 무전기 연출 다듬기 | 손맛 |
+| **V9** | **`ARadio` 아이템화** — `AItemBase` 상속, 손/인벤 구분, 배터리, 드롭 시 OFF | 무전기를 줍고·켜고·가방에 넣고·떨구는 게 다 된다 | **구현 완료 + 빌드 통과** (2026-08-20). **PIE 검증 안 됨** |
+| **V10** | 옵션 UI (감도 슬라이더 + 입력 게이지, 키 리매핑) | 마이크 환경이 다른 팀원도 쓸 수 있다 | |
+| V11 | 말하는 사람 표시, 뮤트, 무전기 UI(전원/배터리 게이지), 스퀄치 사운드 | 손맛 | |
 
 **V3 과 V8 이 각각 위험 구간이다.** V3 은 스레드/오디오 파이프라인이 처음 붙는 곳,
 V8 은 서버 부하가 처음 문제 되는 곳이다. 이 둘에 일정을 넉넉히 둔다.
+
+### ★ 지금 바로 다음에 할 일 (2026-08-20 기준)
+
+**V9 코드는 다 들어갔지만 아직 한 번도 실제로 동작해 본 적이 없다.** 아래 셋이
+막혀 있어서다. 위에서 두 개는 **다른 파트의 작업**이라 요청해야 한다.
+
+| # | 할 일 | 누가 | 막히면 생기는 일 |
+|---|---|---|---|
+| 1 | **장착 시 캐릭터에 Attach** 하는 처리 | **아이템·캐릭터 파트** | `GetHolder()` 가 계속 null → **무전 송수신이 통째로 안 된다** |
+| 2 | **사망·기절 시 `Drop()` 을 태워 주기** | **캐릭터 파트** | 켜진 채 남아 배터리가 계속 닳고 UI 도 켜진 것으로 표시 |
+| 3 | `Z`/`X` 입력 바인딩 | **음성 파트(우리)** | 콘솔 명령으로만 조작 가능 |
+| 4 | `ARadio` 기반 BP 생성 + 메시/반경/배터리 튜닝 | 음성 파트(우리) | 에디터에 무전기를 놓을 수 없다 |
+| 5 | PIE 2창 실동작 검증 후 `AVoiceDebugRadio` 삭제 | 음성 파트(우리) | 임시 클래스가 계속 남는다 |
+
+**1번이 가장 급하다.** `URadioComponent::GetHolder()` 는 부착 관계로 주인을
+판정하는데, 현재 `AItemBase::PickUp_Implementation` 은 물리만 끄고 **attach 를
+하지 않는다**("추후 MainCharacter 및 Component 에서 호출 처리 연동" 주석 상태).
+인벤토리에 넣을 때(`OnUnequipped`)만 attach 된다. 그래서 지금은 **손에 든
+무전기가 주인 없는 것으로 판정된다.**
+
+> 그때까지의 검증 수단은 `AVoiceDebugRadio` 다 — 스스로 attach 하므로 무전
+> 파이프라인 자체는 지금도 콘솔로 확인할 수 있다.
+
+**3번 입력 바인딩은 이렇게 붙인다** (`AMainCharacter::SetupPlayerInputComponent`):
+
+```cpp
+// Z: 전원 토글
+EnhancedInputComponent->BindAction(RadioPowerAction, ETriggerEvent::Started,
+    this, &AMainCharacter::OnRadioPower);
+
+// X: PTT — Started/Completed/Canceled 셋 다 붙인다
+EnhancedInputComponent->BindAction(RadioTalkAction, ETriggerEvent::Started,
+    this, &AMainCharacter::OnRadioTalkStart);
+EnhancedInputComponent->BindAction(RadioTalkAction, ETriggerEvent::Completed,
+    this, &AMainCharacter::OnRadioTalkEnd);
+EnhancedInputComponent->BindAction(RadioTalkAction, ETriggerEvent::Canceled,
+    this, &AMainCharacter::OnRadioTalkEnd);
+```
+
+> **★ `Canceled` 를 빼면 안 된다.** 키를 누른 채 창 포커스를 잃으면 `Completed`
+> 가 오지 않는다 — **송신이 안 끊긴 채로 남아 계속 떠들게 된다.**
+
+핸들러는 `ARadio::FindCarriedBy(this)` 로 무전기를 찾아 `TogglePower()` /
+`StartTransmit()` / `StopTransmit()` 을 부르면 끝이다.
 
 ### 14-1. V0·V1 구현 결과 (2026-08-13)
 
@@ -1473,7 +1633,9 @@ V8 에서는 NPC 도 듣는다**(7-4절). 단, **주인이 없는 무전기는 �
 
 - **전부 빌드까지만 했다.** 클린 리빌드로 신규 파일 전부 컴파일·무경고 확인.
 - V5: `MOU.Voice.Die 1` 후 상대에게 안 들리는지, 상대 말도 안 들리는지 → `MOU.Voice.Revive` 로 둘 다 돌아오는지
-- V6: 무전기를 떨군 뒤 **그 자리에서** 소리가 나는지. 동시 송신 시 뒤쪽이 막히는지
+- V6: 동시 송신 시 뒤쪽이 막히는지
+  (※ "떨군 무전기에서 계속 소리가 나는지" 였던 항목은 **V9 에서 폐기**됐다 —
+  이제 떨구면 꺼진다)
 - V7: 무전 톤이 실제로 "무전기 같은지" — **숫자로 판정할 수 없다. 귀로 들어야 한다**
 - 스퀄치(송수신 시작·끝 삑 소리)는 아직 없다. 사운드 에셋이 필요하다
 
@@ -1502,17 +1664,17 @@ MOU.Voice.Die [0|1]           ★ 음성 사망 토글 (말하기·듣기 모두
 MOU.Voice.Revive              ★ 음성 사망 해제 (말하기·듣기 모두 복구)        (V5)
 
 MOU.Voice.Radio.Spawn         테스트용 무전기를 손에 든다 (임시)            (V6)
-MOU.Voice.Radio.Drop          그 자리에 놓는다 - 켜져 있으면 거기서 소리가 난다
+MOU.Voice.Radio.Drop          그 자리에 놓는다 - **전원이 꺼진다** (V9 에서 변경)
 MOU.Voice.Radio.Power <0|1>   무전기 전원 (Z 키에 대응)
 MOU.Voice.Radio.PTT [0|1]     무전 송신 (X 키에 대응). 인자 없으면 토글
 ```
 
 > **무전 테스트 순서**
 > ```
-> MOU.Voice.Radio.Spawn      손에 든다
+> MOU.Voice.Radio.Spawn      손에 든다 (SetInHand(true) 까지 해준다)
 > MOU.Voice.Radio.Power 1    켠다  (안 켜면 서버가 송신을 거부한다)
 > MOU.Voice.Radio.PTT 1      송신 시작
-> MOU.Voice.Radio.Drop       떨군다 - 그 자리에서 계속 수신하고 소리를 낸다
+> MOU.Voice.Radio.Drop       떨군다 - 전원이 꺼져 소리가 멎는다
 > ```
 
 **★ `MOU.Voice.ShowRadius` 가 보여주는 원은 "그럴듯한 그림"이 아니라 실제 판정값이다.**
@@ -1528,6 +1690,71 @@ MOU.Voice.Radio.PTT [0|1]     무전 송신 (X 키에 대응). 인자 없으면 
 > 셋이 각자 숫자를 들고 있으면 **화면에 보이는 원과 NPC 가 실제로 듣는 거리가 조용히
 > 어긋난다.** 그러면 디버그 표시가 거짓말을 하게 되어 밸런싱 자체가 불가능해진다.
 > **숫자를 바꿀 일이 있으면 반드시 `VoiceTypes.h` 한 곳만 고친다.**
+
+### 14-8. V9 구현 결과 — 무전기가 진짜 아이템이 되다 (2026-08-20)
+
+**만든 파일**: `Public/Voice/Radio.h`, `Private/Voice/Radio.cpp`
+**고친 파일**: `RadioComponent`, `VoiceRouter`, `VoicePlaybackComponent`, `VoiceDebugRadio`
+**건드리지 않은 파일**: `Base/ItemBase.*` (다른 파트 소유)
+
+#### ★ 설계에서 폐기된 것 — "떨어진 무전기가 NPC 를 유인한다"
+
+원안의 재미 포인트 하나가 **폐기됐다.** NPC 를 끌어들이는 것은 무전기가 아니라
+**그것을 들고 있는 사람**이어야 한다는 방향으로 정리됐다. 그래서:
+
+- 드롭/던지기 → **전원 자동 OFF** (자발적/비자발적 구분 없음)
+- 주인(`GetHolder()`)이 없는 무전기 → 라우터가 재생·소음 발행을 **건너뛴다**
+
+두 겹을 다 둔 이유는, 사망 처리가 `Drop()` 을 거치지 않고 부착만 풀 수도 있기
+때문이다. 그 경우에도 소리는 나지 않는다.
+
+> **컴포넌트를 아이템에 붙인 결정 자체는 그대로 유효하다.** 근거가 "떨어져도
+> 소리가 난다" 에서 "**소리 위치를 액터 하나로 통일한다**" 로 바뀌었을 뿐이다.
+
+#### ★ 부착 관계만으로는 손/인벤토리를 구분할 수 없었다
+
+가장 손이 많이 간 부분이다. `GetHolder()` 는 부착을 타고 올라가 주인을 찾는데,
+`AItemBase::OnUnequipped` 가 **인벤토리에 넣을 때도 플레이어에 attach 한다**
+("투명한 주머니"). 그래서 손에 든 것과 가방에 넣은 것이 코드에서 완전히 같다.
+
+`ItemBase` 를 고칠 수 없으므로 `URadioComponent` 에 `bInHand`(복제)를 두고
+`ARadio` 의 `OnEquipped`/`OnUnequipped` 가 알려주게 했다. 이 값이:
+
+- `FindUsableRadioFor` 의 **송신 자격**을 가르고
+- `GetEffective*Radius()` 의 **인벤토리 감쇠**를 가른다
+
+> **컴포넌트가 `AItemBase` 를 모른다는 원칙은 유지됐다.** bool 하나를 받을 뿐이라
+> 여전히 어떤 액터에 붙여도 동작한다.
+
+#### ★ 클라 감쇠가 상수를 쓰고 있었다 (숨어 있던 버그)
+
+`VoicePlaybackComponent` 가 `MOUVoice::DefaultSpeakerHearRadius` **상수**로
+공간화를 설정하고 있었다. 무전기별 반경을 읽지 않았다는 뜻이다. 그대로 뒀다면
+인벤토리 감쇠를 넣어도 **"닿는 사람은 줄었는데 들리는 크기는 똑같은"** 상태가
+됐을 것이다. 이제 `Stream.RadioActor` 에서 `URadioComponent` 를 찾아
+`GetEffectiveHearRadius()` 를 쓴다.
+
+> 공간화 설정은 synth 생성 시점에 한 번만 읽힌다. 송신 도중에 무전기를 집어넣으면
+> 그 스트림은 옛 반경으로 끝난다 — 한 번의 송신 안에서 일어나는 일이라 무시할 만하다.
+
+#### ★ 소지 개수 제한을 아이템 파트에 맡기지 않았다
+
+`RouteRadio` 가 `HandledHolders` 셋으로 **홀더당 한 대만** 재생한다. 원래는
+"소지 개수 제한은 아이템 파트 몫" 이었는데, **인벤토리에서도 수신되게 하면서
+두 대를 갖기가 훨씬 쉬워졌다.** 라우터에서 막는 편이 안전하다.
+
+#### 배터리 — 새 변수를 만들지 않았다
+
+`AItemBase::CurrentDurability` 를 그대로 쓴다(6-1절). 서버 타이머 1초 간격,
+켜져 있는 동안만 닳고 0 이 되면 스스로 꺼진다. **인벤토리에 있어도 닳는다** —
+그래야 "켜둔 채로 넣어둘까" 가 매번 실제 선택이 된다.
+
+#### 아직 확인하지 못한 것
+
+- **빌드까지만 했다.** PIE 실행 검증은 못 했다 — **장착 시 attach 가 아직 없어서
+  구조적으로 불가능하다**(14절 "지금 바로 다음에 할 일" 1번).
+- `Z`/`X` 입력 바인딩이 아직 없다. 지금은 콘솔 명령으로만 조작된다.
+- `ARadio` 기반 BP 와 메시가 없다.
 
 ---
 
@@ -1563,10 +1790,20 @@ MOU.Voice.Radio.PTT [0|1]     무전 송신 (X 키에 대응). 인자 없으면 
   만들면 서버는 계속 프레임을 보내고 있어서 **개조 클라이언트가 꺼진 척하며 다 들을 수 있다.**
   반드시 **서버 레지스트리에서 제거**해서 프레임 자체가 가지 않게 한다(7-3절).
 - **무전기가 파괴되면 레지스트리에 죽은 포인터가 남는다.** `TWeakObjectPtr` + `IsValid()` 필수.
-- 아이템을 줍고 버릴 때 **전원 상태를 유지할지 초기화할지 정해야 한다.**
-  (권장: 유지. 켜진 무전기를 주우면 바로 들린다 — 자연스럽고, 떨군 무전기 연출과 일관된다)
-- 무전기를 **두 개 이상 들면** 소리가 두 번 난다. 소지 개수를 1개로 제한하거나
-  "가장 최근 것만 활성" 규칙이 필요하다.
+- **전원 상태 규칙은 V9 에서 확정됐다**: 드롭/던지기 = **OFF**, 인벤토리 = **유지**.
+  줍는 것만으로는 켜지지 않는다 — 켜는 것은 언제나 `Z` 로 하는 직접 조작이다.
+- 무전기를 **두 개 이상 가지면** 소리가 두 번 난다. **V9 에서 라우터가 막았다**
+  (`RouteRadio` 의 `HandledHolders`, 홀더당 1대). 아이템 파트가 소지 개수를
+  제한하지 않아도 겹치지 않는다.
+- **★ 반경을 `SpeakerHearRadius` 로 직접 읽으면 인벤토리 감쇠가 빠진다.**
+  반드시 `GetEffectiveHearRadius()` / `GetEffectiveNoiseRadius()` 를 쓴다(10절 ★★).
+  실제로 `VoicePlaybackComponent` 가 상수를 쓰고 있어서 V9 에서 고쳤다.
+- **★ `OnEquipped`/`OnUnequipped` 는 멀티캐스트로 모든 클라에서 불린다.**
+  거기서 `StopTransmit()` 같은 **로컬 조작을 조건 없이 하면 남이 무전기를
+  집어넣었는데 내 송신이 끊긴다.** `ARadio::IsLocalPlayerActor` 로 걸러야 한다.
+- **★ 손에 든 것과 인벤토리에 넣은 것은 부착 관계로 구분되지 않는다.**
+  `AItemBase::OnUnequipped` 가 인벤토리에 넣을 때도 플레이어에 attach 하기
+  때문이다. `URadioComponent::IsInHand()` 를 봐야 한다(14-8절).
 
 **PIE / 장치**
 
@@ -1675,3 +1912,19 @@ V2 를 구현하며 엔진 소스에서 직접 확인했다. **자세한 것과 
 | Unreliable RPC 의 실제 페이로드 상한 (128바이트 가정이 맞는지) | UE 네트워킹 | V3 |
 | 리슨서버 호스트 본인에게 RPC 가 안 가는 문제의 처리 (15절) | — | V3 |
 | `USoundEffectSourcePresetChain` 사용법 (무전 필터) | `AudioExtensions` | V7 |
+
+### 17-4. 아이템·캐릭터 파트에 확인/요청할 것 (V9, 2026-08-20)
+
+**음성 파트가 혼자 해결할 수 없는 것들이다.** 위 두 개는 요청해야 한다.
+
+| # | 확인/요청할 것 | 대상 | 왜 필요한가 |
+|---|---|---|---|
+| 1 | **장착 시 캐릭터에 Attach 해 주기** | 아이템·캐릭터 | `GetHolder()` 가 부착으로 주인을 찾는다. 없으면 **무전 송수신이 통째로 안 된다** ← **최우선** |
+| 2 | **사망·기절 시 `Drop()` 을 태워 주기** | 캐릭터 | 안 그러면 전원이 켜진 채 남아 배터리가 계속 닳는다 (소리는 라우터가 막으므로 안 난다) |
+| 3 | 무전기 소지 개수 정책 | 아이템 | 라우터가 재생은 막지만, **두 대를 갖는 것 자체**를 막을지는 아이템 파트 결정 |
+| 4 | `CurrentDurability` 를 배터리로 써도 되는지 | 아이템 | 아이템 파트가 이 값을 "내구도" 로 따로 쓸 계획이 있으면 충돌한다 |
+| 5 | 인벤토리 아이템에 `OnUse` 를 연결할 계획이 있는지 | 아이템 | 현재 `AMainCharacter::OnUse` 는 `TODO` 상태. 연결되어도 무전기는 좌클릭을 안 쓰므로 영향 없음 |
+
+> **1번을 기다리는 동안의 대안은 `AVoiceDebugRadio` 다.** 스스로 attach 하므로
+> 무전 파이프라인 자체(라우팅·반이중·톤·NPC 소음)는 지금도 콘솔로 검증된다.
+> 검증할 수 없는 것은 **아이템 조작 경로**(줍기 → 장착 → 인벤토리 → 드롭)뿐이다.
