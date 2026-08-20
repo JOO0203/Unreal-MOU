@@ -9,6 +9,7 @@
 class UInputMappingContext;
 class UUserWidget;
 class ULoginWidgetBase;
+class UVoiceComponent;
 
 /**
  *  Basic PlayerController class for a third person game
@@ -18,8 +19,24 @@ UCLASS(abstract)
 class ATeamProject_MOUPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
+
+public:
+	ATeamProject_MOUPlayerController();
+
 protected:
+	/**
+	 * 음성 송수신 창구 (VOICE_INTEGRATION.md 6절).
+	 *
+	 * ★ 런타임에 붙이지 않고 **생성자에서** 만드는 것이 중요하다.
+	 *   RPC 는 보내는 쪽과 받는 쪽에 같은 컴포넌트가 있어야 목적지를 찾는다.
+	 *   생성자에서 만들면 서버와 모든 클라이언트가 똑같이 갖게 되지만,
+	 *   나중에 붙이면 한쪽에만 있는 순간이 생겨 **RPC 가 조용히 사라진다.**
+	 *
+	 *   폰이 아니라 컨트롤러에 두는 이유는 VoiceComponent.h 상단 주석에 있다.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MOU|Voice")
+	TObjectPtr<UVoiceComponent> VoiceComponent;
+
 
 	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category ="Input|Input Mappings")
@@ -54,12 +71,20 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	TSubclassOf<ULoginWidgetBase> LoginWidgetClass;
 
-	/** 로그인 위젯의 ServerHost/ServerPort 로 그대로 넘어간다. */
+	/**
+	 * 이 컨트롤러만 다른 채팅 서버를 보게 할 때 쓰는 **예외용** 값. 평소에는 비워둔다.
+	 *
+	 * 비어 있으면 Config/DefaultGame.ini 의 팀 공유 주소(UMOUServerSettings)를 쓴다.
+	 * 예전에는 여기에 127.0.0.1 이 박혀 있었는데, 그 값은 "이 게임이 돌고 있는 PC" 라는
+	 * 뜻이라 서버를 켜지 않은 팀원은 자기 자신에게 접속하려다 항상 실패했다.
+	 * 그래서 기본값을 없애고, 주소를 아는 곳을 설정 한 군데로 모았다.
+	 */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
-	FString ChatServerHost = TEXT("127.0.0.1");
+	FString ServerHostOverride;
 
+	/** 0 이면 ServerHostOverride 와 마찬가지로 설정값을 쓴다. */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
-	int32 ChatServerPort = 9000;
+	int32 ServerPortOverride = 0;
 
 	/** Gameplay initialization */
 	virtual void BeginPlay() override;
