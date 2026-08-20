@@ -35,7 +35,10 @@ void UProjectGameInstanceBase::SaveEconomyData()
 	// 현재 GameState의 팀 공용 경제 데이터를 레벨 이동 후 살아있는 GamseInstance에 복사
 	SavedGold = ProjectGameState->Gold;
 	SavedReputation = ProjectGameState->Reputation;
-	
+	SavedDebt = ProjectGameState->CurrentDebt;
+	SavedDebtCycle = ProjectGameState->DebtCycle;
+
+
 	// 정상적으로 한번 이상 저장되었음을 기록
 	bHaveSavedEconomyData = true;
 }
@@ -67,7 +70,7 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	}
 
 	// GameState 값 변경은 Server가 관리하므로 Client의 GameInstance에서는 저장하지 않음.
-	// Server에서 복원된 골드 및 평판은 GameState Replication을 통해 Client에게 전달
+	// Server에서 복원된 경제 데이터는 GameState Replication을 통해 Client에게 전달
 	if (!ProjectGameState->HasAuthority())
 	{
 		return;
@@ -78,4 +81,6 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	// 값 제한 및 UI 갱신 처리도 함께 수행
 	ProjectGameState->SetGold(SavedGold);
 	ProjectGameState->SetReputation(SavedReputation);
+	ProjectGameState->SetCurrentDebt(SavedDebt);
+	ProjectGameState->SetDebtCycle(SavedDebtCycle);
 }

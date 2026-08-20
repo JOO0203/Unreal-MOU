@@ -71,12 +71,55 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Reputation")
 	void OnReputationUpdated(int32 NewReputation);
 
+
+	// ==============================================
+	// Debt
+	// ==============================================
+
+	// 현재 갚아야하는 빚
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentDebt, Category = "Economy|Debt")
+	int32 CurrentDebt;
+
+	// 다음 갚아야하는 빚 증가 배율
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
+	float DebtMultiplier;
+
+	// 현재 몇 번째 상환 주기인지
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_DebtCycle, Category = "Economy|Debt")
+	int32 DebtCycle;
+
+	// 현재 빚을 상환
+	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
+	bool PayDebt();
+
+	// 빚 값을 직접 설정
+	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
+	void SetCurrentDebt(int32 NewDebt);
+
+	// 빚 상환 주기를 직접 설정
+	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
+	void SetDebtCycle(int32 NewDebtCycle);
+
+	// 빚 변경시 UI 갱신용
+	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
+	void OnDebtUpdated(int32 NewDebt);
+
+	// 빚 상환주기 변경 시 UI 갱신용
+	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
+	void OnDebtCycleUpdated(int32 NewDebtCycle);
+
 protected:
 	UFUNCTION()
 	void OnRep_Gold();
 
 	UFUNCTION()
 	void OnRep_Reputation();
+
+	UFUNCTION()
+	void OnRep_CurrentDebt();
+
+	UFUNCTION()
+	void OnRep_DebtCycle();
 
 	virtual void GetLifetimeReplicatedProps(
 		TArray<FLifetimeProperty>& OutLifetimeProps) const override;
