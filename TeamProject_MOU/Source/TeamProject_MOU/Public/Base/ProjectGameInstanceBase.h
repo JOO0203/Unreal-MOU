@@ -4,71 +4,53 @@
 
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
+#include "Item/DeliveryData.h"
 #include "ProjectGameInstanceBase.generated.h"
 
-/**
- * 
- */
 UCLASS()
 class TEAMPROJECT_MOU_API UProjectGameInstanceBase : public UGameInstance
 {
 	GENERATED_BODY()
 
 public:
-	// ====================================
-	// Economy Save Data
-	// ====================================
+	// ë ˆë²¨ ì´ë™ í›„ì—ë„ ìœ ì§€í•  ì°½ê³   ë°ì´í„°
+	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
+	TArray<FStoredItemData> SavedStoredItems;
 
-	// ¸Ê ÀÌµ¿ Àü GameStateÀÇ ÆÀ °ø¿ë Gold°ª ÀÓ½Ã ÀúÀå
-	// GameState´Â ·¹º§ º¯°æµÇ¸é »õ·Î »ı¼º, GameInstance ·¹º§ ÀÌµ¿ ÈÄ¿¡µµ À¯Áö
-	// ÀÌÀü ¸ÊÀÇ Gold¸¦ ´ÙÀ½ ¸ÊÀ¸·Î ³Ñ±â±â À§ÇØ »ç¿ë
-	// ½ÇÁ¦ ÇÃ·¹ÀÌ Áß »ç¿ëÇÏ´Â Gold °ªÀº GameStateÀÇ Gold, SavedGold´Â ¸Ê ÀÌµ¿À» À§ÇÑ º¸°ü¿ë °ª
+	// ë°°ë‹¬ ë§µìœ¼ë¡œ ê°€ì ¸ê°ˆ ì•„ì´í…œ
+	UPROPERTY(BlueprintReadOnly, Category = "Delivery|Save")
+	FDeliveryData PendingDeliveryData;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedGold = 0;
 
-	// ¸Ê ÀÌµ¿ Àü GameStateÀÇ ÆÀ °ø¿ë Reputation °ªÀ» ÀÓ½Ã·Î ÀúÀå.
-	// Reputation ¿ª½Ã ½ÇÁ¦ °ªÀº GameState°¡ °ü¸®,
-	// GameInstance¿¡¼­´Â ·¹º§ ÀÌµ¿ Áß °ªÀ» º¸Á¸ÇÏ´Â ¿ëµµ·Î¸¸ »ç¿ë
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedReputation = 0;
 
-	// ====================================
-	// Debt Save Data
-	// ====================================
-
-	// ¸Ê ÀÌµ¿ Àü GameStateÀÇ ÆÀ °ø¿ë ºÎÃ¤ °ªÀ» ÀÓ½Ã·Î ÀúÀå.
-	// GameState´Â ·¹º§ º¯°æµÇ¸é »õ·Î »ı¼º, GameInstance ·¹º§ ÀÌµ¿ ÈÄ¿¡µµ À¯Áö
-	// ÀÌÀü ¸ÊÀÇ ºÎÃ¤¸¦ ´ÙÀ½ ¸ÊÀ¸·Î ³Ñ±â±â À§ÇØ »ç¿ë
-	// ½ÇÁ¦ ÇÃ·¹ÀÌ Áß »ç¿ëÇÏ´Â ºÎÃ¤ °ªÀº GameStateÀÇ CurrentDebt, SavedDebt´Â ¸Ê ÀÌµ¿À» À§ÇÑ º¸°ü¿ë °ª
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedDebt = 0;
 
-	// ¸Ê ÀÌµ¿ Àü GameStateÀÇ ÆÀ °ø¿ë »óÈ¯ ÁÖ±â¸¦ ÀÓ½Ã·Î ÀúÀå.
-	// GameState´Â ·¹º§ º¯°æµÇ¸é »õ·Î »ı¼º, GameInstance ·¹º§ ÀÌµ¿ ÈÄ¿¡µµ À¯Áö
-	// ÀÌÀü ¸ÊÀÇ »óÈ¯ ÁÖ±â¸¦ ´ÙÀ½ ¸ÊÀ¸·Î ³Ñ±â±â À§ÇØ »ç¿ë
-	// ½ÇÁ¦ ÇÃ·¹ÀÌ Áß »ç¿ëÇÏ´Â ºÎÃ¤ »óÈ¯ ÁÖ±â´Â GameStateÀÇ DebtCycle, SavedDebtCycle´Â ¸Ê ÀÌµ¿À» À§ÇÑ º¸°ü¿ë °ª
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedDebtCycle = 0;
 
-
-	// °æÁ¦ µ¥ÀÌÅÍ°¡ ÀúÀåµÇ¾îÀÖ´ÂÁö È®ÀÎ
-	// Ã¹ °ÔÀÓ ½ÃÀÛ ½Ã¿¡´Â ÀúÀåµ¥ÀÌÅÍ°¡ ¾øÀ¸¹Ç·Î false, SavedEconmyData Á¤»óÀûÀ¸·Î ½ÇÇàÇÏ¸é true
-	// ÀÌÈÄ »õ·Î¿î GameState°¡ »ı¼ºµÆÀ» ¶§ ÀúÀåµÈ µ¥ÀÌÅÍ°¡ ÀÖÀ» °æ¿ì¿¡¸¸ º¹¿øÇÏ±â À§ÇØ »ç¿ë
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	bool bHaveSavedEconomyData = false;
 
-	// ====================================
-	// Economy Save / Load
-	// ====================================
+	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
+	void SaveStoredItems(const TArray<FStoredItemData>& InStoredItems);
 
-	// ÇöÀç GameStateÀÇ °ñµå/ÆòÆÇ/ºÎÃ¤/»óÈ¯ ÁÖ±â¸¦ GameInstance¿¡ ÀÓ½Ã ÀúÀå
-	// ¸Ê ÀÌµ¿ Á÷Àü¿¡ È£Ãâ, serverÀÇ GameState °ª¸¸ ÀúÀå, client¿¡¼­ È£Ãâ, ½ÇÁ¦ÀúÀå x
+	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
+	void ClearStoredItems();
+
 	UFUNCTION(BlueprintCallable, Category = "Economy|Save")
 	void SaveEconomyData();
 
-	// GameInstance¿¡ º¸°üµÇ¾î ÀÖ´Â °ñµå/ÆòÆÇ/ºÎÃ¤/»óÈ¯ ÁÖ±â¸¦ ÇöÀç ¸Ê¿¡ »õ·Î¿î GameState¿¡ º¹¿ø
-	// ¸Ê ÀÌµ¿ ÈÄ »õ·Î¿î GameState°¡ ¸¸µé¾îÁö°í 
-	// º¹¿øµÈ GameState°ªÀº GameState ReplicationÀ» ÅëÇØ °¢ client¿¡ ÀÚµ¿ Àü´Ş
 	UFUNCTION(BlueprintCallable, Category = "Economy|Save")
 	void LoadEconomyData();
+
+	UFUNCTION(BlueprintCallable, Category = "Delivery|Save")
+	void SavePendingDeliveryData(const FDeliveryData& InDeliveryData);
+
+	UFUNCTION(BlueprintCallable, Category = "Delivery|Save")
+	void ClearPendingDeliveryData();
 };
