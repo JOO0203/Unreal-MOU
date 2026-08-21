@@ -12,7 +12,8 @@ enum class EPackageType : uint8
 	Heavy UMETA(DisplayName = "무거운 물품"),
 	Fragile UMETA(DisplayName = "깨지기 쉬운 물품"),
 	Perishable UMETA(DisplayName = "상하기 쉬운 물품"),
-	Dangerous UMETA(DisplayName = "위험 물품")
+	Dangerous UMETA(DisplayName = "위험 물품"),
+	Quest UMETA(DisplayName = "퀘스트 물품")
 };
 
 UCLASS()
@@ -155,6 +156,9 @@ public:
 	
 	// 택배는 일반 아이템처럼 우클릭/좌클릭 사용이 불가능함
 	virtual void OnUse_Implementation() override;
+
+	// 택배는 F키 상호작용 대상이 아니며, 오직 E키로만 잡고/들고/던집니다.
+	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
 
 	// [클라이언트 동기화] 물리 콜리전 상태 동기화를 위해 오버라이드
 	virtual void MulticastPickUp_Implementation(AActor* Picker) override;

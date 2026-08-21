@@ -15,6 +15,7 @@
 #include "Components/InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Ability/GA_Sprint.h"
 #include "Ability/GA_PushObject.h"
 #include "Ability/GA_CarryItem.h"
@@ -39,6 +40,22 @@ AMainCharacter::AMainCharacter()
 	CarryingComponent = CreateDefaultSubobject<UCarryingComponent>(TEXT("CarryingComponent"));
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 
+	// 발광(손전등 대체) 포인트 라이트 컴포넌트 생성 및 메시 부착
+	FlashlightLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("FlashlightLight"));
+	FlashlightLight->SetupAttachment(GetMesh());
+	FlashlightLight->SetRelativeLocation(FVector(0.0f, 30.0f, 60.0f));
+	FlashlightLight->SetIntensity(3000.0f);
+	FlashlightLight->SetAttenuationRadius(800.0f);
+	FlashlightLight->SetVisibility(false);
+	FlashlightLight->SetCastShadows(true);
+
+	// 발광 색상 프리셋 기본값 5종
+	FlashlightColorPresets.Add(FLinearColor::White);                          // 1. 화이트
+	FlashlightColorPresets.Add(FLinearColor(1.0f, 0.0f, 0.5f, 1.0f));       // 2. 핑크/마젠타
+	FlashlightColorPresets.Add(FLinearColor(0.0f, 0.94f, 1.0f, 1.0f));      // 3. 시안/하늘색
+	FlashlightColorPresets.Add(FLinearColor(0.2f, 1.0f, 0.2f, 1.0f));       // 4. 네온그린
+	FlashlightColorPresets.Add(FLinearColor(1.0f, 0.8f, 0.0f, 1.0f));       // 5. 옐로우/골드
+
 	// 시야(상호작용) Trace가 캐릭터를 인식할 수 있도록 Visibility 채널 Block 처리
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 }
@@ -62,9 +79,26 @@ void AMainCharacter::BeginPlay()
 		}
 	}
 
+	// 캐릭터 몸체 메시의 모든 머티리얼 슬롯에서 DMI 생성 및 캐싱 (Emission 제어용)
+	if (USkeletalMeshComponent* SkelMesh = GetMesh())
+	{
+		int32 MatCount = SkelMesh->GetNumMaterials();
+		for (int32 i = 0; i < MatCount; ++i)
+		{
+			if (UMaterialInstanceDynamic* DMI = SkelMesh->CreateAndSetMaterialInstanceDynamic(i))
+			{
+				BodyMaterialInstances.Add(DMI);
+			}
+		}
+	}
+
+	// 초기 발광 상태 적용
+	UpdateFlashlightVisuals();
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->OnFocusedInteractableChanged.AddDynamic(this, &AMainCharacter::OnFocusedActorChanged);
+		InteractionComponent->OnInteractExecuted.AddDynamic(this, &AMainCharacter::HandleInteractExecuted);
 	}
 
 	if (InventoryComponent)
@@ -107,8 +141,28 @@ void AMainCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// [달리기 정지 감지] 방향키를 떼어 가속이 멈춘 경우 즉시 달리기 해제 (대기 모션 복귀)
+	if (bIsSprinting && GetCharacterMovement() && GetCharacterMovement()->GetCurrentAcceleration().IsNearlyZero())
+	{
+		StopSprinting();
+	}
+
 	// 매 프레임 스태미나 소모 및 회복 처리
 	UpdateStamina(DeltaTime);
+
+	// [발광 배터리 소모 처리 (서버 권한)]
+	if (HasAuthority() && bIsFlashlightOn && BaseAttribute)
+	{
+		float CurrentBat = BaseAttribute->GetBattery();
+		float NewBat = FMath::Max(0.0f, CurrentBat - (BatteryDrainRate * DeltaTime));
+		BaseAttribute->SetBattery(NewBat);
+
+		// 배터리 0 도달 시 자동 소등 및 차단
+		if (NewBat <= 0.0f)
+		{
+			ServerToggleFlashlight(false);
+		}
+	}
 
 	// [팀원 부활 차징 처리]
 	if (bIsHoldingRevive)
@@ -289,6 +343,8 @@ void AMainCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(AMainCharacter, bIsGroggy);
 	DOREPLIFETIME(AMainCharacter, bIsDead);
 	DOREPLIFETIME(AMainCharacter, bIsReviving);
+	DOREPLIFETIME(AMainCharacter, bIsFlashlightOn);
+	DOREPLIFETIME(AMainCharacter, FlashlightColorIndex);
 }
 
 void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -360,6 +416,18 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	{
 		EnhancedInputComponent->BindAction(Slot3Action, ETriggerEvent::Started, this, &AMainCharacter::OnSlot3);
 	}
+
+	// 4번 키: 발광(손전등) On/Off 토글
+	if (FlashlightToggleAction)
+	{
+		EnhancedInputComponent->BindAction(FlashlightToggleAction, ETriggerEvent::Started, this, &AMainCharacter::ToggleFlashlight);
+	}
+
+	// 5번 키: 발광 색상 순환 변경
+	if (FlashlightColorAction)
+	{
+		EnhancedInputComponent->BindAction(FlashlightColorAction, ETriggerEvent::Started, this, &AMainCharacter::CycleFlashlightColor);
+	}
 }
 
 void AMainCharacter::DoMove(float Right, float Forward)
@@ -398,6 +466,18 @@ void AMainCharacter::DoMove(float Right, float Forward)
 		
 		// Super::DoMove()는 카메라 회전을 기준으로 방향을 잡으므로 생략
 		return;
+	}
+
+	// [달리기 입력/이동 연동 처리]
+	// 전진 이동 입력이 없거나(W를 뗐음) 멈춘 경우 달리기를 일시 해제(Idle/Walk 복귀)
+	if (bIsSprinting && Forward <= 0.1f)
+	{
+		StopSprinting();
+	}
+	// Shift 키를 계속 누르고 있는 상태에서 다시 전진(W) 입력을 주면 달리기 재개
+	else if (bWantsToSprint && !bIsSprinting && Forward > 0.1f)
+	{
+		StartSprinting();
 	}
 
 	// [이모트 취소 로직] 이동 키 입력이 들어왔고 현재 재생 중인 이모트가 있다면 즉시 취소
@@ -466,6 +546,11 @@ void AMainCharacter::OnFocusedActorChanged(AActor* NewFocusedActor)
 	PreviousFocusedActor = NewFocusedActor;
 }
 
+void AMainCharacter::HandleInteractExecuted(AActor* InteractedActor)
+{
+	OnInteractWithActor(InteractedActor);
+}
+
 void AMainCharacter::DoJumpStart()
 {
 	// 이동 불가능 상태일 때 점프 차단
@@ -479,6 +564,9 @@ void AMainCharacter::DoJumpStart()
 
 void AMainCharacter::OnInteract()
 {
+	// 상호작용 실행 시 달리기 즉시 해제
+	StopSprinting();
+
 	// 밀기 모드 중이라면 토글(해제) 처리
 	if (bIsPushingMode)
 	{
@@ -530,6 +618,9 @@ void AMainCharacter::OnGrabOrDrop()
 		return;
 	}
 
+	// 줍기/내려놓기 시 달리기 즉시 해제
+	StopSprinting();
+
 	if (CarryingComponent)
 	{
 		bool bWasCarrying = CarryingComponent->IsCarrying();
@@ -570,10 +661,59 @@ void AMainCharacter::OnThrow()
 
 void AMainCharacter::OnSprintStart()
 {
+	bWantsToSprint = true;
+	StartSprinting();
+}
+
+void AMainCharacter::OnSprintEnd()
+{
+	bWantsToSprint = false;
+	StopSprinting();
+}
+
+void AMainCharacter::StartSprinting()
+{
 	if (!CanMove() || bIsPushingMode)
 	{
 		bIsSprinting = false;
 		return;
+	}
+
+	// [정지 상태 달리기 차단] 방향키를 누르지 않았을 때(정지 상태)는 달리기를 활성화하지 않음 (대기 모션 유지)
+	if (GetCharacterMovement() && GetCharacterMovement()->GetCurrentAcceleration().IsNearlyZero())
+	{
+		bIsSprinting = false;
+		return;
+	}
+
+	// 무거운 택배 들고 있는지 직접 확인
+	if (CarryingComponent)
+	{
+		if (APackageBase* Pkg = Cast<APackageBase>(CarryingComponent->GetCarriedActor()))
+		{
+			if (Pkg->PackageType == EPackageType::Heavy)
+			{
+				bIsSprinting = false;
+				return;
+			}
+		}
+	}
+
+	// 과적 2단계 이상 (소지 무게 > 130%)이면 달리기 차단
+	if (BaseAttribute)
+	{
+		float MaxW = BaseAttribute->GetMaxWeight();
+		if (MaxW > 0.0f && (BaseAttribute->GetCurrentWeight() / MaxW) > 1.3f)
+		{
+			bIsSprinting = false;
+			return;
+		}
+
+		if (BaseAttribute->GetStemina() <= 0.0f)
+		{
+			bIsSprinting = false;
+			return;
+		}
 	}
 
 	if (AbilitySystemComponent)
@@ -586,6 +726,8 @@ void AMainCharacter::OnSprintStart()
 		static const FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
 		static const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
 		static const FGameplayTag StunnedTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
+		static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
+		static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Exhausted"), false);
 
 		if ((BlockSprintTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(BlockSprintTag)) ||
 			(HeavyCarryTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(HeavyCarryTag)) ||
@@ -594,7 +736,9 @@ void AMainCharacter::OnSprintStart()
 			(PushingTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(PushingTag)) ||
 			(GroggyTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(GroggyTag)) ||
 			(DeadTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(DeadTag)) ||
-			(StunnedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(StunnedTag)))
+			(StunnedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(StunnedTag)) ||
+			(HeldTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(HeldTag)) ||
+			(ExhaustedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(ExhaustedTag)))
 		{
 			bIsSprinting = false;
 			return;
@@ -626,7 +770,7 @@ void AMainCharacter::OnSprintStart()
 	}
 }
 
-void AMainCharacter::OnSprintEnd()
+void AMainCharacter::StopSprinting()
 {
 	bIsSprinting = false;
 
@@ -659,6 +803,36 @@ void AMainCharacter::ServerSetSprinting_Implementation(bool bSprint)
 			return;
 		}
 
+		// 무거운 택배 들고 있는지 직접 확인
+		if (CarryingComponent)
+		{
+			if (APackageBase* Pkg = Cast<APackageBase>(CarryingComponent->GetCarriedActor()))
+			{
+				if (Pkg->PackageType == EPackageType::Heavy)
+				{
+					bIsSprinting = false;
+					return;
+				}
+			}
+		}
+
+		// 과적 2단계 이상 (소지 무게 > 130%)이면 달리기 차단
+		if (BaseAttribute)
+		{
+			float MaxW = BaseAttribute->GetMaxWeight();
+			if (MaxW > 0.0f && (BaseAttribute->GetCurrentWeight() / MaxW) > 1.3f)
+			{
+				bIsSprinting = false;
+				return;
+			}
+
+			if (BaseAttribute->GetStemina() <= 0.0f)
+			{
+				bIsSprinting = false;
+				return;
+			}
+		}
+
 		if (AbilitySystemComponent)
 		{
 			static const FGameplayTag BlockSprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Block.Sprint"), false);
@@ -669,6 +843,8 @@ void AMainCharacter::ServerSetSprinting_Implementation(bool bSprint)
 			static const FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
 			static const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
 			static const FGameplayTag StunnedTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
+			static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
+			static const FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Exhausted"), false);
 
 			if ((BlockSprintTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(BlockSprintTag)) ||
 				(HeavyCarryTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(HeavyCarryTag)) ||
@@ -677,7 +853,9 @@ void AMainCharacter::ServerSetSprinting_Implementation(bool bSprint)
 				(PushingTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(PushingTag)) ||
 				(GroggyTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(GroggyTag)) ||
 				(DeadTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(DeadTag)) ||
-				(StunnedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(StunnedTag)))
+				(StunnedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(StunnedTag)) ||
+				(HeldTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(HeldTag)) ||
+				(ExhaustedTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(ExhaustedTag)))
 			{
 				bIsSprinting = false;
 				return;
@@ -721,6 +899,16 @@ void AMainCharacter::OnJumpStartInput()
 	if (!CanMove() || bIsPushingMode)
 	{
 		return;
+	}
+
+	// 과적 3단계 (소지 무게 > 150%)이면 점프 차단
+	if (BaseAttribute)
+	{
+		float MaxW = BaseAttribute->GetMaxWeight();
+		if (MaxW > 0.0f && (BaseAttribute->GetCurrentWeight() / MaxW) > 1.5f)
+		{
+			return; // 과적 3단계 점프 차단
+		}
 	}
 
 	if (AbilitySystemComponent)
@@ -905,7 +1093,7 @@ void AMainCharacter::UpdateStamina(float DeltaTime)
 		// 스태미나 0 도달 시 처리
 		if (NewStamina <= 0.0f)
 		{
-			OnSprintEnd();
+			StopSprinting();
 
 			// State.Player.Exhausted 태그 부여 및 쿨다운 시작
 			if (StatusComponent)
@@ -1419,14 +1607,7 @@ void AMainCharacter::StartPushMode(AActor* TargetObject)
 	}
 
 	// 달리기 중이었다면 달리기 즉시 강제 취소
-	if (bIsSprinting)
-	{
-		bIsSprinting = false;
-		if (!HasAuthority())
-		{
-			ServerSetSprinting(false);
-		}
-	}
+	StopSprinting();
 
 	bIsPushingMode = true;
 	CurrentPushedObject = TargetObject;
@@ -1688,5 +1869,90 @@ float AMainCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		CancelReviveHold();
 	}
 	return ActualDamage;
+}
+
+// ---------------------------------------------------------
+// [발광(손전등 대체) 및 배터리 시스템 구현]
+// ---------------------------------------------------------
+
+void AMainCharacter::ToggleFlashlight()
+{
+	// 배터리가 0인데 켜려고 하면 실행 차단
+	if (!bIsFlashlightOn && BaseAttribute && BaseAttribute->GetBattery() <= 0.0f)
+	{
+		return;
+	}
+
+	ServerToggleFlashlight(!bIsFlashlightOn);
+}
+
+void AMainCharacter::ServerToggleFlashlight_Implementation(bool bNewState)
+{
+	// 배터리가 없으면 켜기 불가
+	if (bNewState && BaseAttribute && BaseAttribute->GetBattery() <= 0.0f)
+	{
+		bIsFlashlightOn = false;
+		UpdateFlashlightVisuals();
+		return;
+	}
+
+	bIsFlashlightOn = bNewState;
+	UpdateFlashlightVisuals();
+}
+
+void AMainCharacter::CycleFlashlightColor()
+{
+	ServerCycleFlashlightColor();
+}
+
+void AMainCharacter::ServerCycleFlashlightColor_Implementation()
+{
+	if (FlashlightColorPresets.Num() > 0)
+	{
+		FlashlightColorIndex = (FlashlightColorIndex + 1) % FlashlightColorPresets.Num();
+		UpdateFlashlightVisuals();
+	}
+}
+
+FLinearColor AMainCharacter::GetCurrentFlashlightColor() const
+{
+	if (FlashlightColorPresets.IsValidIndex(FlashlightColorIndex))
+	{
+		return FlashlightColorPresets[FlashlightColorIndex];
+	}
+	return FLinearColor::White;
+}
+
+void AMainCharacter::OnRep_IsFlashlightOn()
+{
+	UpdateFlashlightVisuals();
+}
+
+void AMainCharacter::OnRep_FlashlightColorIndex()
+{
+	UpdateFlashlightVisuals();
+}
+
+void AMainCharacter::UpdateFlashlightVisuals()
+{
+	FLinearColor CurrentColor = GetCurrentFlashlightColor();
+	float TargetPower = bIsFlashlightOn ? FlashlightEmissionPower : 0.0f;
+
+	// 메시 동적 머티리얼 인스턴스의 Emission Color 및 Power 파라미터 갱신
+	for (UMaterialInstanceDynamic* DMI : BodyMaterialInstances)
+	{
+		if (DMI)
+		{
+			DMI->SetVectorParameterValue(FName("Emission Color"), CurrentColor);
+			DMI->SetScalarParameterValue(FName("Emission Power"), TargetPower);
+		}
+	}
+
+	// 포인트 라이트 조명 컴포넌트 갱신
+	if (FlashlightLight)
+	{
+		FlashlightLight->SetVisibility(bIsFlashlightOn);
+		FlashlightLight->SetLightColor(CurrentColor);
+	}
 }
 

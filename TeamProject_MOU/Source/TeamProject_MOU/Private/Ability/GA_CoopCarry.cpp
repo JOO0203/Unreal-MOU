@@ -30,7 +30,7 @@ void UGA_CoopCarry::ActivateAbility(const FGameplayAbilitySpecHandle Handle, con
 	ACharacterBase* Char = GetCharacterFromActorInfo();
 	if (Char && Char->GetCharacterMovement())
 	{
-		BaseWalkSpeed = Char->GetCharacterMovement()->MaxWalkSpeed;
+		BaseWalkSpeed = Char->GetCalculatedWalkSpeed();
 	}
 }
 
@@ -50,7 +50,7 @@ void UGA_CoopCarry::EndAbility(const FGameplayAbilitySpecHandle Handle, const FG
 	ACharacterBase* Char = GetCharacterFromActorInfo();
 	if (Char && Char->GetCharacterMovement())
 	{
-		Char->GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+		Char->GetCharacterMovement()->MaxWalkSpeed = Char->GetCalculatedWalkSpeed();
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);

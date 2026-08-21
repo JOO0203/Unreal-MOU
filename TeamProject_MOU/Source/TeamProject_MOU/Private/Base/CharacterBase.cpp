@@ -8,6 +8,7 @@
 #include "Abilities/GameplayAbility.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Player/MainCharacter.h"
 
 ACharacterBase::ACharacterBase()
 {
@@ -26,6 +27,7 @@ ACharacterBase::ACharacterBase()
 
 	// 캡슐 콜리전 기본 크기 설정
 	GetCapsuleComponent()->InitCapsuleSize(35.0f, 90.0f);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 
 	// 컨트롤러 회전 사용 안 함 (캐릭터 이동 방향으로 자동 회전)
 	bUseControllerRotationPitch = false;
@@ -197,6 +199,15 @@ void ACharacterBase::BindAttributeChangeDelegates()
 		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxWeightAttribute())
 		.AddUObject(this, &ACharacterBase::HandleMaxWeightChanged);
 
+	// 배터리 변경 델리게이트 바인딩
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetBatteryAttribute())
+		.AddUObject(this, &ACharacterBase::HandleBatteryChanged);
+
+	AbilitySystemComponent
+		->GetGameplayAttributeValueChangeDelegate(UBaseAttributeSet::GetMaxBatteryAttribute())
+		.AddUObject(this, &ACharacterBase::HandleMaxBatteryChanged);
+
 	// 초기 속도 값 동기화
 	if (GetCharacterMovement())
 	{
@@ -272,13 +283,78 @@ void ACharacterBase::HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Dat
 void ACharacterBase::HandleCurrentWeightChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute) return;
-	UpdateEncumbranceState(Data.NewValue, BaseAttribute->GetMaxWeight());
+	float MaxW = BaseAttribute->GetMaxWeight();
+	UpdateEncumbranceState(Data.NewValue, MaxW);
+	OnWeightUpdated(Data.NewValue, MaxW, MaxW > 0.0f ? (Data.NewValue / MaxW) : 0.0f);
 }
 
 void ACharacterBase::HandleMaxWeightChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute) return;
-	UpdateEncumbranceState(BaseAttribute->GetCurrentWeight(), Data.NewValue);
+	float CurrW = BaseAttribute->GetCurrentWeight();
+	UpdateEncumbranceState(CurrW, Data.NewValue);
+	OnWeightUpdated(CurrW, Data.NewValue, Data.NewValue > 0.0f ? (CurrW / Data.NewValue) : 0.0f);
+}
+
+void ACharacterBase::HandleBatteryChanged(const FOnAttributeChangeData& Data)
+{
+	if (!BaseAttribute) return;
+	float MaxBat = BaseAttribute->GetMaxBattery();
+	OnBatteryUpdated(Data.NewValue, MaxBat, MaxBat > 0.0f ? (Data.NewValue / MaxBat) : 0.0f);
+}
+
+void ACharacterBase::HandleMaxBatteryChanged(const FOnAttributeChangeData& Data)
+{
+	if (!BaseAttribute) return;
+	float CurrBat = BaseAttribute->GetBattery();
+	OnBatteryUpdated(CurrBat, Data.NewValue, Data.NewValue > 0.0f ? (CurrBat / Data.NewValue) : 0.0f);
+}
+
+float ACharacterBase::GetCalculatedWalkSpeed() const
+{
+	if (!BaseAttribute)
+	{
+		return 300.0f;
+	}
+
+	// 1. 상태별 기본 걷기 속도 (Base Speed) 결정
+	float BaseSpeed = 300.0f;
+
+	static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Pushing"), false);
+	static const FGameplayTag HeavyCarryTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Heavy"), false);
+	static const FGameplayTag CarryCharTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Character"), false);
+
+	if ((PushingTag.IsValid() && HasMatchingGameplayTag(PushingTag)) ||
+		(HeavyCarryTag.IsValid() && HasMatchingGameplayTag(HeavyCarryTag)) ||
+		(CarryCharTag.IsValid() && HasMatchingGameplayTag(CarryCharTag)))
+	{
+		BaseSpeed = 150.0f; // 밀기, 무거운 택배 운반, 시체 운반 시 기본 속도 150
+	}
+
+	// 2. 소지 무게 비율(WeightRatio) 계산
+	float MaxWeight = BaseAttribute->GetMaxWeight();
+	if (MaxWeight <= 0.0f)
+	{
+		return BaseSpeed;
+	}
+
+	float WeightRatio = BaseAttribute->GetCurrentWeight() / MaxWeight;
+
+	// 3. 과적 단계별 배율 적용
+	if (WeightRatio > 1.5f)
+	{
+		return 10.0f; // 과적 3단계: 극초저속 10.0f (점프/달리기 완전 차단)
+	}
+	else if (WeightRatio > 1.3f)
+	{
+		return BaseSpeed * 0.50f; // 과적 2단계: 50% 감속 (일반 150, 밀기/무거운택배 75)
+	}
+	else if (WeightRatio > 1.0f)
+	{
+		return BaseSpeed * 0.85f; // 과적 1단계: 15% 감속 (일반 255, 밀기/무거운택배 127.5)
+	}
+
+	return BaseSpeed; // 정상
 }
 
 void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight)
@@ -290,6 +366,16 @@ void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWe
 	static const FGameplayTag Encumbered_HeavyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Heavy"), false);
 	static const FGameplayTag Encumbered_OverloadedTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Overloaded"), false);
 	static const FGameplayTag Encumbered_ImmobileTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Immobile"), false);
+
+	AMainCharacter* MainChar = Cast<AMainCharacter>(this);
+	if (MainChar)
+	{
+		// 과적 2단계(> 1.3f) 이상이면 달리기 즉시 강제 해제
+		if (WeightRatio > 1.3f && MainChar->bIsSprinting)
+		{
+			MainChar->StopSprinting();
+		}
+	}
 
 	if (HasAuthority() && AbilitySystemComponent)
 	{
@@ -324,18 +410,12 @@ void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWe
 		else if (BaseAttribute)
 		{
 			// GE가 할당되지 않았거나 과적이 해제(<= 1.0f)되었을 때 C++ 속도 직접 복구 및 적용 폴백
-			float TargetSpeed = 300.0f;
-			if (WeightRatio > 1.5f)
+			float TargetSpeed = GetCalculatedWalkSpeed();
+
+			// 현재 달리는 상태(Tier 1 이하)라면 달리기 배율(2.0x) 적용
+			if (MainChar && MainChar->bIsSprinting && WeightRatio <= 1.3f)
 			{
-				TargetSpeed = 0.0f;
-			}
-			else if (WeightRatio > 1.3f)
-			{
-				TargetSpeed = 150.0f;
-			}
-			else if (WeightRatio > 1.0f)
-			{
-				TargetSpeed = 255.0f;
+				TargetSpeed *= 2.0f;
 			}
 
 			BaseAttribute->SetMoveSpeed(TargetSpeed);
