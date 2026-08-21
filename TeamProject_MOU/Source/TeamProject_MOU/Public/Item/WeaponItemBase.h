@@ -54,16 +54,9 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-#pragma region [WEAPON] 사용 횟수 (복제)
-	// 현재 남은 사용 횟수. 서버에서만 차감하고 복제되어 모든 클라에 동기화된다.
-	// (ItemBase의 CurrentUseCount는 복제 안 돼서 무기용으로 별도 복제 변수 사용)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_WeaponUseCount, Category = "Weapon")
-	int32 WeaponUseCount = 0;
-
-	// 복제값 도착 시 호출 (UI 갱신 훅). 현재 비어있음
-	UFUNCTION()
-	void OnRep_WeaponUseCount();
-#pragma endregion
+	// [WEAPON] 내구도는 ItemBase의 CurrentDurability/MaxDurability를 사용한다.
+	//   (CurrentDurability는 ItemBase에서 이미 복제되므로 무기용 별도 복제 변수는 두지 않는다)
+	//   던질 때마다 서버에서 1씩 차감하고, 0 이하가 되면 더 발사할 수 없다.
 
 #pragma region [WEAPON] 소유권 (Server RPC 전제)
 	// [WEAPON-010] 집을 때 소유권 설정 → 클라가 ServerFire RPC 보낼 수 있게 함
@@ -84,9 +77,13 @@ protected:
 	// [WEAPON-007] 실제 발사 로직. 자식이 override (테이저=트레이스, 칼=콜라이더 등)
 	virtual void Fire();
 
-	// [WEAPON-013] 이 발사에서 사용횟수(WeaponUseCount)를 차감할지 여부.
-	// 기본 true(소모). 부메랑처럼 손으로 돌아오는 무기는 false로 override해 소모하지 않는다.
+	// [WEAPON-013] 이 발사에서 내구도(CurrentDurability)를 차감할지 여부.
+	// 기본 true(소모). 발사 시점에 소모하지 않는 무기(예: 적중 시에만 닳는 부메랑)는 false로 override한다.
 	virtual bool ShouldConsumeUseOnFire() const { return true; }
+
+	// [WEAPON-014] 발사 1회당 깎일 내구도 양. 무기마다 다르게(테이저=25 등) override.
+	// ShouldConsumeUseOnFire()가 true일 때만 TryFireOnServer에서 이 값만큼 차감한다.
+	virtual float GetDurabilityCostPerUse() const { return 1.0f; }
 
 private:
 	// [WEAPON-008] 클라이언트에서 눌렀을 때 서버로 발사 위임 (서버에서 차감+발사)
