@@ -207,6 +207,14 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Player|UI")
 	void OnReviveProgressUpdated(float Progress);
 
+	// ---------------------------------------------------------
+	// [통합 상호작용 이벤트] - 퀘스트 처리, NPC 대화 연동 등 BP 훅
+	// ---------------------------------------------------------
+
+	// 상호작용(F키)이 대상 액터에 성공적으로 실행되었을 때 호출되는 Blueprint 이벤트
+	UFUNCTION(BlueprintImplementableEvent, Category = "Player|Interaction")
+	void OnInteractWithActor(AActor* TargetActor);
+
 	// --- Push Mode ---
 	UFUNCTION(BlueprintCallable, Category = "Player|Push")
 	void StartPushMode(AActor* TargetObject);
@@ -378,6 +386,67 @@ protected:
 	TObjectPtr<UInputAction> Slot3Action;
 
 	// ---------------------------------------------------------
+	// [발광(손전등 대체) 및 배터리 시스템]
+	// ---------------------------------------------------------
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Flashlight")
+	TObjectPtr<class UPointLightComponent> FlashlightLight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> FlashlightToggleAction; // 4번 키 (발광 토글)
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> FlashlightColorAction; // 5번 키 (색상 변경)
+
+	// 발광 켜짐 여부 (멀티플레이 복제)
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_IsFlashlightOn, Category = "Flashlight")
+	bool bIsFlashlightOn = false;
+
+	UFUNCTION()
+	void OnRep_IsFlashlightOn();
+
+	// 현재 선택된 발광 색상 인덱스 (멀티플레이 복제)
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_FlashlightColorIndex, Category = "Flashlight")
+	int32 FlashlightColorIndex = 0;
+
+	UFUNCTION()
+	void OnRep_FlashlightColorIndex();
+
+	// 발광 색상 프리셋 배열 (화이트, 핑크, 시안, 그린, 옐로우)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashlight")
+	TArray<FLinearColor> FlashlightColorPresets;
+
+	// 발광 시 머티리얼에 줄 고정 Emission Power 수치 (기본 100.0)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashlight")
+	float FlashlightEmissionPower = 100.0f;
+
+	// 초당 배터리 소모율 (기본 2.0 / 초당 2% 소모)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashlight")
+	float BatteryDrainRate = 2.0f;
+
+	// 발광 On/Off 토글
+	UFUNCTION(BlueprintCallable, Category = "Flashlight")
+	void ToggleFlashlight();
+
+	UFUNCTION(Server, Reliable)
+	void ServerToggleFlashlight(bool bNewState);
+
+	// 발광 색상 순환 변경
+	UFUNCTION(BlueprintCallable, Category = "Flashlight")
+	void CycleFlashlightColor();
+
+	UFUNCTION(Server, Reliable)
+	void ServerCycleFlashlightColor();
+
+	// 현재 선택된 발광 색상 반환
+	UFUNCTION(BlueprintPure, Category = "Flashlight")
+	FLinearColor GetCurrentFlashlightColor() const;
+
+	// 머티리얼 DMI 및 PointLight 비주얼 동기화 갱신
+	UFUNCTION(BlueprintCallable, Category = "Flashlight")
+	void UpdateFlashlightVisuals();
+
+	// ---------------------------------------------------------
 	// [이모트(감정표현) 시스템]
 	// ---------------------------------------------------------
 
@@ -387,6 +456,10 @@ protected:
 	// 얼굴 동적 머티리얼 인스턴스 배열 (초기화 시 눈, 입 등을 찾아 자동 할당)
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<class UMaterialInstanceDynamic>> FaceMaterialInstances;
+
+	// 몸체/의상 동적 머티리얼 인스턴스 배열 (발광 Emission 제어용)
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> BodyMaterialInstances;
 
 	// 감정 인덱스를 변경하는 머티리얼 파라미터 이름 (머티리얼에 적힌 이름과 정확히 일치해야 함)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emote")
@@ -454,6 +527,14 @@ public:
 	void OnSprintStart();
 	void OnSprintEnd();
 
+	// 실제 달리기 시작/중단 처리 함수
+	void StartSprinting();
+	void StopSprinting();
+
+	// 현재 실제 달리기 활성화 상태
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Player|Movement")
+	bool bIsSprinting = false;
+
 private:
 	// 입력 핸들러 함수들
 	void OnInteract();
@@ -477,6 +558,10 @@ private:
 	UFUNCTION()
 	void OnFocusedActorChanged(AActor* NewFocusedActor);
 
+	// 상호작용 실행 완료 콜백
+	UFUNCTION()
+	void HandleInteractExecuted(AActor* InteractedActor);
+
 	// 이전 포커스 액터를 캐싱하여 상태 되돌리기에 사용
 	UPROPERTY(Transient)
 	TObjectPtr<AActor> PreviousFocusedActor;
@@ -488,9 +573,8 @@ private:
 	// 스태미나 처리 프라이빗 메서드
 	void UpdateStamina(float DeltaTime);
 
-	// 현재 달리기 조작 입력 상태
-	UPROPERTY(Replicated)
-	bool bIsSprinting = false;
+	// Shift 키를 누르고 있는지 여부 (입력 홀드 상태 추적)
+	bool bWantsToSprint = false;
 
 	// 스태미나 고갈에 따른 쿨다운 딜레이 진행 타이머
 	float CurrentExhaustionTimer = 0.0f;

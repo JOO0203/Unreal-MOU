@@ -1,4 +1,4 @@
-#include "Item/WeaponItemBase.h"
+﻿#include "Item/WeaponItemBase.h"
 #include "Base/CharacterBase.h"
 #include "Player/MainCharacter.h"
 #include "Components/BoxComponent.h"
@@ -20,8 +20,8 @@ void AWeaponItemBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 복제 카운트를 MaxUseCount로 초기화 (ItemBase가 CurrentUseCount=MaxUseCount 한 뒤)
-	WeaponUseCount = MaxUseCount;
+	// 내구도를 최대치로 초기화 (ItemBase의 CurrentDurability/MaxDurability 사용)
+	CurrentDurability = MaxDurability;
 
 	// 근접 콜라이더 오버랩 콜백 바인딩
 	if (MeleeCollider)
@@ -33,7 +33,7 @@ void AWeaponItemBase::BeginPlay()
 void AWeaponItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(AWeaponItemBase, WeaponUseCount);
+	// 내구도(CurrentDurability)는 ItemBase에서 이미 복제하므로 여기서 별도 등록하지 않는다.
 }
 
 // [WEAPON-010] 집을 때 소유권 설정 (클라 → 서버 RPC 가능하게)
@@ -74,7 +74,7 @@ void AWeaponItemBase::Throw_Implementation(FVector ThrowVelocity, AActor* Throwe
 void AWeaponItemBase::OnUse_Implementation()
 {
 	// 차감·발사는 서버에서만. 클라에서 불리면 ServerFire로 넘겨 서버가 처리한다.
-	// (Super::OnUse는 부르지 않음 - ItemBase의 CurrentUseCount 대신 복제되는 WeaponUseCount 사용)
+	// (Super::OnUse는 부르지 않음 - ItemBase의 CurrentUseCount 대신 복제되는 CurrentDurability 사용)
 	if (HasAuthority())
 	{
 		TryFireOnServer();
@@ -94,23 +94,19 @@ void AWeaponItemBase::TryFireOnServer()
 		return;
 	}
 
-	if (WeaponUseCount <= 0)
+	if (CurrentDurability <= 0.0f)
 	{
 		return;
 	}
 
-	// 소모형 무기만 차감(복제되어 모든 클라 화면에 동기화). 부메랑 등 회수형은 차감 안 함. [WEAPON-013]
+	// 소모형 무기만 차감(복제되어 모든 클라 화면에 동기화). false로 override한 무기는 차감 안 함. [WEAPON-013]
+	// 발사 1회당 차감량은 무기별로 다르다(GetDurabilityCostPerUse). [WEAPON-014]
 	if (ShouldConsumeUseOnFire())
 	{
-		WeaponUseCount--;
+		CurrentDurability -= GetDurabilityCostPerUse();
 	}
 
 	Fire();
-}
-
-// 복제된 WeaponUseCount가 각 클라에 도착했을 때 호출 (UI 갱신 등 훅으로 활용 가능)
-void AWeaponItemBase::OnRep_WeaponUseCount()
-{
 }
 
 // [WEAPON-007] 실제 발사 로직 (기본 빈 구현, 자식이 override)

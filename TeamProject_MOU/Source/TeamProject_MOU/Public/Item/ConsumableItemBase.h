@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Base/ItemBase.h"
+#include "GameplayTagContainer.h"
 #include "ConsumableItemBase.generated.h"
 
 class UAnimMontage;
@@ -82,9 +83,14 @@ protected:
 	void OnUseEffect();
 
 	// [CONSUME-015] 사용 시 소유 캐릭터가 재생할 애니메이션 몽타주 (마시기 등).
-	// 비워두면 애니메이션 없이 넘어감. BP에서 지정.
+	// GA에 payload(Optional Object)로 전달됨. GA_UsePotion이 이 몽타주를 재생.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Consumable")
 	TObjectPtr<UAnimMontage> UseMontage;
+
+	// [CONSUME-016] 사용 시 발동할 GA를 트리거하는 GameplayEvent 태그 (Event.Consumable.Use).
+	// 비워두면 이벤트를 안 쏨. BP에서 지정.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Consumable")
+	FGameplayTag UseAbilityEventTag;
 
 private:
 	// [CONSUME-008] 클라이언트에서 눌렀을 때 서버로 소비 위임 (서버에서 차감+효과)
@@ -97,6 +103,9 @@ private:
 	// [CONSUME-013] 다 쓴 아이템을 소유 캐릭터의 손(CarryingComponent)에서 비운다.
 	// (안 하면 CarriedActor가 남아 Carry 포즈가 안 풀리고 무게도 안 빠짐) 서버 전용.
 	void ReleaseFromHolderHand();
+
+	// [CONSUME-016] 소유 캐릭터에게 사용 GA 트리거 GameplayEvent 전송 (몽타주는 payload로 전달)
+	void SendUseAbilityEvent();
 #pragma endregion
 
 protected:

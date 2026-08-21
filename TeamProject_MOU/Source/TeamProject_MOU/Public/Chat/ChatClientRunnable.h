@@ -37,85 +37,25 @@
 
 #include "Chat/LobbyTypes.h"
 
+// EChatClientEventType / FChatClientEvent 는 여기 있었지만 LobbyBackend.h 로 옮겼다.
+// 그 둘은 "소켓 워커가 알리는 사건" 이 아니라 "백엔드가 게임 스레드에 알리는 사건" 이고,
+// EOS 백엔드도 같은 그릇에 결과를 담아야 하기 때문이다.
+#include "Chat/LobbyBackend.h"
+
 #include <atomic>
 
 class FSocket;
 class ISocketSubsystem;
 
-/** 워커 스레드가 게임 스레드에 알리는 사건의 종류. */
-enum class EChatClientEventType : uint8
-{
-	/** 접속 시도를 시작했다. */
-	Connecting,
-	/** TCP 연결 성공. 아직 로그인 전이라 채팅은 못 보낸다. */
-	Connected,
-	/** 접속 실패. 잠시 후 자동으로 재시도한다. Detail 에 사유가 들어있다. */
-	ConnectFailed,
-	/** LoginAck 수신. Login 필드에 서버가 확정한 신원이 들어있다. */
-	LoginAck,
-	/** RegisterAck 수신. Login.bSuccess / Login.Result 에 결과가 들어있다. */
-	RegisterAck,
-	/** RoomCreateAck 수신. RoomId 와 RoomResult 가 유효하다. */
-	RoomCreateAck,
-	/** RoomListAck 수신. Rooms 배열이 유효하다. */
-	RoomListAck,
-	/** RoomJoinAck 수신. Join 이 유효하다. */
-	RoomJoinAck,
-	/** RoomMemberList 수신. Members / RoomId / bAllReady 가 유효하다. */
-	RoomMemberList,
-	/** RoomClosed 수신. RoomId 와 CloseReason 이 유효하다. 대기실을 닫아야 한다. */
-	RoomClosed,
-	/** RoomStart 수신. RoomId 와 Join(호스트 주소)이 유효하다. */
-	RoomStart,
-	/** 연결이 끊겼다. 서버 종료, 강제 차단, 프레이밍 오류 등. */
-	Disconnected
-};
-
-/**
- * 워커 스레드 -> 게임 스레드 사건 전달용 구조체.
- * USTRUCT 가 아니다. 워커 스레드에서 만들어지므로 UObject 시스템과 무관해야 한다.
- */
-struct FChatClientEvent
-{
-	EChatClientEventType Type = EChatClientEventType::Disconnected;
-
-	/** Type == LoginAck / RegisterAck 일 때만 유효 */
-	FChatLoginResult Login;
-
-	/** Type == RoomListAck 일 때만 유효 */
-	TArray<FMOURoomInfo> Rooms;
-
-	/** Type == RoomJoinAck / RoomStart 일 때만 유효 */
-	FMOURoomJoinResult Join;
-
-	/** Type == RoomMemberList 일 때만 유효 */
-	TArray<FMOURoomMember> Members;
-
-	/** Type == RoomCreateAck / RoomMemberList / RoomClosed / RoomStart 일 때 유효 */
-	int32            RoomId = 0;
-	EMOURoomResultBP RoomResult = EMOURoomResultBP::Success;
-	bool             bRoomSuccess = false;
-
-	/**
-	 * Type == RoomMemberList 일 때만 유효.
-	 * 서버가 판정한 값이다. 클라이언트가 Members 를 보고 직접 세지 않는다 —
-	 * 목록이 한 박자 늦게 도착한 쪽이 서버와 다른 결론을 내면 UI 가 흔들린다.
-	 */
-	bool bAllReady = false;
-
-	/** Type == RoomClosed 일 때만 유효 */
-	EMOURoomCloseReasonBP CloseReason = EMOURoomCloseReasonBP::HostLeft;
-
-	/** 로그 표시용 부가 설명 (실패 사유 등) */
-	FString Detail;
-};
-
 /**
  * 채팅 서버(Server.exe)와 붙어있는 TCP 클라이언트 스레드.
  *
- * 소유자는 UChatSubsystem 하나뿐이다. 직접 생성하지 말고 서브시스템을 통해 쓴다.
- * 수명: UChatSubsystem::ConnectToChatServer() 에서 생성,
- *       UChatSubsystem::Deinitialize() 또는 Disconnect() 에서 정리.
+ * [이 클래스는 백엔드가 아니다]
+ *   ILobbyBackend 를 구현하는 것은 FSocketLobbyBackend 이고, 이 클래스는 그 안에서
+ *   소켓과 스레드만 담당한다. 나누어 둔 이유는 역할이 다르기 때문이다 —
+ *   여기는 "바이트를 주고받는 곳", 백엔드는 "무엇을 주고받을지 정하는 곳" 이다.
+ *
+ * 소유자는 FSocketLobbyBackend 하나뿐이다. 직접 생성하지 않는다.
  */
 class TEAMPROJECT_MOU_API FChatClientRunnable : public FRunnable
 {

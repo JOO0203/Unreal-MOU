@@ -32,17 +32,26 @@ void UInteractionComponent::PerformInteraction()
 		return;
 	}
 
-	if (FocusedActor->Implements<UInteractableInterface>())
+	AActor* TargetActor = FocusedActor;
+
+	if (TargetActor->Implements<UInteractableInterface>())
 	{
-		if (IInteractableInterface::Execute_CanInteract(FocusedActor, GetOwner()))
+		if (IInteractableInterface::Execute_CanInteract(TargetActor, GetOwner()))
 		{
-			IInteractableInterface::Execute_Interact(FocusedActor, GetOwner());
+			IInteractableInterface::Execute_Interact(TargetActor, GetOwner());
+			OnInteractExecuted.Broadcast(TargetActor);
 		}
 	}
-	else if (FocusedActor->Implements<UPushableInterface>())
+	else
 	{
-		// F키를 눌렀을 때 상호작용이 아니라면 밀기(Push) 시도
-		IPushableInterface::Execute_Push(FocusedActor, GetOwner(), GetOwner()->GetActorForwardVector());
+		// 블루프린트 상호작용 인터페이스(BPI_Interaction)나 NPC 등 상호작용 실행
+		OnInteractExecuted.Broadcast(TargetActor);
+
+		// 캐릭터가 아닌 순수 Pushable 오브젝트(이벤트 기믹 박스 등)인 경우에만 Push 처리
+		if (!TargetActor->IsA<ACharacter>() && TargetActor->Implements<UPushableInterface>())
+		{
+			IPushableInterface::Execute_Push(TargetActor, GetOwner(), GetOwner()->GetActorForwardVector());
+		}
 	}
 }
 
@@ -104,7 +113,7 @@ void UInteractionComponent::UpdateFocusedInteractable()
 	{
 		AActor* HitActor = HitResult.GetActor();
 
-		// 대상이 메인 캐릭터인 경우: 오직 그로기 상태이고 사망하지 않았으며 자신(본인)이 아닐 때만 포커스
+		// 1. 대상이 메인 캐릭터인 경우: 오직 그로기 상태이고 사망하지 않았으며 자신(본인)이 아닐 때만 포커스
 		if (AMainCharacter* TargetChar = Cast<AMainCharacter>(HitActor))
 		{
 			if (TargetChar->bIsGroggy && !TargetChar->bIsDead && TargetChar != OwnerActor)
@@ -112,6 +121,7 @@ void UInteractionComponent::UpdateFocusedInteractable()
 				NewFocusedActor = TargetChar;
 			}
 		}
+		// 2. C++ IInteractableInterface 구현 액터
 		else if (HitActor->Implements<UInteractableInterface>())
 		{
 			if (IInteractableInterface::Execute_CanInteract(HitActor, OwnerActor))
@@ -119,9 +129,36 @@ void UInteractionComponent::UpdateFocusedInteractable()
 				NewFocusedActor = HitActor;
 			}
 		}
+		// 3. C++ IPushableInterface 구현 액터
 		else if (HitActor->Implements<UPushableInterface>())
 		{
 			NewFocusedActor = HitActor;
+		}
+		// 4. 블루프린트 상호작용 인터페이스(BPI_Interaction) 또는 InteractWith 함수를 보유한 액터 (퀘스트 NPC, 퀘스트 오브젝트 등)
+		else
+		{
+			bool bIsBPInteractable = false;
+			if (UClass* ActorClass = HitActor->GetClass())
+			{
+				for (const FImplementedInterface& Interface : ActorClass->Interfaces)
+				{
+					if (Interface.Class && Interface.Class->GetName().Contains(TEXT("Interaction")))
+					{
+						bIsBPInteractable = true;
+						break;
+					}
+				}
+
+				if (!bIsBPInteractable && ActorClass->FindFunctionByName(FName("InteractWith")))
+				{
+					bIsBPInteractable = true;
+				}
+			}
+
+			if (bIsBPInteractable)
+			{
+				NewFocusedActor = HitActor;
+			}
 		}
 	}
 

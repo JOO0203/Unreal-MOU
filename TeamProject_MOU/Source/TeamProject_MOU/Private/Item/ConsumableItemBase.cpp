@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
+#include "AbilitySystemBlueprintLibrary.h"
 
 AConsumableItemBase::AConsumableItemBase()
 {
@@ -92,6 +93,9 @@ void AConsumableItemBase::TryConsumeOnServer()
 	// 실제 효과 적용 (자식 override)
 	ApplyEffect();
 
+	// 사용 애니메이션 GA 트리거 (소유 캐릭터에게 GameplayEvent → GA_UsePotion이 몽타주 재생)
+	SendUseAbilityEvent();
+
 	// 효과 연출(VFX/사운드)을 모든 클라에서 재생
 	MulticastPlayUseEffect();
 
@@ -135,6 +139,33 @@ void AConsumableItemBase::ReleaseFromHolderHand()
 	}
 }
 
+// [CONSUME-016] 사용 GA 트리거: 소유 캐릭터에게 GameplayEvent 전송 (몽타주는 payload로 전달)
+void AConsumableItemBase::SendUseAbilityEvent()
+{
+	if (!UseAbilityEventTag.IsValid())
+	{
+		return;
+	}
+
+	// 소유 캐릭터 (아이템이 캐릭터 메시에 Attach돼 있으므로 부착 부모 → 폴백 Owner)
+	AActor* Holder = GetAttachParentActor();
+	if (!Holder)
+	{
+		Holder = GetOwner();
+	}
+	if (!Holder)
+	{
+		return;
+	}
+
+	FGameplayEventData Payload;
+	Payload.EventTag = UseAbilityEventTag;
+	Payload.Instigator = this;
+	Payload.OptionalObject = UseMontage; // GA_UsePotion이 이 몽타주를 재생
+
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Holder, UseAbilityEventTag, Payload);
+}
+
 // [CONSUME-008] 클라이언트 → 서버 소비 위임 (서버에서 차감+효과)
 void AConsumableItemBase::ServerConsume_Implementation()
 {
@@ -153,27 +184,10 @@ void AConsumableItemBase::ApplyEffect_Implementation()
 	// ResolveEffectTarget()으로 효과 대상을 얻어 처리하면 됨.
 }
 
-// [CONSUME-005] 효과 연출 멀티캐스트 → 사용 애니메이션 + BP 훅 호출
+// [CONSUME-005] 효과 연출 멀티캐스트 → VFX/사운드 BP 훅 호출
+// (몽타주는 GA_UsePotion이 재생 - SendUseAbilityEvent 참고)
 void AConsumableItemBase::MulticastPlayUseEffect_Implementation()
 {
-	// [CONSUME-015] 사용 애니메이션(몽타주) 재생.
-	// 아이템이 캐릭터 메시에 Attach돼 있어 GetAttachParentActor()로 모든 클라에서
-	// 소유 캐릭터를 얻을 수 있다 (Owner/LastOwner는 클라에서 null일 수 있음).
-	if (UseMontage)
-	{
-		if (ACharacter* Holder = Cast<ACharacter>(GetAttachParentActor()))
-		{
-			if (USkeletalMeshComponent* HolderMesh = Holder->GetMesh())
-			{
-				if (UAnimInstance* AnimInstance = HolderMesh->GetAnimInstance())
-				{
-					AnimInstance->Montage_Play(UseMontage);
-				}
-			}
-		}
-	}
-
-	// VFX/사운드 등 BP 연출 훅
 	OnUseEffect();
 }
 

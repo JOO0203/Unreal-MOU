@@ -16,6 +16,8 @@ UBaseAttributeSet::UBaseAttributeSet()
 	MaxMoveSpeed = 2000.0f;
 	CurrentWeight = 0.0f;
 	MaxWeight = 100.0f;
+	Battery = 100.0f;
+	MaxBattery = 100.0f;
 }
 
 void UBaseAttributeSet::ResetHealthToMax()
@@ -63,6 +65,16 @@ void UBaseAttributeSet::OnRep_MaxWeight(const FGameplayAttributeData& OldValue) 
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UBaseAttributeSet, MaxWeight, OldValue);
 }
 
+void UBaseAttributeSet::OnRep_Battery(const FGameplayAttributeData& OldValue) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UBaseAttributeSet, Battery, OldValue);
+}
+
+void UBaseAttributeSet::OnRep_MaxBattery(const FGameplayAttributeData& OldValue) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UBaseAttributeSet, MaxBattery, OldValue);
+}
+
 void UBaseAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -75,6 +87,8 @@ void UBaseAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME_CONDITION_NOTIFY(UBaseAttributeSet, MaxStemina, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UBaseAttributeSet, CurrentWeight, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UBaseAttributeSet, MaxWeight, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UBaseAttributeSet, Battery, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UBaseAttributeSet, MaxBattery, COND_None, REPNOTIFY_Always);
 }
 
 void UBaseAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -96,6 +110,10 @@ void UBaseAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, 
 	else if(Attribute == GetCurrentWeightAttribute())
 	{
 		NewValue = FMath::Max(0.0f, NewValue);
+	}
+	else if (Attribute == GetBatteryAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.0f, GetMaxBattery());
 	}
 }
 
@@ -126,5 +144,9 @@ void UBaseAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	else if(Data.EvaluatedData.Attribute == GetCurrentWeightAttribute())
 	{
 		SetCurrentWeight(FMath::Max(0.0f, GetCurrentWeight()));
+	}
+	else if (Data.EvaluatedData.Attribute == GetBatteryAttribute())
+	{
+		SetBattery(FMath::Clamp(GetBattery(), 0.0f, GetMaxBattery()));
 	}
 }

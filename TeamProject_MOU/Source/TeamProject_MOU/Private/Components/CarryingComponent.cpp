@@ -437,6 +437,33 @@ void UCarryingComponent::EquipItem(AActor* ItemToEquip)
 	if (GetOwner()->HasAuthority())
 	{
 		MulticastEquipItem(ItemToEquip);
+
+		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
+		{
+			if (UAbilitySystemComponent* ASC = Char->GetAbilitySystemComponent())
+			{
+				if (ActiveCarryAbilitySpecHandle.IsValid())
+				{
+					ASC->CancelAbilityHandle(ActiveCarryAbilitySpecHandle);
+					ASC->ClearAbility(ActiveCarryAbilitySpecHandle);
+					ActiveCarryAbilitySpecHandle = FGameplayAbilitySpecHandle();
+				}
+
+				AMainCharacter* MainCharOwner = Cast<AMainCharacter>(Char);
+				TSubclassOf<UGameplayAbility> AbilityClassToGive = (MainCharOwner && MainCharOwner->CarryItemAbilityClass) ? MainCharOwner->CarryItemAbilityClass : TSubclassOf<UGameplayAbility>(UGA_CarryItem::StaticClass());
+
+				if (APackageBase* Package = Cast<APackageBase>(ItemToEquip))
+				{
+					if (Package->PackageType == EPackageType::Heavy)
+					{
+						AbilityClassToGive = (MainCharOwner && MainCharOwner->HeavyCarryAbilityClass) ? MainCharOwner->HeavyCarryAbilityClass : TSubclassOf<UGameplayAbility>(UGA_HeavyCarry::StaticClass());
+					}
+				}
+
+				ActiveCarryAbilitySpecHandle = ASC->GiveAbility(FGameplayAbilitySpec(AbilityClassToGive, 1));
+				ASC->TryActivateAbility(ActiveCarryAbilitySpecHandle);
+			}
+		}
 	}
 }
 
@@ -474,6 +501,19 @@ void UCarryingComponent::ClearCarriedItem()
 	if (GetOwner()->HasAuthority())
 	{
 		MulticastClearCarriedItem();
+
+		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
+		{
+			if (UAbilitySystemComponent* ASC = Char->GetAbilitySystemComponent())
+			{
+				if (ActiveCarryAbilitySpecHandle.IsValid())
+				{
+					ASC->CancelAbilityHandle(ActiveCarryAbilitySpecHandle);
+					ASC->ClearAbility(ActiveCarryAbilitySpecHandle);
+					ActiveCarryAbilitySpecHandle = FGameplayAbilitySpecHandle();
+				}
+			}
+		}
 	}
 }
 
@@ -513,6 +553,10 @@ void UCarryingComponent::UpdateCharacterTotalWeight()
 			{
 				TotalWeight += Package->AppliedWeightMap[Char];
 			}
+			else
+			{
+				TotalWeight += Package->ItemWeight;
+			}
 		}
 		else
 		{
@@ -524,12 +568,12 @@ void UCarryingComponent::UpdateCharacterTotalWeight()
 		TotalWeight += 50.0f; // 시체 운반 기본 무게
 	}
 
-	// 2. 인벤토리 슬롯에 보관 중인 모든 아이템 무게 합산
+	// 2. 인벤토리 슬롯에 보관 중인 모든 아이템 무게 합산 (손에 든 아이템과 중복 합산 방지)
 	if (UInventoryComponent* InvComp = Char->FindComponentByClass<UInventoryComponent>())
 	{
 		for (AItemBase* SlotItem : InvComp->InventorySlots)
 		{
-			if (SlotItem)
+			if (SlotItem && SlotItem != CarriedActor)
 			{
 				TotalWeight += SlotItem->ItemWeight;
 			}
