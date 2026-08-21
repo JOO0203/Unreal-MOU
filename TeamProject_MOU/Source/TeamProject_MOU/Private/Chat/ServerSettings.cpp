@@ -35,6 +35,12 @@ namespace
 UMOUServerSettings::UMOUServerSettings()
 	: ServerHost(kFallbackHost)
 	, ServerPort(kFallbackPort)
+	// 기본값이 자체 서버인 이유: 외부 SDK 도 Epic 계정도 인터넷도 없이 바로 돌아간다.
+	// EOS 는 붙이는 순간 팀 전원이 Dev Portal 설정을 공유해야 하므로 기본값이 될 수 없다.
+	, LobbyBackend(EMOULobbyBackendType::CustomSocket)
+	// 60초. 큰 맵을 저사양 PC 에서 여는 최악의 경우를 넉넉히 덮는 값이다.
+	// 정상적인 경우 이 값은 쓰이지 않는다 — 리슨서버가 뜨는 즉시 신호가 나간다.
+	, HostReadyTimeoutSeconds(60.f)
 {
 }
 
@@ -56,7 +62,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 	if (OutHost.IsEmpty())
 	{
 		OutHost = kFallbackHost;
-		Source  = TEXT("기본값");
+		Source = TEXT("기본값");
 	}
 	if (!IsValidPort(OutPort))
 	{
@@ -78,7 +84,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 			if (!HostPart.IsEmpty())
 			{
 				OutHost = HostPart;
-				Source  = TEXT("실행 인자 -MOUServer");
+				Source = TEXT("실행 인자 -MOUServer");
 			}
 			const int32 ParsedPort = FCString::Atoi(*PortPart);
 			if (IsValidPort(ParsedPort))
@@ -89,7 +95,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		else if (!Combined.IsEmpty())
 		{
 			OutHost = Combined;
-			Source  = TEXT("실행 인자 -MOUServer");
+			Source = TEXT("실행 인자 -MOUServer");
 		}
 	}
 
@@ -100,7 +106,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		if (!HostSwitch.IsEmpty())
 		{
 			OutHost = HostSwitch;
-			Source  = TEXT("실행 인자 -MOUChatHost");
+			Source = TEXT("실행 인자 -MOUChatHost");
 		}
 	}
 
@@ -116,6 +122,52 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 	{
 		*OutSource = Source;
 	}
+}
+
+EMOULobbyBackendType UMOUServerSettings::ResolveBackendType(FString* OutSource)
+{
+	const UMOUServerSettings* Settings = GetDefault<UMOUServerSettings>();
+	EMOULobbyBackendType Type = Settings->LobbyBackend;
+	FString Source = TEXT("설정 파일");
+
+	// 실행 인자가 가장 세다. 팀원 한 명만 EOS 로 테스트해보는 상황을 위해 열어둔다.
+	FString Switch;
+	if (FParse::Value(FCommandLine::Get(), TEXT("MOULobbyBackend="), Switch))
+	{
+		Switch.TrimStartAndEndInline();
+		if (Switch.Equals(TEXT("EOS"), ESearchCase::IgnoreCase))
+		{
+			Type = EMOULobbyBackendType::EOS;
+			Source = TEXT("실행 인자 -MOULobbyBackend");
+		}
+		else if (Switch.Equals(TEXT("Socket"), ESearchCase::IgnoreCase)
+			|| Switch.Equals(TEXT("CustomSocket"), ESearchCase::IgnoreCase))
+		{
+			Type = EMOULobbyBackendType::CustomSocket;
+			Source = TEXT("실행 인자 -MOULobbyBackend");
+		}
+		else
+		{
+			// 오타를 조용히 넘기면 "왜 EOS 로 안 바뀌지" 를 한참 헤매게 된다.
+			UE_LOG(LogMOUChat, Warning,
+				TEXT("-MOULobbyBackend=%s 를 알아듣지 못했다. 쓸 수 있는 값: EOS, Socket"), *Switch);
+		}
+	}
+
+	if (OutSource != nullptr)
+	{
+		*OutSource = Source;
+	}
+	return Type;
+}
+
+float UMOUServerSettings::GetHostReadyTimeoutSeconds()
+{
+	const float Configured = GetDefault<UMOUServerSettings>()->HostReadyTimeoutSeconds;
+
+	// ini 를 손으로 고치다 0 이나 음수가 들어가면 시작하자마자 시간 초과가 된다.
+	// 그런 값은 설정이 아니라 사고이므로 무시한다.
+	return (Configured > 0.f) ? Configured : 60.f;
 }
 
 FString UMOUServerSettings::GetResolvedServerHost()

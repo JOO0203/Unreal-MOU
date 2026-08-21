@@ -6,6 +6,7 @@
 
 #include "Voice/VoicePlaybackComponent.h"
 
+#include "Voice/RadioComponent.h"
 #include "Voice/VoiceCodec.h"
 #include "Voice/VoiceSynthComponent.h"
 
@@ -98,7 +99,7 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 	// 서버가 우리 편이라는 가정은 맞지만, 범위 밖 enum 이 흘러들어오면
 	// 나중에 이 값으로 배열을 인덱싱하는 코드가 생겼을 때 터진다.
 	const EVoiceRoute Route = MOUVoice::SanitizeRoute(Frame.Route);
-	const EVoiceMode  Mode  = MOUVoice::SanitizeMode(Frame.Mode);
+	const EVoiceMode  Mode = MOUVoice::SanitizeMode(Frame.Mode);
 
 	const FVoiceStreamKey Key{ Frame.SpeakerId, Route };
 	FVoiceStream& Stream = Streams.FindOrAdd(Key);
@@ -131,8 +132,8 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 	}
 
 	Stream.LastFrameTime = Now;
-	Stream.LastMode      = Mode;
-	Stream.Route         = Route;
+	Stream.LastMode = Mode;
+	Stream.Route = Route;
 
 	// 무전이면 소리를 낼 무전기가 프레임에 실려 온다.
 	// 매번 갱신한다 - 같은 사람이라도 무전기를 바꿔 들 수 있다.
@@ -334,7 +335,23 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 		//    그 사운드는 끝까지 2D 로 난다 - "소리는 나는데 방향이 없다" 가 된다.
 		if (Stream.Route == EVoiceRoute::Radio)
 		{
-			Synth->SetRadioMode(MOUVoice::DefaultSpeakerHearRadius);
+			// ★ 상수가 아니라 **그 무전기의 실효 반경**을 쓴다.
+			//   인벤토리에 넣은 무전기는 반경이 줄어야 하는데(StowedRadiusScale),
+			//   여기서 상수를 쓰면 서버는 덜 보내는데 클라 감쇠는 그대로라
+			//   "닿는 사람은 줄었는데 들리는 크기는 똑같은" 어긋난 상태가 된다.
+			//   bInHand 가 복제되므로 클라도 같은 값을 계산할 수 있다.
+			//
+			//   ※ 공간화 설정은 생성 시점에 한 번만 읽힌다(위 ★★). 송신 도중에
+			//     무전기를 집어넣으면 그 스트림은 옛 반경으로 끝난다 - 한 번의
+			//     송신 안에서 일어나는 일이라 무시할 수 있는 차이다.
+			float RadioRadius = MOUVoice::DefaultSpeakerHearRadius;
+
+			if (const URadioComponent* Radio = SpeakerActor->FindComponentByClass<URadioComponent>())
+			{
+				RadioRadius = Radio->GetEffectiveHearRadius();
+			}
+
+			Synth->SetRadioMode(RadioRadius);
 		}
 		else
 		{
@@ -399,26 +416,26 @@ void UVoicePlaybackComponent::ResetAllStreams()
 
 FString UVoicePlaybackComponent::GetStatsString() const
 {
-	int32 Played    = 0;
+	int32 Played = 0;
 	int32 Concealed = 0;
-	int32 Late      = 0;
+	int32 Late = 0;
 	int32 Duplicate = 0;
-	int32 Resync    = 0;
-	int32 Starve    = 0;
-	int32 Pending   = 0;
+	int32 Resync = 0;
+	int32 Starve = 0;
+	int32 Pending = 0;
 
 	for (const TPair<FVoiceStreamKey, FVoiceStream>& Pair : Streams)
 	{
 		const FVoiceStream& Stream = Pair.Value;
 
-		Played    += Stream.FramesPlayed;
+		Played += Stream.FramesPlayed;
 		Concealed += Stream.FramesConcealed;
 
-		Late      += Stream.Jitter.GetLateCount();
+		Late += Stream.Jitter.GetLateCount();
 		Duplicate += Stream.Jitter.GetDuplicateCount();
-		Resync    += Stream.Jitter.GetResyncCount();
-		Starve    += Stream.Jitter.GetStarveCount();
-		Pending   += Stream.Jitter.GetPendingCount();
+		Resync += Stream.Jitter.GetResyncCount();
+		Starve += Stream.Jitter.GetStarveCount();
+		Pending += Stream.Jitter.GetPendingCount();
 	}
 
 	// 지터 깊이를 ms 로도 보여준다. 프레임 수보다 "지금 몇 ms 늦게 듣고 있는지" 가
