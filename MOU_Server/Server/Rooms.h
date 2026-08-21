@@ -100,11 +100,32 @@ namespace MOU
 		 * 게임을 시작한다. 방장만, 그리고 전원이 준비했을 때만 성공한다.
 		 * 성공하면 방이 InGame 이 되어 목록에서 사라진다.
 		 *
-		 * @param OutNotifyUserIds 떠나라고 알려야 할 멤버 전원 (방장 포함)
+		 * [v6] 이 신호는 "게임이 시작됐다" 까지다. 참여자가 실제로 떠나는 시점은
+		 *      MarkHostReady 가 정한다 — 호스트의 리슨서버가 아직 안 열렸을 수 있다.
+		 *
+		 * @param OutNotifyUserIds 시작을 알려야 할 멤버 전원 (방장 포함)
 		 */
 		ERoomResult StartGame(uint64_t HostUserId, uint32_t& OutRoomId,
 		                      std::string& OutHostAddress, uint16_t& OutHostPort,
 		                      std::vector<uint64_t>& OutNotifyUserIds);
+
+		/**
+		 * 호스트가 "리슨서버가 열렸다" 고 알려왔다. 참여자에게 출발 신호를 넘길 때 쓴다.
+		 *
+		 * [서버는 이 사실을 스스로 알 수 없다]
+		 *   맵 로딩이 끝나 접속을 받기 시작한 시점은 호스트 프로세스 안에서만 관측된다.
+		 *   그렇다고 서버가 호스트의 게임 포트로 직접 붙어 확인하게 만들면, 이 프로세스가
+		 *   게임 트래픽에 발을 담그는 셈이라 "주소록" 이라는 역할을 스스로 깬다.
+		 *   그래서 호스트의 신고를 그대로 중계한다.
+		 *
+		 * @param OutNotifyUserIds 떠나라고 알려야 할 참여자들 (방장 제외 — 이미 그 안에 있다)
+		 * @return NotInRoom  어느 방에도 없다
+		 *         NotHost    방장이 아니다
+		 *         NotStarted 아직 StartGame 을 거치지 않은 방이다
+		 */
+		ERoomResult MarkHostReady(uint64_t HostUserId, uint32_t& OutRoomId,
+		                          std::string& OutHostAddress, uint16_t& OutHostPort,
+		                          std::vector<uint64_t>& OutNotifyUserIds);
 
 		/**
 		 * 방의 현재 멤버 명단을 뜬다. RoomMemberList 를 만들 때 쓴다.

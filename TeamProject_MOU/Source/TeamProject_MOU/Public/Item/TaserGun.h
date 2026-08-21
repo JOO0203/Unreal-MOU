@@ -43,6 +43,9 @@ public:
 	// (좌클릭→횟수차감→서버권한 분기는 부모 WeaponItemBase가 처리)
 	virtual void Fire() override;
 
+	// [TASER-007] 발사 1회당 내구도 25 차감 (명중 무관). 최대 100이라 4번 쏘면 소진. [WEAPON-014]
+	virtual float GetDurabilityCostPerUse() const override { return 25.0f; }
+
 	// [TASER-006] 무기 공통 히트 처리 override: 맞은 캐릭터에 기절 부여
 	virtual void ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit) override;
 #pragma endregion

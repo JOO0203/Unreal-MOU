@@ -71,11 +71,15 @@ AItemBase* AItemSpawner::SpawnItemAt(FName RowName, FVector Location, FRotator R
 	}
 
 	// 표 데이터 주입 (ItemBase의 public 필드에 값만 대입 - ItemBase 코드는 안 건드림)
-	// BeginPlay 전에 주입되므로 MaxUseCount가 확정된 뒤 카운트가 초기화된다.
+	// BeginPlay 전에 주입되므로 MaxUseCount/MaxDurability가 확정된 뒤 카운트/내구도가 초기화된다.
 	SpawnedItem->ItemName = Row->ItemName;
 	SpawnedItem->ItemIcon = Row->ItemIcon;
 	SpawnedItem->ItemWeight = Row->ItemWeight;
 	SpawnedItem->MaxUseCount = Row->MaxUseCount;
+	// 무기 베이스는 BeginPlay에서 CurrentDurability = MaxDurability로 초기화하므로,
+	// 여기서 MaxDurability를 넣어두면 DT 값이 그대로 시작 내구도가 된다.
+	SpawnedItem->MaxDurability = Row->MaxDurability;
+	SpawnedItem->CurrentDurability = Row->MaxDurability;
 
 	// 주입 완료 후 BeginPlay 실행
 	SpawnedItem->FinishSpawning(SpawnTransform);

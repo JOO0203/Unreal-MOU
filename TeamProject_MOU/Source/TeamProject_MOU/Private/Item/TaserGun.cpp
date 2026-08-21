@@ -11,9 +11,9 @@
 
 ATaserGun::ATaserGun()
 {
-	// 테이저건은 최대 3회 사용 (요청 사양)
-	MaxUseCount = 3;
-	CurrentUseCount = MaxUseCount;
+	// 최대 내구도 100, 발사당 25 차감(GetDurabilityCostPerUse) → 4회 발사 가능.
+	MaxDurability = 100.0f;
+	CurrentDurability = MaxDurability;
 
 	// 총구 지점 컴포넌트 (VFX 시작 위치용). BP에서 메시 총구로 이동시킴
 	MuzzlePoint = CreateDefaultSubobject<USceneComponent>(TEXT("MuzzlePoint"));
