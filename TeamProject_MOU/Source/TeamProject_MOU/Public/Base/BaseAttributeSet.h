@@ -45,6 +45,26 @@ public:
 	FGameplayAttributeData MaxStemina;
 	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxStemina);
 
+	// 현재 들고 있는 무게 (과적 계산용)
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_CurrentWeight)
+	FGameplayAttributeData CurrentWeight;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, CurrentWeight);
+
+	// 과적 패널티 없이 들 수 있는 최대 무게
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_MaxWeight)
+	FGameplayAttributeData MaxWeight;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxWeight);
+
+	// 현재 배터리 (발광 손전등 소모용)
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_Battery)
+	FGameplayAttributeData Battery;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, Battery);
+
+	// 최대 배터리 용량
+	UPROPERTY(BlueprintReadOnly, Category = "Attribute", ReplicatedUsing = OnRep_MaxBattery)
+	FGameplayAttributeData MaxBattery;
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseAttributeSet, MaxBattery);
+
 	UFUNCTION(BlueprintCallable, Category = "Attribute")
 	void ResetHealthToMax();
 
@@ -65,6 +85,18 @@ public:
 
 	UFUNCTION()
 	void OnRep_MaxStemina(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_CurrentWeight(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_MaxWeight(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_Battery(const FGameplayAttributeData& OldValue) const;
+
+	UFUNCTION()
+	void OnRep_MaxBattery(const FGameplayAttributeData& OldValue) const;
 
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
