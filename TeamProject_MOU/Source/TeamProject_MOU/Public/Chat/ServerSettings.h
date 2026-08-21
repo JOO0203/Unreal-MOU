@@ -39,7 +39,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Chat/LobbyTypes.h"   // EMOULobbyBackendType
 #include "Engine/DeveloperSettings.h"
 #include "ServerSettings.generated.h"
 
@@ -72,38 +71,6 @@ public:
 	int32 ServerPort;
 
 	/**
-	 * 계정 인증과 세션 탐색을 무엇으로 할 것인가.
-	 *
-	 * 이 값 하나만 바꾸면 백엔드가 통째로 갈린다. 위젯도 게임 로직도 손대지 않는다 —
-	 * 그렇게 만들어두려고 ILobbyBackend 가 있다.
-	 *
-	 * 실행 인자로 이번 실행만 바꿀 수도 있다:  -MOULobbyBackend=EOS
-	 *
-	 * >> 어느 쪽을 고르든 이동/전투/GAS 는 호스트의 리슨서버가 처리한다.
-	 *    여기서 정하는 것은 "방이 열리기 전" 과 "계정" 뿐이다. <<
-	 */
-	UPROPERTY(config, EditAnywhere, BlueprintReadOnly, Category = "MOU|Lobby")
-	EMOULobbyBackendType LobbyBackend;
-
-	/**
-	 * 게임 시작 후 방장의 리슨서버가 열리기를 기다리는 최대 시간(초).
-	 *
-	 * [이 값이 무엇을 재는가]
-	 *   방장이 "게임 시작" 을 누르면 서버가 전원에게 RoomStart 를 보낸다. 방장은 그때부터
-	 *   맵을 열기 시작하고, 다 열리면 서버에 "준비됐다" 를 보낸다. 참여자는 그 신호를 받고서야
-	 *   떠난다. 이 값은 그 "다 열리면" 을 얼마나 기다려줄지다.
-	 *
-	 * [넘기면 어떻게 되나]
-	 *   준비 신호를 보내지 않는다. 참여자는 대기실에 남는다.
-	 *   열리지도 않은 주소로 보내 튕기게 만드는 것보다 낫다고 보기 때문이다.
-	 *   방장 로그에 사유가 남고, 방장이 방을 나가면 참여자도 메인메뉴로 돌아간다.
-	 *
-	 * 맵이 크거나 저사양 PC 가 섞여 있으면 늘린다.
-	 */
-	UPROPERTY(config, EditAnywhere, BlueprintReadOnly, Category = "MOU|Lobby", meta = (ClampMin = "1.0", ClampMax = "600.0"))
-	float HostReadyTimeoutSeconds;
-
-	/**
 	 * 실제로 접속할 주소를 결정한다. 위 우선순위를 그대로 구현한 유일한 함수다.
 	 *
 	 * @param OutSource nullptr 이 아니면 어느 단계에서 값이 왔는지 사람이 읽을 수 있는
@@ -121,17 +88,6 @@ public:
 	/** "192.168.0.32:9000 (팀 공유 설정)" 처럼 화면/로그에 그대로 쓸 수 있는 문구. */
 	UFUNCTION(BlueprintPure, Category = "MOU|Chat")
 	static FString GetResolvedEndpointText();
-
-	/**
-	 * 실제로 쓸 백엔드 종류를 결정한다. 주소와 같은 우선순위를 따른다
-	 * (실행 인자 -MOULobbyBackend= 가 설정 파일을 이긴다).
-	 *
-	 * @param OutSource nullptr 이 아니면 어느 단계에서 값이 왔는지 채운다.
-	 */
-	static EMOULobbyBackendType ResolveBackendType(FString* OutSource = nullptr);
-
-	/** 리슨서버 준비를 기다리는 상한. 설정값이 깨져 있어도 안전한 값을 돌려준다. */
-	static float GetHostReadyTimeoutSeconds();
 
 	/**
 	 * 주소를 **이 PC 에만** 저장한다 (Saved/Config/<플랫폼>/Game.ini).

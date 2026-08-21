@@ -16,7 +16,7 @@
 //   MOU.Voice.Radio.Spawn      내 손에 무전기 하나
 //   MOU.Voice.Radio.Power 1    전원 ON (이게 Z 키에 대응한다)
 //   MOU.Voice.Radio.PTT 1      송신 시작 (이게 X 키에 대응한다)
-//   MOU.Voice.Radio.Drop       바닥에 떨군다 - 전원이 꺼져 소리가 멎는다
+//   MOU.Voice.Radio.Drop       바닥에 떨군다 - 그 자리에서 계속 소리가 난다
 //
 // [대응하는 문서]
 //   VOICE_INTEGRATION.md 7-3절, 7-4절, 14절 V6
@@ -52,7 +52,7 @@ public:
 	/** 이 폰이 들고 있는 테스트 무전기를 찾는다. 없으면 null. */
 	static AVoiceDebugRadio* FindHeldBy(APawn* OwnerPawn);
 
-	/** 부착을 풀어 그 자리에 떨군다. **전원이 자동으로 꺼진다.** */
+	/** 부착을 풀어 그 자리에 떨군다. 켜져 있으면 **거기서 계속 소리가 난다.** */
 	void DropHere();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Radio")

@@ -6,7 +6,6 @@
 
 #include "Voice/VoicePlaybackComponent.h"
 
-#include "Voice/RadioComponent.h"
 #include "Voice/VoiceCodec.h"
 #include "Voice/VoiceSynthComponent.h"
 
@@ -335,23 +334,7 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 		//    그 사운드는 끝까지 2D 로 난다 - "소리는 나는데 방향이 없다" 가 된다.
 		if (Stream.Route == EVoiceRoute::Radio)
 		{
-			// ★ 상수가 아니라 **그 무전기의 실효 반경**을 쓴다.
-			//   인벤토리에 넣은 무전기는 반경이 줄어야 하는데(StowedRadiusScale),
-			//   여기서 상수를 쓰면 서버는 덜 보내는데 클라 감쇠는 그대로라
-			//   "닿는 사람은 줄었는데 들리는 크기는 똑같은" 어긋난 상태가 된다.
-			//   bInHand 가 복제되므로 클라도 같은 값을 계산할 수 있다.
-			//
-			//   ※ 공간화 설정은 생성 시점에 한 번만 읽힌다(위 ★★). 송신 도중에
-			//     무전기를 집어넣으면 그 스트림은 옛 반경으로 끝난다 - 한 번의
-			//     송신 안에서 일어나는 일이라 무시할 수 있는 차이다.
-			float RadioRadius = MOUVoice::DefaultSpeakerHearRadius;
-
-			if (const URadioComponent* Radio = SpeakerActor->FindComponentByClass<URadioComponent>())
-			{
-				RadioRadius = Radio->GetEffectiveHearRadius();
-			}
-
-			Synth->SetRadioMode(RadioRadius);
+			Synth->SetRadioMode(MOUVoice::DefaultSpeakerHearRadius);
 		}
 		else
 		{
