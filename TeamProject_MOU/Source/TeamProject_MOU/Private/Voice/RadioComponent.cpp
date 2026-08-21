@@ -50,7 +50,6 @@ void URadioComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(URadioComponent, bPoweredOn);
-	DOREPLIFETIME(URadioComponent, bInHand);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,46 +120,6 @@ void URadioComponent::UpdateRegistration()
 		Router->UnregisterRadio(this);
 		bRegistered = false;
 	}
-}
-
-// ---------------------------------------------------------------------------
-// 손에 듦 / 인벤토리
-// ---------------------------------------------------------------------------
-
-void URadioComponent::SetInHand(bool bNowInHand)
-{
-	AActor* Owner = GetOwner();
-
-	// 전원과 같은 이유로 서버 권위다. 클라가 "나 손에 들었어" 라고 주장해서
-	// 송신 자격이 생기면 인벤토리에 넣은 채로 무전을 칠 수 있게 된다.
-	if (!Owner || !Owner->HasAuthority())
-	{
-		UE_LOG(LogMOUVoice, Warning,
-			TEXT("URadioComponent::SetInHand 는 서버에서만 부를 수 있다."));
-		return;
-	}
-
-	if (bInHand == bNowInHand)
-	{
-		return;
-	}
-
-	bInHand = bNowInHand;
-
-	UE_LOG(LogMOUVoice, Verbose, TEXT("무전기(%s) %s."),
-		*GetNameSafe(Owner),
-		bNowInHand ? TEXT("손에 듦 (송신 가능)") : TEXT("인벤토리 (수신만)"));
-}
-
-float URadioComponent::GetEffectiveHearRadius() const
-{
-	// 인벤토리에 있으면 가방 안에서 웅얼거리는 소리라 덜 퍼진다.
-	return bInHand ? SpeakerHearRadius : SpeakerHearRadius * StowedRadiusScale;
-}
-
-float URadioComponent::GetEffectiveNoiseRadius() const
-{
-	return bInHand ? SpeakerNoiseRadius : SpeakerNoiseRadius * StowedRadiusScale;
 }
 
 // ---------------------------------------------------------------------------

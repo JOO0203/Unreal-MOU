@@ -91,13 +91,6 @@ AVoiceDebugRadio* AVoiceDebugRadio::SpawnAttachedTo(APawn* OwnerPawn)
 	// (URadioComponent::GetHolder 가 부착을 타고 올라가며 찾는다).
 	Radio->AttachToActor(OwnerPawn, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 
-	// ★ 손에 들었다고 알려줘야 송신 자격이 생긴다(FindUsableRadioFor 가 IsInHand
-	//   를 본다). 테스트 무전기는 인벤토리 개념이 없으므로 스폰 = 손에 듦이다.
-	if (Radio->RadioComponent)
-	{
-		Radio->RadioComponent->SetInHand(true);
-	}
-
 	UE_LOG(LogMOUVoice, Log,
 		TEXT("테스트 무전기를 손에 들었다. MOU.Voice.Radio.Power 1 로 켤 것."));
 
@@ -108,20 +101,13 @@ void AVoiceDebugRadio::DropHere()
 {
 	// 부착만 푼다. 위치는 그대로 두어 "그 자리에 놓았다" 가 된다.
 	//
-	// ★ 떨어뜨리면 꺼진다 (2026-08-20 결정, RadioComponent.h 상단 참고).
-	//   "바닥에 떨어진 무전기가 계속 울려 NPC 를 유인한다" 는 설계는 폐기됐다 -
-	//   NPC 는 무전기가 아니라 그것을 들고 있는 사람을 쫓는다.
-	//   진짜 아이템(ARadio)은 Drop_Implementation 에서 같은 일을 한다.
-	if (RadioComponent)
-	{
-		RadioComponent->SetInHand(false);
-		RadioComponent->SetPowered(false);
-	}
-
+	// ★ 전원은 건드리지 않는다. 켜진 채로 떨어진 무전기가 계속 수신하고
+	//   계속 소리를 내는 것이 이 설계의 핵심 연출이기 때문이다(7-4절).
+	//   시체 주변이 위험지대가 되는 것도 여기서 나온다.
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
 	UE_LOG(LogMOUVoice, Log,
-		TEXT("무전기를 바닥에 놓았다. **전원이 꺼져 더 이상 소리가 나지 않는다.**"));
+		TEXT("무전기를 바닥에 놓았다. 켜져 있으면 **그 자리에서 계속 소리가 난다.**"));
 }
 
 void AVoiceDebugRadio::Tick(float DeltaTime)
@@ -146,7 +132,7 @@ void AVoiceDebugRadio::Tick(float DeltaTime)
 	{
 		// 사람이 들을 수 있는 거리를 링으로 그린다.
 		// V8 에서 NPC 반경(빨강)도 여기 같이 그리면 두 값의 차이가 눈에 보인다.
-		DrawDebugCircle(GetWorld(), GetActorLocation(), RadioComponent->GetEffectiveHearRadius(),
+		DrawDebugCircle(GetWorld(), GetActorLocation(), RadioComponent->SpeakerHearRadius,
 			32, FColor::Green, false, -1.f, 0, 2.f,
 			FVector(1, 0, 0), FVector(0, 1, 0), /*bDrawAxis=*/false);
 	}
