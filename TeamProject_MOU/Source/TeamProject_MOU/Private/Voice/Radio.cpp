@@ -267,6 +267,22 @@ void ARadio::PickUp_Implementation(AActor* Picker)
 	if (HasAuthority() && Picker)
 	{
 		SetOwner(Picker);
+
+		// ★ 줍기도 "손에 듦" 이다. OnEquipped 만 믿으면 안 된다.
+		//
+		//   OnEquipped 는 **인벤토리 슬롯에서 꺼낼 때만** 불린다
+		//   (UInventoryComponent::HandleSlotAction). 바닥에서 E 로 줍는 경로는
+		//   UCarryingComponent::GrabOrDrop 이 PickUp 을 부른 뒤 곧바로
+		//   CarrySocket 에 붙이는데, 그 경로에는 OnEquipped 가 없다.
+		//
+		//   이 한 줄이 없으면 **주운 무전기는 손에 들려 있는데도 송신이 안 된다** -
+		//   라우터가 IsInHand() 를 보고 거부하기 때문이다(FindUsableRadioFor).
+		//   증상은 "X 를 눌러도 아무 일도 안 일어난다" 뿐이라 원인을 찾기가 아주 어렵다.
+		//   인벤토리에 한 번 넣었다 빼야 고쳐지는데, 그걸 알아낼 방법이 없다.
+		if (RadioComponent)
+		{
+			RadioComponent->SetInHand(true);
+		}
 	}
 }
 

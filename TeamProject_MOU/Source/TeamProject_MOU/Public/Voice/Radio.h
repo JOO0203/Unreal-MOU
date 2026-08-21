@@ -182,8 +182,14 @@ protected:
 	virtual void OnUse_Implementation() override;
 
 	/**
-	 * 집을 때 소유권을 설정한다. **이게 없으면 클라의 Server RPC 가 버려진다**
-	 * ("No owning connection"). 전원 토글이 클라에서 시작될 수 있으므로 필요하다.
+	 * 집을 때 소유권을 설정하고 **손에 들었다고 표시한다.**
+	 *
+	 * 소유권: 이게 없으면 클라의 Server RPC 가 버려진다("No owning connection").
+	 * 전원 토글이 클라에서 시작될 수 있으므로 필요하다.
+	 *
+	 * ★ 손에 듦 표시가 여기에도 있는 이유: OnEquipped 는 **인벤토리에서 꺼낼 때만**
+	 *   불린다. 바닥에서 줍는 경로(UCarryingComponent::GrabOrDrop)에는 없어서,
+	 *   여기서 안 켜주면 주운 무전기로 송신이 안 된다(구현부 ★ 참고).
 	 */
 	virtual void PickUp_Implementation(AActor* Picker) override;
 
