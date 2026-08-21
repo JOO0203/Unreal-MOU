@@ -61,6 +61,12 @@ struct FItemSpawnRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (EditCondition = "bIsConsumable"))
 	int32 MaxUseCount = 1;
 
+	// 최대 내구도 (ItemBase.MaxDurability에 주입 → 무기 베이스가 BeginPlay에서 CurrentDurability를 이 값으로 초기화).
+	// 무기별로 다르게 잡는 용도(테이저·부메랑 등). 표에서 안 건드리면 각 무기 C++ 기본값과 동일(보통 100).
+	// 무기 차감량은 코드(GetDurabilityCostPerUse / DurabilityCostPerHit)가 정하고, 이 값은 총량만 조정한다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	float MaxDurability = 100.0f;
+
 	// 상점 판매 가격 (상점/보상 시스템에서 사용)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	int32 Price = 0;

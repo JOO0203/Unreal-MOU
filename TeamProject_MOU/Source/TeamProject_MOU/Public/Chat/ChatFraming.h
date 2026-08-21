@@ -64,6 +64,7 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EMOURoomResultBP::NotInRoom)      == static_cast<uint8>(MOU::ERoomResult::NotInRoom),      "EMOURoomResultBP::NotInRoom 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomResultBP::NotHost)        == static_cast<uint8>(MOU::ERoomResult::NotHost),        "EMOURoomResultBP::NotHost 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomResultBP::NotAllReady)    == static_cast<uint8>(MOU::ERoomResult::NotAllReady),    "EMOURoomResultBP::NotAllReady 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOURoomResultBP::NotStarted)     == static_cast<uint8>(MOU::ERoomResult::NotStarted),     "EMOURoomResultBP::NotStarted 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomStateBP::Waiting)         == static_cast<uint8>(MOU::ERoomState::Waiting),         "EMOURoomStateBP::Waiting 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomStateBP::InGame)          == static_cast<uint8>(MOU::ERoomState::InGame),          "EMOURoomStateBP::InGame 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOURoomCloseReasonBP::HostLeft)  == static_cast<uint8>(MOU::ERoomCloseReason::HostLeft),  "EMOURoomCloseReasonBP::HostLeft 가 서버 정의와 다르다");

@@ -29,7 +29,6 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
-#include "TimerManager.h"
 
 ULobbyWidgetBase::ULobbyWidgetBase(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -78,6 +77,7 @@ void ULobbyWidgetBase::NativeConstruct()
 			Chat->OnRoomMembersChanged.AddDynamic(this, &ULobbyWidgetBase::HandleRoomMembersChanged);
 			Chat->OnRoomClosed.AddDynamic(this, &ULobbyWidgetBase::HandleRoomClosed);
 			Chat->OnRoomGameStarted.AddDynamic(this, &ULobbyWidgetBase::HandleGameStarted);
+			Chat->OnRoomHostReady.AddDynamic(this, &ULobbyWidgetBase::HandleHostReady);
 			bSubscribed = true;
 		}
 	}
@@ -112,11 +112,6 @@ void ULobbyWidgetBase::NativeDestruct()
 	// 로비가 사라질 때 열려 있던 자식 창도 같이 정리한다.
 	CloseChildWidgets();
 
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(GuestTravelTimer);
-	}
-
 	if (bSubscribed)
 	{
 		if (UChatSubsystem* Chat = GetChatSubsystem())
@@ -126,6 +121,7 @@ void ULobbyWidgetBase::NativeDestruct()
 			Chat->OnRoomMembersChanged.RemoveDynamic(this, &ULobbyWidgetBase::HandleRoomMembersChanged);
 			Chat->OnRoomClosed.RemoveDynamic(this, &ULobbyWidgetBase::HandleRoomClosed);
 			Chat->OnRoomGameStarted.RemoveDynamic(this, &ULobbyWidgetBase::HandleGameStarted);
+			Chat->OnRoomHostReady.RemoveDynamic(this, &ULobbyWidgetBase::HandleHostReady);
 		}
 		bSubscribed = false;
 	}
@@ -529,12 +525,9 @@ void ULobbyWidgetBase::ReturnToMainMenu(bool bRoomClosed)
 	MyRoomPassword.Empty();
 	JoinedRoomPassword.Empty();
 
-	// 대기실을 떠나면 예약해둔 여행도 취소한다.
-	// 안 그러면 메인메뉴에 있는 사람이 갑자기 남의 게임으로 끌려간다.
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(GuestTravelTimer);
-	}
+	// v5 까지는 여기서 예약해둔 여행 타이머를 취소했다. 이제 예약이 없다 —
+	// 참여자는 방장의 리슨서버가 실제로 뜬 뒤에 오는 신호를 받고서야 떠나고,
+	// 방을 나가면 서버가 그 신호를 보내지 않기 때문이다.
 
 	SetPanelVisible(true);
 	RefreshUI();
@@ -581,31 +574,41 @@ void ULobbyWidgetBase::HandleGameStarted(const FMOURoomJoinResult& Host, bool bI
 {
 	const FString RoomPassword = bIsHost ? MyRoomPassword : JoinedRoomPassword;
 
+	// 참여자에게는 "이동합니다" 가 아니라 "기다립니다" 라고 말해야 한다.
+	// 실제로 떠나는 것은 HandleHostReady 이고, 그 사이에 몇 초가 흐를 수 있다.
+	// 화면이 멈춘 것처럼 보이지 않게 지금 무엇을 기다리는지 적어준다.
 	SetMessage(bIsHost
 		? TEXT("게임을 시작합니다. 리슨서버를 엽니다...")
-		: FString::Printf(TEXT("게임이 시작됐습니다. 호스트 %s:%d 로 이동합니다..."),
-			*Host.HostAddress, Host.HostPort), false);
+		: TEXT("게임이 시작됐습니다. 방장이 서버를 여는 중입니다..."), false);
 
 	OnGameStarted(Host, bIsHost, RoomPassword);
 
 	if (bIsHost)
 	{
+		// 참여자에게 갈 출발 신호는 이 위젯이 보내지 않는다.
+		// OpenLevel 이 시작되면 이 위젯은 곧 파괴되기 때문이다.
+		// 리슨서버가 실제로 뜬 것을 확인하고 알리는 일은 UChatSubsystem 이 맡는다.
 		TravelAsHost();
 	}
-	else if (bAutoTravelOnGameStart)
+	// 참여자는 여기서 아무것도 하지 않는다. HandleHostReady 를 기다린다.
+}
+
+void ULobbyWidgetBase::HandleHostReady(const FMOURoomJoinResult& Host)
+{
+	// 방장에게는 이 신호가 오지 않는다. 와도 이미 자기 맵에 있으므로 할 일이 없다.
+	if (UIState != EMOULobbyUIState::WaitingRoom)
 	{
-		// 방장이 리슨서버를 다 열기 전에 붙으면 튕긴다. 시차를 두고 떠난다.
-		if (UWorld* World = GetWorld())
-		{
-			FMOURoomJoinResult HostCopy = Host;
-			FString PasswordCopy = RoomPassword;
-			World->GetTimerManager().SetTimer(GuestTravelTimer,
-				FTimerDelegate::CreateWeakLambda(this, [this, HostCopy, PasswordCopy]()
-				{
-					TravelAsClient(HostCopy, PasswordCopy);
-				}),
-				FMath::Max(GuestTravelDelay, 0.01f), /*bLoop=*/false);
-		}
+		return;
+	}
+
+	SetMessage(FString::Printf(TEXT("호스트 %s:%d 로 이동합니다..."),
+		*Host.HostAddress, Host.HostPort), false);
+
+	OnHostReady(Host, JoinedRoomPassword);
+
+	if (bAutoTravelOnGameStart)
+	{
+		TravelAsClient(Host, JoinedRoomPassword);
 	}
 }
 
