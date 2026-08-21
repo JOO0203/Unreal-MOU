@@ -26,13 +26,14 @@
 
 #include "CoreMinimal.h"
 #include "Chat/ChatTypes.h"
+// 전방 선언으로 끝낼 수 없다. TUniquePtr<ILobbyBackend> 의 소멸자가
+// (UHT 가 만드는 생성자에서) 완전한 타입을 요구하기 때문이다.
+// LobbyBackend.h 는 UObject 나 엔진 헤더를 끌고 오지 않아 부담이 없다.
+#include "Chat/LobbyBackend.h"
 #include "Chat/LobbyTypes.h"
 #include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "ChatSubsystem.generated.h"
-
-class FChatClientRunnable;
-class FRunnableThread;
 
 /** 채팅 한 줄을 받았을 때. UI 는 여기 바인딩해서 로그를 채운다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnChatMessageReceived, const FChatMessage&, Message);
@@ -64,16 +65,36 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoomMembersChanged, int32, Roo
 /** 방이 사라졌다. 대기실을 닫고 메인메뉴로 돌아가야 한다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRoomClosed, int32, RoomId, EMOURoomCloseReasonBP, Reason);
 
-/** 게임이 시작됐다. Result.MakeTravelURL() 로 호스트에게 붙으면 된다. */
+/**
+ * 게임이 시작됐다. **아직 떠날 때가 아니다.**
+ *
+ * 방장은 여기서 리슨서버를 열고(OpenLevel + listen), 참여자는 호스트가 다 열었다는
+ * 신호(OnRoomHostReady)를 기다린다. 참여자가 이 시점에 떠나면 아직 열리지 않은
+ * 주소에 붙으려다 튕긴다.
+ */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRoomGameStarted, const FMOURoomJoinResult&, Host, bool, bIsHost);
+
+/**
+ * 방장의 리슨서버가 실제로 열렸다. **참여자는 여기서 떠난다.**
+ *
+ * Host.MakeTravelURL() 로 ClientTravel 하면 된다.
+ * 방장에게는 오지 않는다 — 이 신호를 만든 것이 방장 자신이기 때문이다.
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomHostReady, const FMOURoomJoinResult&, Host);
 
 /**
  * 채팅 서버 연결의 소유자.
  *
  * 역할:
- *   1. 워커 스레드(FChatClientRunnable)의 생성과 파괴
- *   2. 게임 스레드 Tick 에서 워커의 큐를 비우고 델리게이트로 전파
- *   3. 블루프린트/UMG 가 쓸 API 제공 (패킷 조립은 여기서 한다)
+ *   1. 백엔드(ILobbyBackend)의 생성과 파괴
+ *   2. 게임 스레드 Tick 에서 백엔드의 큐를 비우고 델리게이트로 전파
+ *   3. 블루프린트/UMG 가 쓸 API 제공
+ *   4. 백엔드마다 달라지면 안 되는 정책 보관 (재접속 시 자동 재로그인, 내 방 번호 등)
+ *
+ * [패킷은 여기 없다]
+ *   MOU::LoginReqBody 같은 프로토콜 구조체는 FSocketLobbyBackend 안에만 있다.
+ *   이 클래스는 "무엇을 하고 싶은지" 만 말하고 어떻게 나가는지는 모른다.
+ *   그래서 백엔드를 EOS 로 바꿔도 이 파일은 한 줄도 바뀌지 않는다.
  */
 UCLASS()
 class TEAMPROJECT_MOU_API UChatSubsystem : public UGameInstanceSubsystem
@@ -213,9 +234,30 @@ public:
 	/**
 	 * 게임을 시작한다. 방장만, 전원이 준비했을 때만 성공한다.
 	 * 성공하면 방 멤버 전원에게 OnRoomGameStarted 가 간다.
+	 *
+	 * 그 다음은 두 갈래다:
+	 *   방장  : 리슨서버를 연다. 다 열리면 이 서브시스템이 자동으로 감지해
+	 *           로비 서버에 "준비됐다" 를 보낸다 (아래 IsWaitingForListenServer 참고).
+	 *   참여자: OnRoomHostReady 가 올 때까지 기다렸다가 떠난다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
 	void StartGame();
+
+	/**
+	 * 지금 "내 리슨서버가 열리기" 를 기다리는 중인가. 방장에게만 true 가 된다.
+	 *
+	 * 감시는 RoomStart 를 받는 순간 자동으로 켜지고, 리슨서버가 뜨면 꺼진다.
+	 * UI 가 "서버 여는 중..." 을 띄우고 싶을 때 쓴다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool IsWaitingForListenServer() const { return bWaitingForListenServer; }
+
+	/**
+	 * 지금 쓰고 있는 백엔드 이름. "자체 서버(TCP)" / "EOS".
+	 * 디버그 화면에 띄워두면 "어디에 붙어 있는지" 를 묻지 않아도 된다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	FString GetBackendName() const;
 
 	/**
 	 * 방 진행 상태를 서버에 알린다. 방장만 의미가 있다.
@@ -301,12 +343,33 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
 	FOnRoomGameStarted OnRoomGameStarted;
 
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnRoomHostReady OnRoomHostReady;
+
 private:
-	/** 게임 스레드 틱. 워커 큐를 비우고 델리게이트를 브로드캐스트한다. */
+	/** 게임 스레드 틱. 백엔드 큐를 비우고 델리게이트를 브로드캐스트한다. */
 	bool Tick(float DeltaTime);
 
-	/** 워커 스레드를 Stop -> 종료 대기 -> 파괴 순서로 정리한다. */
+	/** 백엔드를 정리하고 버린다. 워커 스레드가 있으면 끝날 때까지 기다린다. */
 	void ShutdownClient();
+
+	/**
+	 * 방장이 연 리슨서버가 실제로 떴는지 매 틱 확인하고, 뜨는 순간 백엔드에 알린다.
+	 *
+	 * [왜 위젯이 아니라 여기인가]
+	 *   방장은 OpenLevel 로 맵을 갈아탄다. 그 순간 로비 위젯은 파괴되므로
+	 *   위젯에 타이머를 걸어두면 신호를 보낼 주체가 사라진다.
+	 *   이 서브시스템은 GameInstance 소속이라 레벨 이동을 넘어 살아남는다.
+	 *
+	 * [왜 "다 열렸다" 를 폴링으로 아는가]
+	 *   OpenLevel 은 완료 콜백이 없고, 리슨서버가 접속을 받기 시작하는 정확한 시점은
+	 *   넷드라이버가 생겼는지로만 알 수 있다. 매 틱 포인터 한 번 확인하는 비용이라
+	 *   폴링이라고 부르기도 민망한 수준이다.
+	 */
+	void PollListenServer(float DeltaTime);
+
+	/** 지금 이 프로세스가 리슨서버로 돌고 있는가. */
+	bool IsListenServerUp() const;
 
 	void SetConnectionState(EChatConnectionState NewState, const FString& Detail = FString());
 
@@ -331,15 +394,28 @@ private:
 	FChatLoginResult LoginResult;
 
 	/**
-	 * 소켓 워커. 게임 스레드에서 생성/파괴하고, 그 사이에는 워커 스레드가 이 객체를 쓴다.
+	 * 계정/세션 탐색 백엔드. 종류는 설정이 정한다(UMOUServerSettings::LobbyBackend).
 	 *
-	 * 스마트 포인터를 쓰지 않고 원시 포인터로 두는 이유:
-	 * 러너블의 수명은 "스레드가 끝났는가" 에만 달려 있고, 그 판단은 ShutdownClient 하나에서만
-	 * 내린다. 참조 카운트로 관리하면 오히려 스레드가 살아있는데 객체가 먼저 사라질 여지가 생긴다.
-	 * 반드시 ShutdownClient 를 거쳐서만 해제할 것. delete 를 직접 부르지 말 것.
+	 * [이 포인터가 이 클래스에서 유일한 "바깥으로 나가는 문" 이다]
+	 *   위젯도 게임 로직도 백엔드를 직접 만지지 않는다. 그래서 EOS 로 갈아끼울 때
+	 *   바뀌는 것은 여기에 무엇이 담기느냐 하나뿐이다.
+	 *
+	 * ConnectToChatServer 에서 만들고 ShutdownClient 에서 버린다.
+	 * TUniquePtr 이므로 소멸자에서 자동으로 정리되지만, 워커 스레드를 안전하게
+	 * 세우는 것은 백엔드의 Shutdown() 이 책임진다.
 	 */
-	FChatClientRunnable* ChatClient = nullptr;
-	FRunnableThread*     ChatThread = nullptr;
+	TUniquePtr<ILobbyBackend> Backend;
+
+	/**
+	 * 방장이 리슨서버를 다 열기를 기다리는 중인가. RoomStart 를 받을 때 켜진다.
+	 *
+	 * v5 까지는 이 감시가 없었고, 참여자가 고정 3초를 센 뒤 떠났다.
+	 * 그 3초는 근거 없는 값이라 느린 PC 에서는 모자라고 빠른 PC 에서는 낭비였다.
+	 */
+	bool  bWaitingForListenServer = false;
+
+	/** 기다린 시간. UMOUServerSettings::HostReadyTimeoutSeconds 를 넘으면 포기한다. */
+	float ListenServerWaitSeconds = 0.f;
 
 	FTSTicker::FDelegateHandle TickHandle;
 

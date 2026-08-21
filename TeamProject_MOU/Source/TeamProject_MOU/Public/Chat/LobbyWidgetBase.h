@@ -33,12 +33,21 @@
 //   재접속해야 하는데 UE 가 이를 기본 지원하지 않는다.
 //   그래서 서버가 RoomClosed 를 보내고, 남은 사람은 메인메뉴로 돌아간다.
 //
-// [여행 — 아직 스위치가 꺼져 있다]
+// [여행 — 두 박자로 나뉜다]
 //   게임 시작 시점에만 여행한다(방을 만들거나 참여할 때가 아니다).
-//     방장  : HostMapName 이 채워져 있으면 OpenLevel(맵, "listen")
-//     참여자: bAutoTravelOnGameStart 가 켜져 있으면 ClientTravel
-//   둘 다 기본값이 "하지 않음" 이다. 맵 이름은 게임 쪽 사정이라 위젯이 정하지 않는다.
-//   블루프린트에서 하려면 OnGameStarted 훅을 쓴다.
+//   그런데 방장과 참여자가 떠나는 시점이 다르다.
+//
+//     1박자  OnRoomGameStarted   방장이 리슨서버를 열기 시작한다.
+//                                참여자는 "호스트가 서버를 여는 중" 을 보며 기다린다.
+//     2박자  OnRoomHostReady     리슨서버가 실제로 떴다. 참여자가 그때 떠난다.
+//
+//   두 박자로 나눈 이유는 1박자에서 참여자가 떠나면 아직 열리지 않은 주소에 붙으려다
+//   튕기기 때문이다. v5 까지는 고정 3초를 기다려 때웠는데, 그 값은 느린 PC 에서
+//   모자라고 빠른 PC 에서는 낭비였다. 이제는 실제로 뜬 것을 보고 신호를 보낸다.
+//
+//     방장  : HostMapName 이 채워져 있으면 OpenLevel(맵, "listen"). 비어 있으면
+//             여행은 게임 쪽(블루프린트/게임모드)의 몫이다 — 맵 이름은 위젯이 정할 일이 아니다.
+//     참여자: bAutoTravelOnGameStart 가 켜져 있으면 2박자에서 ClientTravel
 //
 //   [빠진 것] 호스트의 AGameModeBase::PreLogin 에서 RoomPassword URL 옵션을
 //   다시 검사하는 부분이 없다. 자세한 내용은 SERVER_INTEGRATION.md 12절 3번.
@@ -57,7 +66,6 @@
 #include "Blueprint/UserWidget.h"
 #include "Chat/ChatTypes.h"
 #include "Chat/LobbyTypes.h"
-#include "Engine/TimerHandle.h"
 #include "LobbyWidgetBase.generated.h"
 
 class UButton;
@@ -123,23 +131,18 @@ public:
 	FString HostMapName;
 
 	/**
-	 * 게임이 시작되면 참여자가 곧바로 호스트에게 ClientTravel 할지.
+	 * 호스트의 리슨서버가 열렸다는 신호를 받으면 참여자가 자동으로 ClientTravel 할지.
 	 *
-	 * 기본값이 false 인 이유: 방장이 리슨서버를 다 열기 전에 참여자가 붙으면
-	 * 접속이 실패한다. 켜서 쓸 때는 GuestTravelDelay 로 시차를 준다.
+	 * [v6 에서 안전해졌다]
+	 *   v5 까지 이 값의 기본이 false 였던 이유는 "방장이 리슨서버를 다 열기 전에 붙으면
+	 *   튕긴다" 였고, 그래서 GuestTravelDelay 라는 고정 3초 시차로 때웠다.
+	 *   이제는 방장의 리슨서버가 실제로 뜬 뒤에야 신호가 오므로 그 위험이 없다.
+	 *   시차 값도 함께 사라졌다.
+	 *
+	 *   끄고 싶다면 여기서 끄고 OnHostReady 훅에서 직접 여행하면 된다.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
-	bool bAutoTravelOnGameStart = false;
-
-	/**
-	 * 참여자가 여행하기 전에 기다리는 시간(초).
-	 *
-	 * 방장이 OpenLevel 로 리슨서버를 여는 데 시간이 걸린다. 그 전에 붙으면 튕긴다.
-	 * 제대로 된 해법은 호스트가 "리슨서버 준비 완료" 를 서버에 알리고 그때
-	 * 참여자에게 출발 신호를 보내는 것이다(미구현). 지금은 시차로 때운다.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
-	float GuestTravelDelay = 3.f;
+	bool bAutoTravelOnGameStart = true;
 
 	/** 방 만들기 / 참여하기 창이 열려 있는 동안 이 화면을 숨길지. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
@@ -209,11 +212,22 @@ public:
 	void OnLeftWaitingRoom(bool bRoomClosed);
 
 	/**
-	 * 게임이 시작됐다. 여기서 여행한다.
-	 * HostMapName / bAutoTravelOnGameStart 가 설정돼 있으면 이 훅 다음에 자동으로도 한다.
+	 * 게임이 시작됐다. **참여자는 아직 떠나지 않는다.**
+	 *
+	 *   방장  : 여기서 리슨서버를 연다. HostMapName 이 채워져 있으면 자동으로도 한다.
+	 *   참여자: 대기 화면을 띄우고 OnHostReady 를 기다린다.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "MOU|Lobby")
 	void OnGameStarted(const FMOURoomJoinResult& Host, bool bIsHost, const FString& RoomPassword);
+
+	/**
+	 * 방장의 리슨서버가 열렸다. **참여자는 여기서 떠난다.**
+	 *
+	 * 방장에게는 오지 않는다 — 이 신호를 만든 것이 방장 자신이다.
+	 * bAutoTravelOnGameStart 가 켜져 있으면 이 훅 다음에 자동으로 ClientTravel 한다.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "MOU|Lobby")
+	void OnHostReady(const FMOURoomJoinResult& Host, const FString& RoomPassword);
 
 	/** 커스터마이징 버튼을 눌렀다. 화면이 생기면 여기서 띄운다. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "MOU|Lobby")
@@ -279,6 +293,9 @@ private:
 	void HandleGameStarted(const FMOURoomJoinResult& Host, bool bIsHost);
 
 	UFUNCTION()
+	void HandleHostReady(const FMOURoomJoinResult& Host);
+
+	UFUNCTION()
 	void HandlePrimaryClicked();
 
 	UFUNCTION()
@@ -338,9 +355,6 @@ private:
 
 	/** 참여자로 들어갈 때 입력한 방 비밀번호. 여행 URL 에 다시 실어야 한다. */
 	FString JoinedRoomPassword;
-
-	/** 참여자 여행 지연에 쓰는 타이머. */
-	FTimerHandle GuestTravelTimer;
 
 	bool bSubscribed = false;
 };
