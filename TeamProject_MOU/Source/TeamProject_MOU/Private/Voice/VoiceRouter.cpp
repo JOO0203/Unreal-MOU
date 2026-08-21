@@ -243,17 +243,21 @@ void UVoiceRouter::ReportRadioSpeakerNoise(URadioComponent* Radio, double Now)
 	LastRadioNoiseTime.Add(Radio, Now);
 
 	// ★ 여기서 소리를 내는 것은 발화자가 아니라 **무전기**다.
-	//   그래서 위치도 Instigator 도 무전기 쪽이다. 바닥에 떨어진 무전기도
-	//   주인이 없을 뿐 똑같이 소리를 내고, NPC 는 그 무전기를 향해 온다(7-4절).
+	//   그래서 위치도 Instigator 도 무전기 쪽이다 - NPC 는 무전기를 들고 있는
+	//   사람 쪽으로 온다(주인 없는 무전기는 애초에 여기까지 오지 않는다).
 	//
 	// ★ 위치는 GetSpeakerLocation() 을 쓴다. 사람이 듣는 기준점과 NPC 가 듣는
-	//   기준점이 다르면, 손에 든 무전기와 바닥에 둔 무전기에서 둘이 어긋난다.
+	//   기준점이 다르면 둘이 어긋난다.
+	//
+	// ★ 반경은 GetEffectiveNoiseRadius() 다. 인벤토리에 넣은 무전기는 NPC 에게도
+	//   덜 들려야 한다 - 사람 반경만 줄이고 여기를 안 줄이면 "나한테는 조용한데
+	//   NPC 는 똑같이 다 듣는" 이상한 상태가 된다.
 	UAISense_Hearing::ReportNoiseEvent(
 		World,
 		Radio->GetSpeakerLocation(),
 		MOUVoice::NoiseEventLoudness,
 		RadioActor,
-		Radio->SpeakerNoiseRadius * Radio->SpeakerVolume * MOUVoice::RadioSpeakerNoiseScale,
+		Radio->GetEffectiveNoiseRadius() * Radio->SpeakerVolume * MOUVoice::RadioSpeakerNoiseScale,
 		MOUVoice::GetRadioSpeakerNoiseTag());
 
 	++NoiseEventsReported;
@@ -346,12 +350,19 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 
 	int32 Delivered = 0;
 
+	// ★ 소지자당 무전기 한 대만 소리를 낸다.
+	//
+	//   두 대를 가지고 있으면 같은 무전이 두 번 재생돼 에코가 된다. 소지 개수
+	//   제한을 아이템 쪽에 맡기지 않고 **여기서 보장한다** - 어떤 경로로 두 대를
+	//   갖게 되든 소리가 겹치지 않는다. 어느 쪽이 울릴지는 정하지 않는다
+	//   (어차피 같은 사람이 가진 무전기라 위치가 사실상 같다).
+	TSet<const APlayerState*> HandledHolders;
+
 	// ★ **무전기마다** 돌면서 그 무전기 주변 사람에게 보낸다.
 	//
 	//   "무전을 켠 사람에게 보낸다" 가 아니라 "켜진 무전기에서 소리가 나고,
 	//   그 소리가 닿는 사람이 듣는다" 이다. 이 차이가 설계의 핵심이다(7-4절):
-	//   무전기는 스피커라서 주인만이 아니라 **주변 사람도 듣고, NPC 도 듣는다.**
-	//   바닥에 떨어진 무전기도 주인이 없을 뿐 똑같이 소리를 낸다.
+	//   무전기는 스피커라서 주인만이 아니라 **주변 사람도 듣는다.**
 	for (int32 Index = PoweredRadios.Num() - 1; Index >= 0; --Index)
 	{
 		URadioComponent* Radio = PoweredRadios[Index].Get();
@@ -367,16 +378,41 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 			continue;
 		}
 
-		// 발신자 본인의 무전기에서는 소리가 나지 않는다.
-		// 자기가 말한 것이 자기 무전기로 되돌아오면 그냥 에코다.
 		const APlayerState* Holder = Radio->GetHolder();
-		if (Holder && SenderPC && Holder == SenderPC->PlayerState)
+
+		// ★ 주인이 없는 무전기는 소리를 내지 않는다 (2026-08-20 결정).
+		//
+		//   이전 설계는 바닥에 떨어진 무전기가 계속 울려 NPC 를 유인하는 것이었으나
+		//   폐기됐다 - NPC 는 무전기가 아니라 **그것을 들고 있는 사람**을 쫓는다.
+		//   드롭 시 ARadio 가 전원을 끄지만, 다른 경로로 주인만 사라진 경우
+		//   (사망 처리가 Drop 을 안 태운 경우 등)에도 소리가 나지 않도록 여기서
+		//   한 번 더 막는다.
+		if (!Holder)
 		{
 			continue;
 		}
 
+		// 발신자 본인의 무전기에서는 소리가 나지 않는다.
+		// 자기가 말한 것이 자기 무전기로 되돌아오면 그냥 에코다.
+		if (SenderPC && Holder == SenderPC->PlayerState)
+		{
+			continue;
+		}
+
+		// 이 사람의 무전기는 이미 한 대 울렸다. 두 번 재생하지 않는다.
+		if (HandledHolders.Contains(Holder))
+		{
+			continue;
+		}
+
+		HandledHolders.Add(Holder);
+
 		const FVector SpeakerLocation = Radio->GetSpeakerLocation();
-		const float   HearRadiusSq    = Radio->SpeakerHearRadius * Radio->SpeakerHearRadius;
+
+		// ★ SpeakerHearRadius 를 직접 읽지 않는다. 인벤토리에 들어간 무전기는
+		//   반경이 줄어야 하고, 그 계산은 GetEffectiveHearRadius() 안에만 있다.
+		const float HearRadius   = Radio->GetEffectiveHearRadius();
+		const float HearRadiusSq = HearRadius * HearRadius;
 
 		// 이 무전기에서 나는 소리라고 표시한다. 받는 쪽은 이 액터 위치에서 재생한다.
 		Out.RadioActor = Radio->GetOwner();
@@ -386,9 +422,9 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 		// ★ 사람에게 보내는 루프 **밖**, 무전기당 한 번이다. 안에 넣으면
 		//   듣는 사람 수만큼 같은 소음이 중복 발행된다.
 		//
-		// ★ 듣는 사람이 하나도 없어도 쏜다. 무전기는 스피커라서 **아무도 없는
-		//   방에 떨어져 있어도 소리를 낸다.** 그 소리에 NPC 가 오는 것이
-		//   무전기를 미끼로 쓰는 플레이의 핵심이다(7-4절).
+		// ★ 듣는 사람이 하나도 없어도 쏜다. 무전기는 스피커라서 주변에 사람이
+		//   없어도 NPC 에게는 들린다 - 무전을 받는 순간이 곧 위치가 새는 순간이다.
+		//   (주인 없는 무전기는 위에서 이미 걸러졌으므로 여기 도달하지 않는다.)
 		ReportRadioSpeakerNoise(Radio, Now);
 
 		for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
@@ -480,11 +516,13 @@ URadioComponent* UVoiceRouter::FindUsableRadioFor(const APlayerState* Holder) co
 	{
 		URadioComponent* Radio = Entry.Get();
 
-		if (Radio && Radio->IsPoweredOn() && Radio->GetHolder() == Holder)
+		// ★ IsInHand() 가 송신 자격의 핵심이다.
+		//   인벤토리에 넣은 무전기는 **수신만 된다** - 무전을 치려면 손에 들어야
+		//   한다. 이 검사를 빼면 가방에 넣은 채로 무전을 칠 수 있게 된다.
+		if (Radio && Radio->IsPoweredOn() && Radio->IsInHand() && Radio->GetHolder() == Holder)
 		{
 			// ★ 두 대 이상 들고 있으면 **가장 먼저 찾은 것만** 쓴다(15절).
-			//   전부 쓰면 같은 소리가 두 번 난다. 소지 개수 제한은 아이템 파트
-			//   몫이고, 여기서는 그게 지켜지지 않아도 소리가 겹치지 않게 한다.
+			//   전부 쓰면 같은 소리가 두 번 난다.
 			return Radio;
 		}
 	}

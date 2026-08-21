@@ -58,6 +58,10 @@ namespace
 		case ERoomResult::Full:           return "정원 초과";
 		case ERoomResult::AlreadyStarted: return "이미 시작된 방";
 		case ERoomResult::AlreadyHosting: return "이미 방을 갖고 있음";
+		case ERoomResult::NotInRoom:      return "방에 있지 않음";
+		case ERoomResult::NotHost:        return "방장만 가능";
+		case ERoomResult::NotAllReady:    return "준비하지 않은 사람이 있음";
+		case ERoomResult::NotStarted:     return "아직 시작되지 않은 방";
 		default:                          return "잘못된 요청";
 		}
 	}
@@ -266,6 +270,33 @@ namespace
 					}
 					break;
 
+				case EOpcode::RoomStart:
+					if (Body.size() >= sizeof(RoomStartBody))
+					{
+						RoomStartBody Start{};
+						std::memcpy(&Start, Body.data(), sizeof(Start));
+						// v6 부터 이 신호는 "떠나라" 가 아니다. 호스트가 리슨서버를 다 열고
+						// RoomHostReady 를 보내줄 때까지 기다린다.
+						std::printf("[게임 시작] #%u 호스트 %s:%u — 호스트가 서버를 여는 중이다\n",
+						            Start.RoomId,
+						            ReadFixedString(Start.HostAddress, kMaxAddressLen).c_str(),
+						            Start.HostPort);
+					}
+					break;
+
+				case EOpcode::RoomHostReady:
+					if (Body.size() >= sizeof(RoomHostReadyBody))
+					{
+						RoomHostReadyBody Ready{};
+						std::memcpy(&Ready, Body.data(), sizeof(Ready));
+						// 실제 게임에서는 여기서 ClientTravel 한다.
+						std::printf("[호스트 준비 완료] #%u -> 지금 %s:%u 로 접속하면 된다\n",
+						            Ready.RoomId,
+						            ReadFixedString(Ready.HostAddress, kMaxAddressLen).c_str(),
+						            Ready.HostPort);
+					}
+					break;
+
 				case EOpcode::ChatBroadcast:
 					if (Body.size() >= sizeof(ChatBroadcastBody))
 					{
@@ -460,7 +491,10 @@ namespace
 		std::printf("  /host <방제목> [비번4자리]   방 만들기 (리슨서버 포트는 7777 로 가정)\n");
 		std::printf("  /rooms                       대기 중인 방 목록\n");
 		std::printf("  /join <방번호> [비번4자리]   방 참여 (성공하면 호스트 주소를 받는다)\n");
-		std::printf("  /start <방번호> <인원>       게임 시작 상태로 바꾼다\n");
+		std::printf("  /start <방번호> <인원>       게임 시작 상태로 바꾼다 (RoomStateUpdate)\n");
+		std::printf("  /ready | /unready            준비 상태 토글 (참여자용)\n");
+		std::printf("  /go                          게임 시작 요청 (방장용, 전원 준비 필요)\n");
+		std::printf("  /hostready                   리슨서버를 열었다고 신고 (방장용, /go 다음)\n");
 		std::printf("  /close                       내 방 닫기\n");
 		std::printf("  /q        종료\n\n");
 
@@ -514,6 +548,21 @@ namespace
 				const uint8_t Players = (Space == std::string::npos)
 					? 1 : static_cast<uint8_t>(std::atoi(Rest.substr(Space + 1).c_str()));
 				DoRoomStateUpdate(RoomId, Players, ERoomState::InGame);
+				continue;
+			}
+			if (Line == "/ready" || Line == "/unready")
+			{
+				RoomReadyReqBody Req{};
+				Req.bReady = (Line == "/ready") ? 1 : 0;
+				SendPacket(GSock, EOpcode::RoomReadyReq, &Req, sizeof(Req));
+				continue;
+			}
+			if (Line == "/go")         { SendPacket(GSock, EOpcode::RoomStartReq, nullptr, 0); continue; }
+			if (Line == "/hostready")
+			{
+				// 언리얼 클라이언트에서는 리슨서버가 실제로 열린 것을 감지해 자동으로 보낸다.
+				// 콘솔에서는 그 시점을 흉내 낼 수 없으므로 손으로 친다.
+				SendPacket(GSock, EOpcode::RoomHostReadyReq, nullptr, 0);
 				continue;
 			}
 			if (Line == "/close")      { SendPacket(GSock, EOpcode::RoomLeaveReq, nullptr, 0); continue; }

@@ -288,6 +288,17 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		Event.Login.Name          = MOUChat::ReadFixedString(Ack.Name, static_cast<int32>(MOU::kMaxNameLen));
 		Event.Login.Result        = static_cast<EChatLoginResultBP>(Ack.Result);
 		Event.Login.ServerVersion = static_cast<int32>(Ack.ServerVersion);
+
+		// 버전 불일치만 여기서 상세히 남긴다. 우리 쪽 프로토콜 번호를 아는 곳이
+		// 이 층뿐이기 때문이다(서브시스템은 프로토콜을 모른다).
+		if (!Event.Login.bSuccess && Event.Login.Result == EChatLoginResultBP::VersionMismatch)
+		{
+			UE_LOG(LogMOUChat, Error,
+				TEXT("프로토콜 버전 불일치. 클라이언트=%d, 서버=%d. ")
+				TEXT("Server.exe 와 언리얼 프로젝트를 같은 커밋으로 다시 빌드할 것."),
+				static_cast<int32>(MOU::kProtocolVersion), Event.Login.ServerVersion);
+		}
+
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}
@@ -492,6 +503,29 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		Event.Join.RoomId      = static_cast<int32>(Start.RoomId);
 		Event.Join.HostPort    = static_cast<int32>(Start.HostPort);
 		Event.Join.HostAddress = MOUChat::ReadFixedString(Start.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
+	case MOU::EOpcode::RoomHostReady:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomHostReadyBody)))
+		{
+			UE_LOG(LogMOUChat, Warning, TEXT("RoomHostReady 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::RoomHostReadyBody Ready{};
+		FMemory::Memcpy(&Ready, Body.GetData(), sizeof(Ready));
+
+		// RoomStart 와 같은 그릇에 담는다. 받는 쪽에서 MakeTravelURL() 을 그대로 쓴다.
+		FChatClientEvent Event;
+		Event.Type             = EChatClientEventType::RoomHostReady;
+		Event.RoomId           = static_cast<int32>(Ready.RoomId);
+		Event.Join.bSuccess    = true;
+		Event.Join.RoomId      = static_cast<int32>(Ready.RoomId);
+		Event.Join.HostPort    = static_cast<int32>(Ready.HostPort);
+		Event.Join.HostAddress = MOUChat::ReadFixedString(Ready.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}

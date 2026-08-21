@@ -636,6 +636,52 @@ namespace
 		return true;
 	}
 
+	/**
+	 * 호스트의 리슨서버가 열렸다는 신고. 참여자에게 출발 신호를 넘긴다.
+	 *
+	 * [이 핸들러가 하는 일은 중계뿐이다]
+	 *   서버는 호스트의 게임 포트에 붙어보지 않는다. 붙어보는 순간 이 프로세스가
+	 *   게임 네트워크에 발을 담그는 셈이고, "방 주소록" 이라는 역할이 흐려진다.
+	 *   신고가 거짓이면 참여자가 접속에 실패할 뿐인데, 그건 방장이 자기 방을
+	 *   망가뜨리는 것이라 굳이 서버가 막아줄 이유가 없다.
+	 *
+	 * [응답 패킷이 없는 이유]
+	 *   호스트는 이 시점에 이미 자기 맵에서 게임을 돌리고 있다. 성공/실패를 받아도
+	 *   할 수 있는 일이 없다. 거부 사유는 서버 콘솔에만 남긴다.
+	 */
+	bool HandleRoomHostReadyReq(const SessionPtr& Session, const char*, uint32_t)
+	{
+		if (!Session->bAuthed)
+		{
+			return true;
+		}
+
+		uint32_t    RoomId = 0;
+		std::string HostAddress;
+		uint16_t    HostPort = 0;
+		std::vector<uint64_t> Recipients;
+
+		const ERoomResult R = Rooms::MarkHostReady(Session->UserId, RoomId,
+		                                           HostAddress, HostPort, Recipients);
+		if (R != ERoomResult::Success)
+		{
+			std::printf("[거부] 호스트 준비 신고 실패: %s(%llu) (사유 %u)\n", Session->Name.c_str(),
+			            static_cast<unsigned long long>(Session->UserId), static_cast<unsigned>(R));
+			return true;
+		}
+
+		std::printf("[호스트 준비] #%u 리슨서버 %s:%u 가 열렸다. 참여자 %zu명에게 출발 신호\n",
+		            RoomId, HostAddress.c_str(), HostPort, Recipients.size());
+
+		RoomHostReadyBody Ready{};
+		Ready.RoomId   = RoomId;
+		Ready.HostPort = HostPort;
+		CopyFixedString(Ready.HostAddress, kMaxAddressLen, HostAddress);
+
+		SendToUsers(Recipients, EOpcode::RoomHostReady, &Ready, sizeof(Ready), nullptr, 0);
+		return true;
+	}
+
 	bool HandleChatSend(const SessionPtr& Session, const char* Body, uint32_t BodySize)
 	{
 		if (!Session->bAuthed)
@@ -701,6 +747,7 @@ namespace
 		case EOpcode::RoomStateUpdate: return HandleRoomStateUpdate(Session, Data, Size);
 		case EOpcode::RoomReadyReq:    return HandleRoomReadyReq(Session, Data, Size);
 		case EOpcode::RoomStartReq:    return HandleRoomStartReq(Session, Data, Size);
+		case EOpcode::RoomHostReadyReq: return HandleRoomHostReadyReq(Session, Data, Size);
 		case EOpcode::ChatSend:  return HandleChatSend(Session, Data, Size);
 		case EOpcode::SetDead:   return HandleSetDead(Session, Data, Size);
 		case EOpcode::Heartbeat: return true;
