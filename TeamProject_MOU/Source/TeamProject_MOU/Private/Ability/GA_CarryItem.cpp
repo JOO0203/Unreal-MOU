@@ -11,6 +11,7 @@ UGA_CarryItem::UGA_CarryItem()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(CarryTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(CarryTag);
 	}
 }
 

@@ -15,6 +15,7 @@ UGA_CarryCharacter::UGA_CarryCharacter()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(CarryCharTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(CarryCharTag);
 	}
 
 	FGameplayTag HeavyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Heavy"), false);
@@ -45,10 +46,14 @@ void UGA_CarryCharacter::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			OriginalBaseMoveSpeed = Attr->GetMoveSpeed();
-			Attr->SetMoveSpeed(OriginalBaseMoveSpeed * SpeedMultiplier);
+			float CarrySpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(CarrySpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = CarrySpeed;
+			}
 		}
 	}
 }
@@ -56,6 +61,8 @@ void UGA_CarryCharacter::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 void UGA_CarryCharacter::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	ACharacterBase* Char = GetCharacterFromActorInfo();
+
 	if (ASC && ActiveCarryCharacterEffectHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(ActiveCarryCharacterEffectHandle);
@@ -63,9 +70,14 @@ void UGA_CarryCharacter::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			Attr->SetMoveSpeed(OriginalBaseMoveSpeed);
+			float BaseSpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(BaseSpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = BaseSpeed;
+			}
 		}
 	}
 

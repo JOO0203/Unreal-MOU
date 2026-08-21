@@ -15,11 +15,13 @@ UGA_PushObject::UGA_PushObject()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(PushTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(PushTag);
 	}
 
 	FGameplayTag SprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Sprint"), false);
 	if (SprintTag.IsValid())
 	{
+		CancelAbilitiesWithTag.AddTag(SprintTag);
 		BlockAbilitiesWithTag.AddTag(SprintTag);
 	}
 
@@ -57,10 +59,14 @@ void UGA_PushObject::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			OriginalBaseMoveSpeed = Attr->GetMoveSpeed();
-			Attr->SetMoveSpeed(PushWalkSpeed);
+			float PushSpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(PushSpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = PushSpeed;
+			}
 		}
 	}
 }
@@ -68,6 +74,8 @@ void UGA_PushObject::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 void UGA_PushObject::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	ACharacterBase* Char = GetCharacterFromActorInfo();
+
 	if (ASC && ActivePushEffectHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(ActivePushEffectHandle);
@@ -75,13 +83,17 @@ void UGA_PushObject::EndAbility(const FGameplayAbilitySpecHandle Handle, const F
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			Attr->SetMoveSpeed(OriginalBaseMoveSpeed);
+			float BaseSpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(BaseSpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = BaseSpeed;
+			}
 		}
 	}
 
-	ACharacterBase* Char = GetCharacterFromActorInfo();
 	if (Char && Char->GetCharacterMovement())
 	{
 		Char->GetCharacterMovement()->bOrientRotationToMovement = bOriginalOrientRotation;
