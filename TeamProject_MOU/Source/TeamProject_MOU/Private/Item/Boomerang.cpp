@@ -16,10 +16,10 @@ ABoomerang::ABoomerang()
 	// 부메랑은 근접 콜라이더 오버랩으로 비행 중 타격을 판정한다.
 	HitMode = EWeaponHitMode::Melee;
 
-	// 여러 번 던질 수 있는 무기 (돌아오므로 소모되진 않지만, 내구/횟수 개념으로 사용).
-	// 던질 때마다 부모가 WeaponUseCount를 차감한다. BP에서 조정.
-	MaxUseCount = 10;
-	CurrentUseCount = MaxUseCount;
+	// 최대 내구도 100. 부메랑은 던질 때가 아니라 "적중할 때마다" DurabilityCostPerHit(기본 10)씩
+	// 깎이고(ApplyWeaponHit), 0이 되면 돌아온 뒤 파괴된다. BP에서 MaxDurability로 조정.
+	MaxDurability = 100.0f;
+	CurrentDurability = MaxDurability;
 
 	// 기본 타격 상태이상 = 넘어짐(State.CC.FallDown). DefaultGameplayTags.ini에 등록된 실제 태그.
 	// (미등록이면 Invalid → ApplyWeaponHit에서 부여를 건너뛴다)
@@ -40,7 +40,8 @@ void ABoomerang::OnRep_FlightState()
 // [BOOMERANG-000] 발사: 비행 시작. (부모 OnUse→TryFireOnServer가 서버 권한 확인 후 호출)
 void ABoomerang::Fire()
 {
-	// 이미 비행 중이면 재발사 무시. (ShouldConsumeUseOnFire=false라 횟수 차감이 없어 환불 불필요)
+	// 이미 비행 중이면 재발사 무시.
+	// (부메랑은 발사 시 차감이 없으므로 - ShouldConsumeUseOnFire=false - 환불 처리 불필요)
 	if (FlightState != EBoomerangState::Idle)
 	{
 		return;
@@ -205,6 +206,20 @@ void ABoomerang::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResul
 		}
 	}
 
+	// 적중당 내구도 차감은 "이번 비행의 첫 적중"에만 적용한다.
+	// (같은 프레임 다중 오버랩으로 ApplyWeaponHit이 여러 번 불려도 Outbound일 때만 1회 차감)
+	if (FlightState == EBoomerangState::Outbound)
+	{
+		CurrentDurability -= DurabilityCostPerHit;
+
+		// 내구도가 다 닳으면 지금 파괴하지 않고, 손에 돌아온 순간(CatchByOwner) 파괴하도록 예약.
+		if (CurrentDurability <= 0.0f)
+		{
+			CurrentDurability = 0.0f;
+			bPendingDestroyOnCatch = true;
+		}
+	}
+
 	// 첫 유효 타겟을 맞히면 즉시 되돌아온다 (Outbound일 때만 전환).
 	BeginReturn();
 }
@@ -222,6 +237,14 @@ void ABoomerang::CatchByOwner()
 
 	// 비행 콜라이더 끄기
 	EnableMeleeCollision(false);
+
+	// 내구도가 다 닳아 파괴 예약된 경우: 손에 돌아온 지금 파괴한다.
+	// (비행 중 파괴하면 궤적이 끊겨 어색하므로 회수 후 파괴로 처리)
+	if (bPendingDestroyOnCatch)
+	{
+		Destroy();
+		return;
+	}
 
 	// 전 클라에서 손 소켓 재부착 + 장착 상태 복원
 	MulticastCatch();

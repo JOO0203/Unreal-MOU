@@ -19,7 +19,11 @@ namespace MOU
 	//   4 -> 5 : 대기실 추가. 서버가 방 멤버를 추적한다.
 	//            RoomJoin 이 "주소 조회" 에서 "실제 입장" 으로 의미가 바뀌었고,
 	//            RoomLeaveReq 를 참여자도 보낼 수 있게 됐다.
-	constexpr uint16_t kProtocolVersion = 5;
+	//   5 -> 6 : 호스트 준비 신호 추가. RoomStart 의 의미가 "떠나라" 에서 "시작됐다" 로
+	//            좁아지고, 참여자가 실제로 떠나는 시점은 RoomHostReady 가 정한다.
+	//            v5 까지는 참여자가 고정 3초를 세고 떠났다. 호스트의 맵 로딩이 그보다
+	//            오래 걸리면 튕겼고, 빨리 끝나도 3초를 그냥 버렸다.
+	constexpr uint16_t kProtocolVersion = 6;
 
 	// BodySize 가 이 값을 넘으면 악성 패킷으로 보고 연결을 끊는다.
 	constexpr uint32_t kMaxBodySize = 4096;
@@ -76,6 +80,13 @@ namespace MOU
 		RoomClosed      = 22,  // 서버 -> 남은 멤버. 방이 사라졌다
 		RoomStartReq    = 23,  // 호스트 -> 서버. 게임 시작 (전원 준비 완료여야 한다)
 		RoomStart       = 24,  // 서버 -> 방 멤버 전원. 호스트 주소를 함께 내려준다
+
+		// --- 호스트 준비 신호 (v6) ---
+		// 리슨서버는 호스트가 맵을 다 연 뒤에야 접속을 받는다. 그 시점을 아는 것은
+		// 호스트 프로세스 자신뿐이므로, 호스트가 알리고 서버는 참여자에게 그대로 넘긴다.
+		// 서버는 여기서도 중계만 한다 — 게임 상태를 들여다보지 않는다.
+		RoomHostReadyReq = 25,  // 호스트 -> 서버. 리슨서버가 열려서 접속을 받는 중이다
+		RoomHostReady    = 26,  // 서버 -> 참여자. 지금 떠나라 (호스트 주소 동봉)
 	};
 
 	/** 방 관련 요청의 결과. */
@@ -94,6 +105,9 @@ namespace MOU
 		NotInRoom      = 8,   // 방에 들어가 있지 않다
 		NotHost        = 9,   // 방장만 할 수 있는 일이다
 		NotAllReady    = 10,  // 아직 준비하지 않은 참여자가 있다
+
+		// --- 호스트 준비 신호 (v6) ---
+		NotStarted     = 11,  // 아직 시작되지 않은 방이다 (RoomHostReadyReq 가 너무 이르다)
 	};
 
 	/**
@@ -347,6 +361,27 @@ namespace MOU
 		uint16_t HostPort;
 	};
 
+	/**
+	 * 호스트의 리슨서버가 열렸다. 참여자는 이것을 받고 나서 떠난다.
+	 *
+	 * [RoomStartBody 와 내용이 같은데 왜 따로 두는가]
+	 *   두 신호의 의미가 다르기 때문이다.
+	 *     RoomStart      = "게임이 시작됐다. 대기실을 닫아라"
+	 *     RoomHostReady  = "지금 접속해도 된다. 떠나라"
+	 *   같은 구조체를 돌려쓰면 나중에 한쪽에만 필드를 붙일 때 반드시 갈라야 하는데,
+	 *   그때는 이미 양쪽 코드가 얽혀 있어서 지금 가르는 것보다 비싸다.
+	 *
+	 * 주소를 한 번 더 실어 보내는 이유:
+	 *   참여자가 RoomStart 를 놓쳤거나 늦게 처리했더라도 이 패킷 하나만으로 떠날 수 있다.
+	 *   주소는 22바이트뿐이라 아낄 이유가 없다.
+	 */
+	struct RoomHostReadyBody
+	{
+		uint32_t RoomId;
+		char     HostAddress[kMaxAddressLen];
+		uint16_t HostPort;
+	};
+
 #pragma pack(pop)
 
 	// 패딩이 끼면 서버와 클라이언트의 해석이 어긋난다.
@@ -371,6 +406,7 @@ namespace MOU
 	static_assert(sizeof(RoomReadyReqBody)   ==  1, "RoomReadyReqBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomClosedBody)     ==  5, "RoomClosedBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomStartBody)      == 22, "RoomStartBody 에 패딩이 끼었다");
+	static_assert(sizeof(RoomHostReadyBody)  == 22, "RoomHostReadyBody 에 패딩이 끼었다");
 
 	// 방 목록 한 번에 담을 수 있는지 확인한다. 넘치면 kMaxRoomsInList 를 줄여야 한다.
 	static_assert(sizeof(RoomListAckBody) + sizeof(RoomInfo) * kMaxRoomsInList <= kMaxBodySize,

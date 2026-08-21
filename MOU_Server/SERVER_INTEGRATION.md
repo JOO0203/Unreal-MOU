@@ -1,11 +1,14 @@
 # MOU 서버 통합 문서
 
 담당: 서버/클라이언트 파트
-최종 갱신: 2026-08-11
+최종 갱신: 2026-08-21
 
 이 문서 하나만 보면 **새 PC 에서 처음부터 셋업하고, 빌드하고, 검증하고, 이어서 개발**할 수 있다.
 채팅뿐 아니라 계정(로그인)·로비(방 목록)까지 이 문서 하나로 다룬다.
 (예전 이름은 `CHAT_INTEGRATION.md` 였는데, 채팅 말고도 다루는 범위가 넓어져서 이름을 바꿨다.)
+
+> **"왜 이 구조인가"가 궁금하면 [14절](#14-설계-근거--외부-피드백에-대한-답변)부터 읽으면 된다.**
+> 별도 프로세스를 둔 이유, EOS·Steam 대신 직접 구현한 이유, NAT 한계, 앞으로의 전환 계획을 정리해뒀다.
 
 ---
 
@@ -24,6 +27,7 @@
 11. [알려진 한계](#11-알려진-한계)
 12. [다음 단계](#12-다음-단계)
 13. [문제 해결](#13-문제-해결)
+14. [설계 근거 — 외부 피드백에 대한 답변](#14-설계-근거--외부-피드백에-대한-답변)
 
 ---
 
@@ -38,7 +42,7 @@
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v5) |
+| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v6) |
 | 2 | 세션 구조체 (`Session.h/.cpp`) | 완료 |
 | 3 | 길이 프리픽스 프레이밍 (`Framing.h/.cpp`) | 완료 (split/merge/bad 3종 통과) |
 | 4 | 로그인 — 계정(아이디/비밀번호) 인증 | **완료** (PBKDF2 해시, UserId 영속) |
@@ -50,7 +54,8 @@
 | 로비 | 방 생성 / 목록 / 참여 (서버 + 클라이언트 API) | **완료** |
 | 로비-UI | 메인메뉴 / 방 생성창 / 방 목록·참여창 | **완료** (WBP 불필요) |
 | 대기실 | 방 멤버 추적 / 준비완료 / 게임시작 / 방장 이탈 처리 | **완료** (v5) |
-| 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 스위치만 있음 (기본 꺼짐, 맵 미정) |
+| 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 참여자 쪽 **완료** (v6, 호스트 준비 신호). 방장 쪽은 맵 이름 미정 |
+| 로비-백엔드 | `ILobbyBackend` 로 계정/세션 탐색 분리 (EOS 전환 대비) | **완료** (v6). EOS 구현체는 뼈대 |
 | 로비-보안 | `PreLogin` 에서 방 비밀번호 재검사 | **미착수** ← 진짜 관문 |
 | 8 | 리슨서버 → 채팅서버 신원 미러링 | **미착수** |
 | 9 | 귓속말 | **미착수** |
@@ -274,16 +279,35 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
 보내고, 그들은 "방장이 나가서 방이 사라졌습니다" 안내와 함께 메인메뉴로 돌아간다.
 **정상 종료든 랜선이 뽑혔든 같은 경로로 처리된다.**
 
-**여행(리슨서버 접속)은 게임 시작 때만 일어나고, 아직 스위치가 꺼져 있다.**
+**여행(리슨서버 접속)은 게임 시작 때만, 그리고 두 박자로 나뉘어 일어난다. (v6)**
 
-| 프로퍼티 | 기본값 | 켜면 |
+```
+방장이 "게임 시작"
+      │
+      ├─▶ RoomStart ─────▶ 방장   : OpenLevel(맵, "listen") 시작
+      │              └───▶ 참여자 : "방장이 서버를 여는 중입니다..." (아직 떠나지 않는다)
+      │
+      │   (방장의 맵 로딩… 몇 초가 걸릴 수도, 금방 끝날 수도 있다)
+      │
+      ├─ UChatSubsystem 이 리슨서버 넷드라이버가 뜬 것을 감지
+      ├─▶ RoomHostReadyReq ─▶ 서버
+      └─▶ RoomHostReady ────▶ 참여자 : 지금 ClientTravel
+```
+
+| 프로퍼티 | 기본값 | 설명 |
 |---|---|---|
-| `HostMapName` | (비어있음) | 방장이 `OpenLevel(맵, "listen?RoomPassword=…")` 로 리슨서버를 연다 |
-| `bAutoTravelOnGameStart` | false | 참여자가 `ClientTravel(호스트주소?RoomPassword=…)` |
-| `GuestTravelDelay` | 3초 | 방장이 리슨서버를 다 열 때까지 참여자가 기다리는 시간 |
+| `HostMapName` | (비어있음) | 채우면 방장이 `OpenLevel(맵, "listen?RoomPassword=…")` 로 리슨서버를 연다 |
+| `bAutoTravelOnGameStart` | **true** | 참여자가 호스트 준비 신호를 받으면 `ClientTravel(호스트주소?RoomPassword=…)` |
 
-기본값을 꺼둔 이유: 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 된다.
+`HostMapName` 만 기본값이 비어 있다. 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 되기 때문이다.
 맵이 정해지면 채우거나 `OnGameStarted` 훅에서 직접 처리하면 된다.
+
+> **v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.**
+> 그 3초에는 근거가 없었다 — 방장이 큰 맵을 저사양 PC 에서 열면 모자라서 참여자가
+> 아직 없는 서버에 붙으려다 튕겼고, 반대로 금방 열려도 3초를 그냥 버렸다.
+> 이제 방장 쪽 `UChatSubsystem` 이 리슨서버가 실제로 뜬 것을 확인한 뒤에 신호를 보낸다.
+> 상한은 `HostReadyTimeoutSeconds`(기본 60초)이고, 넘기면 신호를 보내지 않는다 —
+> 열리지도 않은 주소로 참여자를 보내는 것보다 대기실에 남겨두는 편이 낫다.
 
 ### 4-2-1. 로비 흐름 — 콘솔 (UI 없이)
 
@@ -323,8 +347,25 @@ PIE 플레이어 수를 2~3 으로 올린다. 창마다 GameInstance 가 따로 
 TestClient.exe 127.0.0.1 9000 아이디 비밀번호 --register 닉네임
 ```
 
-접속 후 대화형 모드에서 `/host`, `/rooms`, `/join`, `/start`, `/close` 로 로비를 검증할 수 있다.
+접속 후 대화형 모드에서 `/host`, `/rooms`, `/join`, `/close` 로 로비를 검증할 수 있다.
 `MOU.Chat.ShowLogin` 도 참고하면 실제 게임 클라이언트가 어떻게 동작하는지 알 수 있다.
+
+**호스트 준비 신호(v6)를 콘솔로 검증하기** — 창 두 개로 한다.
+
+| 순서 | 방장 창 | 참여자 창 | 기대 결과 |
+|---|---|---|---|
+| 1 | `/host 테스트방` | | 방 생성 |
+| 2 | | `/rooms` → `/join 1` | 참여 성공, 호스트 주소 수신 |
+| 3 | | `/ready` | 방장 쪽 명단에 준비완료 |
+| 4 | `/go` | | 양쪽에 `[게임 시작]`. **참여자는 "호스트가 서버를 여는 중" 까지만** |
+| 5 | `/hostready` | | 참여자에게만 `[호스트 준비 완료] → 지금 접속하면 된다` |
+
+4번과 5번 사이에 참여자 화면이 멈춰 있는 것이 정상이다. 그 구간이 실제 게임에서는
+방장의 맵 로딩 시간이고, 언리얼 클라이언트는 그 끝을 감지해 5번을 자동으로 보낸다
+(`UChatSubsystem::PollListenServer`). 콘솔에는 감지할 리슨서버가 없으므로 손으로 친다.
+
+순서를 뒤집어(`/go` 없이 `/hostready`) 서버 콘솔에 `사유 11`(NotStarted)이 찍히는지도
+확인해두면 좋다. 아직 열리지도 않은 게임으로 사람을 보내지 않는다는 뜻이다.
 
 ### 4-4. 채팅창 조작
 
@@ -416,7 +457,10 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
   ┌────────────────────────────────────────────────┐
   │ FChatClientRunnable   (워커 스레드)              │  소켓/바이트만 다룸
   │        ↕ TQueue (SPSC)                          │  UObject 접근 절대 금지
-  │ UChatSubsystem        (게임 스레드)              │  패킷 조립 / 델리게이트
+  │ FSocketLobbyBackend   (게임 스레드)              │  패킷 조립 ─┐
+  │        │  implements ILobbyBackend              │            ├ 교체 지점
+  │        │  (FEOSLobbyBackend 로 갈아끼울 수 있다) │            ─┘
+  │ UChatSubsystem        (게임 스레드)              │  상태 보관 / 델리게이트
   │        ↓ OnChatMessageReceived 등                │
   │ UChatWidgetBase / ULoginWidgetBase   (UMG)      │  로그·입력창 / 로그인·가입
   │ ULobbyWidgetBase                     (UMG)      │  메인메뉴 + 대기실
@@ -449,6 +493,45 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 방 생성/조회/참여는 메타데이터 교환이다. 참여가 승인되면 클라이언트는 호스트에게
 **직접** `ClientTravel` 한다. 그래서 로비 서버 부하는 방 개수와 무관하게 낮다.
 대신 이 구조는 **같은 네트워크(NAT 없음)에서만** 동작한다 — 자세한 내용은 11절 참고.
+
+### 백엔드 교체 (v6에서 추가)
+
+**계정 인증과 세션 탐색은 `ILobbyBackend` 뒤에 숨어 있다.** 설정값 하나로 갈아끼운다.
+
+```
+Project Settings → Game → MOU Server → Lobby Backend
+  자체 서버 (TCP)   FSocketLobbyBackend   ← 현재 기본값
+  EOS               FEOSLobbyBackend      ← 뼈대만 있음
+```
+
+| | 자체 서버 | EOS |
+|---|---|---|
+| 계정 | `accounts` 테이블 (SQLite) | EOS Connect (`ProductUserId`) |
+| 방 목록 | `Rooms.cpp` (메모리) | EOS Session / Lobby |
+| **NAT 통과** | **안 됨 (포트포워딩 필요)** | **됨 (P2P 릴레이)** |
+| 사망자 채널 | 됨 | **안 됨** — 게임 상태를 아는 쪽만 판정할 수 있다 |
+| 채팅 로그 영속화 | 됨 | **안 됨** |
+| 준비물 | 없음 | Epic Dev Portal 등록, 플러그인 3종, SDK |
+
+**왜 지금 자체 서버인가.** 외부 SDK·Epic 계정·인터넷 없이 바로 돌아가고,
+사망자 채널과 채팅 로그처럼 **EOS 로 옮길 수 없는 기능**이 이미 여기에 있다.
+채팅 때문에 어차피 상시 프로세스가 하나 필요했고, 방 목록과 계정을 거기에 얹은 것이다 —
+로비 전용 서버를 새로 띄운 게 아니라 프로세스를 하나로 합친 쪽이다.
+
+**왜 언젠가 EOS 인가.** 자체 서버가 못 푸는 문제는 방 목록이 아니라 **NAT** 다.
+참가자는 호스트의 공인 IP:7777 로 직접 붙는데, 호스트가 포트포워딩을 하지 않으면
+공유기가 그 접속을 막는다. 각자 집에서 붙는 시연을 하려면 릴레이가 필요하다.
+
+**교체할 때 바뀌는 것과 안 바뀌는 것.**
+
+| | |
+|---|---|
+| **안 바뀜** | `UChatSubsystem` 의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
+| **바뀜** | `FEOSLobbyBackend` 의 내용, 그리고 그것을 고르는 설정값 한 줄 |
+
+현실적인 최종 구성은 **"EOS = 계정·세션, 자체 서버 = 채팅·게임 데이터"** 다.
+EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장하면 둘이 이어진다.
+붙이는 순서는 `Chat/EOSLobbyBackend.h` 주석에 단계별로 적어뒀다.
 
 ### 스레드 경계 상세
 
@@ -497,10 +580,14 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 | 파일 | 역할 |
 |---|---|
 | `Public/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUChat` |
-| `Public/Chat/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP` |
+| `Public/Chat/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP`, `EMOULobbyBackendType` |
+| `Public/Chat/LobbyBackend.h`<br>`Private/Chat/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FChatClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
+| `Public/Chat/SocketLobbyBackend.h`<br>`Private/Chat/SocketLobbyBackend.cpp` | 자체 서버 백엔드. **패킷 조립은 여기서만 한다.** 워커 스레드 수명도 여기가 소유 |
+| `Public/Chat/EOSLobbyBackend.h`<br>`Private/Chat/EOSLobbyBackend.cpp` | EOS 백엔드 **뼈대.** 각 함수가 어떤 EOS API 로 바뀌는지, 붙이는 순서가 주석에 있다 |
+| `Public/Chat/ServerSettings.h`<br>`Private/Chat/ServerSettings.cpp` | `UDeveloperSettings`. 서버 주소 / 백엔드 종류 / 호스트 준비 대기 상한. 우선순위: 실행 인자 > 개인 ini > 팀 공유 ini |
 | `Public/Chat/ChatFraming.h`<br>`Private/Chat/ChatFraming.cpp` | 프레이밍의 `TArray` 버전 + UTF-8 변환. 서버 `Framing.cpp` 와 로직 동일. BP enum ↔ 서버 enum `static_assert` 전부 여기 모여있다 |
-| `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱 (채팅/로그인/가입/로비 전부) |
-| `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다** |
+| `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
+| `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 패킷은 조립하지 않는다 |
 | `Public/Chat/ChatWidgetBase.h`<br>`Private/Chat/ChatWidgetBase.cpp` | `UUserWidget`. 채팅 로그 + 입력창. PIE 다중 창 지원(`TMap<World, Widget>`) |
 | `Public/Chat/LoginWidgetBase.h`<br>`Private/Chat/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 채팅 위젯 + 로비 자동 생성 |
 | `Public/Chat/LobbyWidgetBase.h`<br>`Private/Chat/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
@@ -573,7 +660,7 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `JoinRoom(RoomId, RoomPassword)` | 방에 입장. 성공하면 **대기실 멤버가 된다** (`OnRoomJoinCompleted` → `OnRoomMembersChanged`) |
 | `LeaveRoom()` | 지금 있는 방에서 나간다. **방장이 나가면 방이 사라진다** |
 | `SetReady(bReady)` | 준비 상태 변경. 응답은 없고 갱신된 명단이 `OnRoomMembersChanged` 로 온다 |
-| `StartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만. 성공하면 멤버 전원에게 `OnRoomGameStarted` |
+| `StartGame()` | 게임 시작. 방장만, 전원 준비 완료일 때만. 성공하면 멤버 전원에게 `OnRoomGameStarted`, 이어서 방장의 리슨서버가 뜨면 참여자에게 `OnRoomHostReady` |
 | `UpdateRoomState(RoomId, CurrentPlayers, bInGame)` | 방 진행상태 통지. **v5 부터 인원수는 서버가 직접 세므로 무시된다** — 새로 쓸 일은 거의 없다 |
 | `IsValidRoomPassword(Pw)` *(static)* | 숫자 4자리 규칙 검사 |
 | `GetRoomResultText(Result)` *(static)* | 방 관련 실패 사유를 사용자 문구로 변환 |
@@ -583,6 +670,8 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `GetRoomMembers()` | 마지막으로 받은 대기실 명단 (`TArray<FMOURoomMember>`) |
 | `AreAllMembersReady()` | 참여자 전원이 준비했는지. **서버가 판정해 내려준 값** |
 | `IsSelfReady()` | 내 준비 상태 |
+| `IsWaitingForListenServer()` | **방장 전용.** 지금 "내 리슨서버가 열리기" 를 기다리는 중인가. UI 에 "서버 여는 중..." 을 띄울 때 |
+| `GetBackendName()` | 지금 쓰고 있는 백엔드 이름 ("자체 서버(TCP)" / "EOS"). 디버그 표시용 |
 
 > `GetMyRoomId()` 와 `GetCurrentRoomId()` 를 나눠 둔 이유: 참여자는 방에 있어도 방장이 아니다.
 > 하나로 합치면 "방장인가" 와 "방에 있는가" 를 구분할 수 없어서 대기실 UI 가 갈라지지 않는다.
@@ -600,7 +689,8 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `OnRoomJoinCompleted` | `(const FMOURoomJoinResult& Result)` |
 | `OnRoomMembersChanged` | `(int32 RoomId, const TArray<FMOURoomMember>& Members, bool bAllReady)` |
 | `OnRoomClosed` | `(int32 RoomId, EMOURoomCloseReasonBP Reason)` |
-| `OnRoomGameStarted` | `(const FMOURoomJoinResult& Host, bool bIsHost)` |
+| `OnRoomGameStarted` | `(const FMOURoomJoinResult& Host, bool bIsHost)` — **떠날 때가 아니다.** 방장은 리슨서버를 열고, 참여자는 기다린다 |
+| `OnRoomHostReady` | `(const FMOURoomJoinResult& Host)` — **참여자는 여기서 떠난다.** 방장에게는 오지 않는다 |
 
 **`Connected` 와 `LoggedIn` 은 다르다.**
 `Connected` = TCP 는 붙었지만 아직 `UserId` 가 없다. 이 상태로 채팅/로비 요청을 보내면 서버가 거부한다.
@@ -684,13 +774,21 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 | `RoomCreateWidgetClass` / `RoomListWidgetClass` | (비어있음) | 디자이너 WBP 로 갈아끼울 때 |
 | `HostPort` | 7777 | 방 생성창에 그대로 넘어간다. **게임의 리슨서버 포트와 같아야 한다** |
 | `HostMapName` | (비어있음) | 채우면 **게임 시작 시** 방장이 `OpenLevel(맵, "listen")` |
-| `bAutoTravelOnGameStart` | false | 켜면 게임 시작 시 참여자가 호스트로 `ClientTravel` |
-| `GuestTravelDelay` | 3초 | 참여자가 떠나기 전 대기. 방장이 리슨서버를 다 열기 전에 붙으면 튕긴다 |
+| `bAutoTravelOnGameStart` | **true** | 켜면 **호스트 준비 신호를 받은 뒤** 참여자가 호스트로 `ClientTravel` |
 | `bHideWhileChildOpen` | true | 자식 창이 열려 있는 동안 이 화면을 접는다 |
 | `bManageMouseCursor` | true | 로비가 커서/입력 모드를 관리한다. **자식 창은 자동으로 false 가 된다** |
 
-> **여행 시점이 v5 에서 바뀌었다.** 예전에는 방을 만들거나 참여하는 즉시 떠났다.
-> 이제는 **게임 시작 때만** 떠난다. 그 사이가 대기실이다.
+블루프린트 훅도 여행 시점에 맞춰 둘로 나뉜다.
+
+| 훅 | 언제 | 누구에게 |
+|---|---|---|
+| `OnGameStarted(Host, bIsHost, RoomPassword)` | 게임이 시작됐다 | 방 전원 |
+| `OnHostReady(Host, RoomPassword)` | 방장의 리슨서버가 열렸다 | **참여자만** |
+
+> **여행 시점이 v5 에서 한 번, v6 에서 한 번 바뀌었다.**
+> v4 까지는 방을 만들거나 참여하는 즉시 떠났다. v5 부터 **게임 시작 때만** 떠나고
+> 그 사이가 대기실이 됐다. v6 부터는 참여자가 떠나는 시점이 게임 시작이 아니라
+> **방장의 리슨서버가 실제로 열린 시점**이다.
 
 ### `URoomCreateWidgetBase` — 방 생성창
 
@@ -808,7 +906,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 
 ## 8. 프로토콜 레퍼런스
 
-원본: `MOU_Server/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v5**.
+원본: `MOU_Server/Shared/ChatProtocol.h`. 이 헤더만 언리얼과 공유한다. 현재 **v6**.
 
 ### 버전 이력
 
@@ -819,6 +917,7 @@ WBP 를 만들면 C++ 기본 레이아웃은 자동으로 사용되지 않는다
 | 3 | 계정 시스템. `LoginReqBody` 가 이름 대신 아이디/비밀번호를 보낸다. `RegisterReq/Ack` 추가. `UserId` 가 접속 일련번호에서 계정 고유번호로 바뀜 |
 | 4 | 로비(방 목록). `RoomCreateReq/Ack`, `RoomListReq/Ack`, `RoomJoinReq/Ack`, `RoomLeaveReq`, `RoomStateUpdate` 추가 |
 | 5 | 대기실. **서버가 방 멤버를 추적한다.** `RoomMemberList`, `RoomReadyReq`, `RoomClosed`, `RoomStartReq/RoomStart` 추가. `RoomJoin` 이 "주소 조회" 에서 "실제 입장" 으로, `RoomLeaveReq` 가 방장 전용에서 전원용으로 바뀜. 인원수는 호스트 신고값이 아니라 서버가 센 값 |
+| 6 | 호스트 준비 신호. `RoomHostReadyReq/RoomHostReady` 추가. **`RoomStart` 의 의미가 "떠나라" 에서 "시작됐다" 로 좁아졌다** — 참여자가 실제로 떠나는 시점은 `RoomHostReady` 가 정한다. `ERoomResult::NotStarted` 추가 |
 
 ### 패킷 헤더 (6바이트 고정, `#pragma pack(1)`)
 
@@ -859,7 +958,9 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 | 21 | `RoomReadyReq` | C → S | 사용 중 |
 | 22 | `RoomClosed` | S → C | 사용 중 (방장이 나갔을 때 남은 멤버에게) |
 | 23 | `RoomStartReq` | C → S | 사용 중 (방장만) |
-| 24 | `RoomStart` | S → C | 사용 중 (방 전원에게 호스트 주소와 함께) |
+| 24 | `RoomStart` | S → C | 사용 중 (방 전원에게. **"떠나라" 가 아니라 "시작됐다" 다**) |
+| 25 | `RoomHostReadyReq` | C → S | 사용 중 (방장만. 리슨서버가 실제로 열렸다) |
+| 26 | `RoomHostReady` | S → C | 사용 중 (참여자에게. **여기서 떠난다**) |
 
 ### 로그인 / 가입 실패 사유 (`ELoginResult`)
 
@@ -1088,12 +1189,15 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 - **방장이 나가면 방이 사라진다. 호스트 이양은 하지 않는다.** 호스트가 곧 리슨서버라
   이양하려면 리슨서버 재개설 + 전원 재접속 + 상태 복원이 필요한데 UE 가 기본 지원하지 않는다.
   남은 멤버는 `RoomClosed` 를 받고 메인메뉴로 돌아간다.
-- **로비 UI 는 여행을 하지 않는다(기본값).** 게임을 시작해도 호스트 주소만 화면에 뜬다.
-  맵이 정해지면 `ULobbyWidgetBase` 의 `HostMapName` / `bAutoTravelOnGameStart` 로 켠다.
-- **게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다.** 방장이 `OpenLevel` 로 리슨서버를
-  여는 데 시간이 걸리는데, 서버는 양쪽에 `RoomStart` 를 동시에 보낸다. 지금은
-  `GuestTravelDelay`(기본 3초)로 시차를 두어 때운다. 제대로 하려면 호스트가
-  "리슨서버 준비 완료" 를 서버에 알리고 그때 참여자에게 출발 신호를 보내야 한다.
+- **방장 쪽 여행은 아직 맵 이름을 기다린다.** `ULobbyWidgetBase::HostMapName` 이 비어 있으면
+  `OpenLevel` 을 부르지 않는다. 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 되기 때문이다.
+  참여자 쪽(`bAutoTravelOnGameStart`)은 v6 부터 기본으로 켜져 있다.
+- ~~게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다~~ → **해결됨 (v6).**
+  방장 쪽 `UChatSubsystem` 이 리슨서버 넷드라이버가 뜬 것을 확인하고 `RoomHostReadyReq` 를
+  보내면, 서버가 참여자에게 `RoomHostReady` 를 넘긴다. 참여자는 그때 떠난다.
+  v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.
+  **남은 한계:** 호스트가 끝내 리슨서버를 열지 못하면 참여자는 대기실에 남는다
+  (`HostReadyTimeoutSeconds`, 기본 60초). 방장이 방을 나가면 `RoomClosed` 로 정리된다.
 - **방을 나갔다 다른 방에 들어갈 때 순서가 꼬일 수 있다.** 이전 방의 명단이 늦게 도착하는
   경우가 있어 클라이언트가 `RoomId` 를 확인하고 버린다. 서버는 다른 방에 있는 사람의
   `Join` 을 `InvalidRequest` 로 거부한다 — 조용히 옮겨주면 원래 방에 알릴 기회를 놓친다.
@@ -1137,13 +1241,11 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 1. ~~**UI 위젯 3종**~~ → **완료.** 메인메뉴(`ULobbyWidgetBase`), 방 생성창(`URoomCreateWidgetBase`),
    방 목록창(`URoomListWidgetBase`). WBP 없이 동작하고, WBP 로 갈아끼울 수도 있다. [7절](#7-api-레퍼런스) 참고
-2. **여행 연결** — 코드는 있고 **스위치가 꺼져 있다.** 맵 이름이 정해지면
-   `ULobbyWidgetBase::HostMapName` 을 채우고 `bAutoTravelOnGameStart` 를 켠다.
-   그 전까지는 게임을 시작해도 화면에 호스트 주소만 뜬다.
+2. **여행 연결** — 참여자 쪽은 끝났고, **방장 쪽은 맵 이름만 채우면 된다.**
+   `ULobbyWidgetBase::HostMapName` 에 맵 이름을 넣으면 게임 시작 시
+   `OpenLevel(맵, "listen")` 이 돌고, 리슨서버가 뜨는 즉시 참여자에게 출발 신호가 나간다.
    결정해야 할 것: **게임 맵으로 바로 갈 것인가, 인게임 로딩 맵을 따로 둘 것인가.**
-   같이 고칠 것: 참여자가 호스트보다 먼저 붙는 경쟁 상태(11절 참고).
-   `GuestTravelDelay` 로 때우고 있는데, 호스트가 "리슨서버 준비 완료" 를 서버에 알리고
-   그때 참여자에게 출발 신호를 보내는 쪽이 옳다
+   ~~같이 고칠 것: 참여자가 호스트보다 먼저 붙는 경쟁 상태~~ → **v6 에서 해결됨.**
 3. **`AGameModeBase::PreLogin` 에서 `RoomPassword` URL 옵션 재검사** ← **진짜 관문. 다음 할 일.**
    로비 서버 검사는 UX 용이고, 이게 없으면 목록을 안 거치고 IP 직접 접속으로 뚫린다.
    지금 방 비밀번호는 `ULobbyWidgetBase::GetMyRoomPassword()` 에 임시로만 들고 있다 —
@@ -1294,3 +1396,170 @@ DebugGame 만 빌드해두고 헤드리스 검증을 돌리면 몇 달 전 DLL �
 2. 정원이 꽉 찼거나(`CurrentPlayers >= MaxPlayers`) 이미 `InGame` 상태인 방은 목록에서 빠진다
    (`Rooms::ListWaiting` 이 필터링한다) — `MOU.Room.Leave` 후 다시 만들어서 확인
 3. 로그인 상태인가 — 로그인 전에는 서버가 빈 목록만 돌려준다
+
+---
+
+## 14. 설계 근거 — 외부 피드백에 대한 답변
+
+> 이 절은 코드 사용법이 아니라 **왜 이 구조를 골랐는가**를 다룬다.
+> "별도 백엔드 구축을 지양하라 / 상용 OSS(EOS·Steam)를 쓰라"는 피드백을 받았고,
+> 그에 대한 우리 파트의 답변과 앞으로의 계획을 정리한 것이다.
+
+### 14-1. 요약 — 한 문단
+
+우리가 띄우는 `Server.exe`는 **데디케이트 게임 서버가 아니다.** 이동·전투·GAS를 처리하지
+않고, 애초에 처리할 수 없다. 이 프로세스가 하는 일은 두 가지뿐이다 — **"누가 방을 열었는지
+알려주는 주소록"** 과 **"리슨서버가 죽어도 살아남는 계정 저장소"**. 게임 트래픽은
+참가자가 호스트의 리슨서버에 직접 붙어서 주고받고, 이 프로세스를 **한 바이트도 지나가지
+않는다.** 즉 우리가 만든 것은 EOS Session / Steam Lobby가 하는 일을 직접 구현한 것이지,
+피드백이 지양하라고 한 그 백엔드가 아니다.
+
+### 14-2. 왜 리슨서버만으로는 안 되는가 — 두 가지 구멍
+
+리슨서버(호스트가 곧 서버)로 게임 로직을 처리하는 것은 확정 사항이고 바꾸지 않는다.
+다만 리슨서버에는 **게임 로직과 무관한** 구멍이 두 개 있다.
+
+**1. 리슨서버는 자기 존재를 알릴 방법이 없다.**
+
+```
+방이 열리기 전  →  연결된 세션이 없다  →  RPC를 주고받을 상대가 없다
+                                          ↑
+                        "누가 방을 열었는가"를 알려면
+                        리슨서버 바깥 어딘가에 그 정보가 있어야 한다
+```
+
+RPC는 **이미 연결된** 클라이언트–서버 사이에서만 동작한다. 그런데 "누구에게 연결할지
+정하는 단계"는 그보다 앞이다. 이 순서 문제는 리슨서버 안에서는 풀 수 없다.
+
+**2. 리슨서버는 계정을 영속시킬 수 없다.**
+
+리슨서버는 호스트가 나가면 프로세스째 사라지는 휘발성이다. 같은 계정으로 다시 들어왔을 때
+`UserId`가 유지되고, 나중에 붙일 커스터마이징 데이터가 남아 있으려면 **리슨서버가 죽어도
+살아있는 저장소**가 필요하다. 계정을 리슨서버에 두면 방이 닫히는 순간 전부 날아간다.
+
+> 상용 게임들도 같은 구조다. 게임 트래픽은 리슨서버(P2P)로 돌리고, 세션 탐색과 계정은
+> Steam Lobby / EOS Session 같은 **별도 서비스**에 맡긴다. 우리가 한 것도 같은 분업이고,
+> 그 별도 서비스를 남의 것 대신 직접 구현했을 뿐이다.
+
+### 14-3. "데디케이트 서버가 아니다"의 객관적 근거
+
+말이 아니라 코드로 확인할 수 있는 근거만 적는다.
+
+| 근거 | 확인 방법 |
+|---|---|
+| **언리얼 엔진 코드가 0줄이다** | `MOU_Server/CMakeLists.txt` — CMake + Winsock + SQLite로만 빌드된다. 데디케이트 서버라면 있어야 할 `*.Target.cs`의 Server 타깃이 없다 |
+| **프로토콜에 게임플레이 패킷이 없다** | `Shared/ChatProtocol.h`의 `EOpcode` 전체 — 로그인/계정생성/방 CRUD/채팅뿐이다. 좌표·입력·어빌리티 패킷이 **물리적으로 존재하지 않는다** |
+| **주소를 넘겨주고 손을 뗀다** | `FMOURoomJoinResult::MakeTravelURL()`이 `HostAddress:HostPort`를 만들어주면 클라이언트는 호스트로 `ClientTravel` 한다. 그 뒤 트래픽은 이 프로세스를 타지 않는다 |
+| **부하가 방 개수와 무관하다** | `Rooms.cpp`는 방 메타데이터만 `std::map`에 들고 있다. 방이 100개여도 늘어나는 것은 구조체 100개뿐이다 |
+
+**즉 인프라 비용을 늘린 게 아니라 줄인 설계다.** 방마다 서버 인스턴스를 띄우는 구조가
+아니라, 프로세스 하나가 모든 방의 주소록 역할만 한다.
+
+### 14-4. 왜 EOS·Steam이 아니라 직접 구현했는가
+
+**핵심: 채팅 때문에 어차피 상시 프로세스가 하나 필요했고, 방 목록과 계정을 거기에 얹은 것이다.**
+로비 전용 서버를 새로 띄운 게 아니라 **필요한 프로세스를 하나로 합친 쪽**이다.
+
+EOS로 옮길 수 없는 기능이 이미 이 프로세스 안에 있다.
+
+| 기능 | EOS로 대체 | 대체할 수 없는 이유 |
+|---|---|---|
+| 방 목록 / 세션 탐색 | ✅ 가능 | EOS Session |
+| 계정 인증 | ✅ 가능 | EOS Connect |
+| **사망자 채널** | ❌ **불가** | "죽은 사람에게만 보이는 채팅"은 **게임 상태를 아는 쪽**만 판정할 수 있다. EOS는 누가 죽었는지 모른다 (`ClientSession::bDead`, `Server.cpp`의 `RouteChat`) |
+| **채팅 로그 영속화** | ❌ **불가** | 호스트가 나가도 남아야 한다. SQLite `chat_log` 테이블 |
+| **커스터마이징 데이터** | ❌ **불가** | 계정에 묶인 게임 데이터. EOS Player Data Storage는 용도가 다르고 별도 비용·제한이 붙는다 |
+
+그 밖의 현실적인 이유:
+
+- **팀 전원이 즉시 돌릴 수 있다.** 외부 SDK도, Epic/Steam 계정도, 인터넷 연결도 필요 없다.
+  EOS를 붙이는 순간 팀원 전원이 Dev Portal 설정을 공유해야 하고, Steam은 AppID와
+  Steam 클라이언트 실행이 전제가 된다. 개발·수업 시연 단계에서 이건 순수한 마찰이다.
+- **학습 목적에 부합한다.** 프레이밍(길이 프리픽스), 스레드 경계, 세션 관리, PBKDF2 해싱을
+  직접 구현한 경험은 SDK를 붙이는 것으로는 얻을 수 없다.
+- **디버깅이 투명하다.** 서버 콘솔에 모든 판정 사유가 찍힌다. SDK 내부에서 실패하면
+  로그가 우리 손을 떠난다.
+
+**동시에, 피드백을 거부하는 것이 아니다.** OSS 전환 경로를 이미 코드에 만들어뒀다 (14-6절).
+
+### 14-5. 인정하는 한계 — NAT
+
+**자체 구현이 풀지 못하는 문제는 방 목록이 아니라 NAT다. 이건 명확히 인정한다.**
+
+```
+현재 구조:
+  참가자 ──────────────────────▶ 호스트 공인IP:7777
+            공유기가 이 접속을 막는다 (포트포워딩이 없으면)
+```
+
+`ClientSession::PeerAddress`는 서버가 `accept()` 시점에 읽은 상대 IP다. 클라이언트가
+신고한 값이 아니라 위조는 안 되지만, **그 IP의 7777 포트가 외부에 열려 있어야** 참가자가
+붙을 수 있다. 호스트가 포트포워딩을 하지 않으면 실패한다.
+
+| 시연 환경 | 동작 여부 |
+|---|---|
+| 같은 공유기 / 교내망 (LAN) | ✅ 동작 — **이번 프로젝트는 이 환경으로 확정** |
+| 각자 집에서 인터넷으로 | ❌ 호스트의 포트포워딩 필요 |
+
+**자체 로비 서버로는 이걸 고칠 수 없다.** NAT 홀펀칭이나 릴레이 서버가 필요하고,
+그게 정확히 EOS P2P가 제공하는 가치다. **그래서 최종 단계에서 EOS를 붙일 계획이고,
+그때 교체되는 것은 세션 탐색 계층뿐이다.**
+
+### 14-6. 앞으로의 개발 계획
+
+**전환 비용을 미리 확정해뒀다.** `ILobbyBackend` 인터페이스(v6)를 도입해서, EOS로 가는 것이
+프로젝트 전체를 뒤집는 일이 아니라 **파일 하나를 채우는 일**이 되도록 만들었다.
+
+```
+UChatSubsystem            BP API / 상태 / 델리게이트   ← 백엔드를 모른다
+  └─ ILobbyBackend                                    ← 교체 지점
+       ├─ FSocketLobbyBackend   자체 서버 (현재 기본값)
+       └─ FEOSLobbyBackend      EOS      (뼈대 + 전환 주석)
+```
+
+| | |
+|---|---|
+| **안 바뀜** | `UChatSubsystem`의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
+| **바뀜** | `FEOSLobbyBackend`의 내용, 그리고 그것을 고르는 설정값 한 줄 |
+
+전환은 `Project Settings → Game → MOU Server → Lobby Backend`에서 고르거나
+실행 인자 `-MOULobbyBackend=EOS`로 한다. 자세한 내용은 [5절 백엔드 교체](#5-구조) 참고.
+
+**단계별 계획**
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | 자체 서버로 로비·계정·대기실 완성 | ✅ 완료 |
+| 2 | `ILobbyBackend`로 교체 지점 분리 | ✅ 완료 (v6) |
+| 3 | 호스트 준비 신호로 여행 경쟁 상태 제거 | ✅ 완료 (v6) |
+| 4 | `PreLogin`에서 방 비밀번호 재검사 (보안 관문) | ⬜ 다음 작업 |
+| 5 | LAN 환경 3~4인 실기기 시연 | ⬜ |
+| 6 | `FEOSLobbyBackend` 구현 — NAT 해결 | ⬜ 여력이 되면 |
+
+**EOS를 붙일 때의 최종 구성**은 전면 교체가 아니라 **하이브리드**다.
+
+```
+EOS Connect  ──▶ ProductUserId ──▶ accounts 테이블의 외부 키로 저장
+EOS Session  ──▶ 방 목록 / NAT 통과
+자체 서버    ──▶ 채팅 (사망자 채널) / 채팅 로그 / 커스터마이징 데이터
+```
+
+상용 게임들이 실제로 쓰는 구조다. 붙이는 순서(Dev Portal 등록 → 플러그인 3종 →
+`DefaultEngine.ini` → `Build.cs` → 각 함수 구현)는 `Chat/EOSLobbyBackend.h` 주석에
+단계별로 적어뒀다.
+
+### 14-7. 예상 질문
+
+**Q. 그래도 서버를 하나 띄우는 건 맞지 않나?**
+맞다. 다만 그 서버는 게임 트래픽을 처리하지 않으므로 **사양과 비용이 게임 서버와 다르다.**
+방 100개가 열려도 메모리에 구조체 100개가 늘 뿐이라, 무료 티어 VM 한 대로 충분하다.
+EOS를 쓰더라도 채팅·로그·커스터마이징 때문에 이 프로세스는 어차피 남는다.
+
+**Q. 그럼 EOS를 지금 붙이면 되지 않나?**
+NAT가 문제가 되는 시점, 즉 **각자 집에서 붙는 시연을 할 때** 붙이는 것이 맞다고 본다.
+이번 프로젝트는 LAN 시연으로 확정됐고, EOS를 지금 붙이면 팀 전원이 Dev Portal 설정을
+공유해야 해서 개발 속도만 떨어진다. 전환 경로는 이미 코드에 있으므로 필요해질 때 붙인다.
+
+**Q. 왜 데디케이트 서버가 필요하다고 보고하지 않았나?**
+필요하지 않기 때문이다. 우리 구조에서 게임 시뮬레이션은 전부 호스트의 리슨서버가 한다.
+데디케이트 서버를 띄우면 인프라 비용만 늘고 얻는 것이 없다.

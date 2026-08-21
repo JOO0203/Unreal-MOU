@@ -32,7 +32,40 @@ enum class EMOURoomResultBP : uint8
 	// --- 대기실 (v5) ---
 	NotInRoom      = 8 UMETA(DisplayName = "방에 있지 않음"),
 	NotHost        = 9 UMETA(DisplayName = "방장만 가능"),
-	NotAllReady    = 10 UMETA(DisplayName = "준비하지 않은 사람이 있음")
+	NotAllReady    = 10 UMETA(DisplayName = "준비하지 않은 사람이 있음"),
+
+	// --- 호스트 준비 신호 (v6) ---
+	NotStarted     = 11 UMETA(DisplayName = "아직 시작되지 않은 방")
+};
+
+/**
+ * 계정 인증과 세션 탐색을 무엇으로 하는가.
+ *
+ * [무엇을 고르든 게임 트래픽은 지나가지 않는다]
+ *   여기서 정하는 것은 "방이 열리기 전"과 "계정" 뿐이다. 참가자가 주소를 받고 나면
+ *   이동/전투/GAS 는 호스트의 리슨서버가 전부 처리하고, 이 경로는 한 바이트도 타지 않는다.
+ *
+ * 자세한 배경은 Chat/LobbyBackend.h 주석에 있다.
+ */
+UENUM(BlueprintType)
+enum class EMOULobbyBackendType : uint8
+{
+	/**
+	 * 자체 서버(MOU_Server/Server.exe)에 TCP 로 붙는다.
+	 *
+	 * 개발과 LAN 시연에서 쓴다. 외부 SDK 도, Epic/Steam 계정도, 인터넷도 필요 없고
+	 * 사망 채널·채팅 로그처럼 게임 상태를 아는 쪽만 판정할 수 있는 기능이 여기에 있다.
+	 * 한계는 NAT 다 — 호스트가 포트포워딩을 해야 외부에서 붙을 수 있다.
+	 */
+	CustomSocket = 0 UMETA(DisplayName = "자체 서버 (TCP)"),
+
+	/**
+	 * Epic Online Services 의 Connect(계정) + Lobby/Session(방 목록).
+	 *
+	 * NAT 트래버설과 릴레이를 SDK 가 해주므로 포트포워딩 없이 외부 접속이 된다.
+	 * 출시 단계에서 쓸 목표 백엔드다. 아직 구현체는 뼈대만 있다(FEOSLobbyBackend).
+	 */
+	EOS = 1 UMETA(DisplayName = "Epic Online Services")
 };
 
 /**

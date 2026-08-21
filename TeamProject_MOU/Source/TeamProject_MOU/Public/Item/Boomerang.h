@@ -90,6 +90,10 @@ protected:
 	// 부여한 상태이상 지속시간(초). 0 이하면 부여 안 함.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang|Hit")
 	float HitStatusDuration = 2.0f;
+
+	// 한 번 적중할 때마다 깎일 내구도. 최대 100 기준 10이면 10번 맞히면 소진. BP에서 조정.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang|Hit")
+	float DurabilityCostPerHit = 10.0f;
 #pragma endregion
 
 #pragma region [BOOMERANG] 상태 (복제)
@@ -107,10 +111,11 @@ protected:
 	//   이미 비행 중이면 무시한다.
 	virtual void Fire() override;
 
-	// 부메랑은 손으로 돌아오므로 소모품이 아니다 → 발사 시 사용횟수 차감 안 함. [WEAPON-013]
+	// 부메랑은 "던질 때"가 아니라 "적중했을 때" 내구도가 깎인다.
+	// 따라서 부모의 발사 시점 차감은 끄고(false), ApplyWeaponHit에서 직접 차감한다. [WEAPON-013]
 	virtual bool ShouldConsumeUseOnFire() const override { return false; }
 
-	// [BOOMERANG-001] 무기 공통 히트 override: 맞은 캐릭터에 상태이상 부여 + 즉시 되돌아오기 전환
+	// [BOOMERANG-001] 무기 공통 히트 override: 맞은 캐릭터에 상태이상 부여 + 내구도 차감 + 즉시 되돌아오기 전환
 	virtual void ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit) override;
 #pragma endregion
 
@@ -151,5 +156,9 @@ private:
 
 	// 누적 비행 시간(초). 안전장치용.
 	float ElapsedFlightTime = 0.0f;
+
+	// 내구도가 0이 되어 "이번에 돌아오면 파괴"가 예약된 상태. 비행 중엔 파괴하지 않고
+	// 손에 잡히는 순간(CatchByOwner)에 파괴한다. (서버에서만 사용)
+	bool bPendingDestroyOnCatch = false;
 #pragma endregion
 };
