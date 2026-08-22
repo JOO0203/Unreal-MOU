@@ -160,6 +160,10 @@ public:
 	// 택배는 F키 상호작용 대상이 아니며, 오직 E키로만 잡고/들고/던집니다.
 	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
 
+	// ItemBase 공통 저장 데이터에 택배 전용 상태를 추가합니다.
+	virtual void SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const override;
+	virtual void LoadItemFromData_Implementation(const FStoredItemInstanceData& InData) override;
+
 	// [클라이언트 동기화] 물리 콜리전 상태 동기화를 위해 오버라이드
 	virtual void MulticastPickUp_Implementation(AActor* Picker) override;
 	virtual void MulticastDrop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;

@@ -11,9 +11,22 @@ void UWarehouseDataSubsystem::SaveStoredItems(const TArray<FStoredItemData>& InS
 	}
 }
 
+void UWarehouseDataSubsystem::SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances)
+{
+	if (UProjectGameInstanceBase* ProjectGameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance()))
+	{
+		ProjectGameInstance->SaveStoredItemInstances(InStoredItemInstances);
+	}
+}
+
 TArray<FStoredItemData> UWarehouseDataSubsystem::GetStoredItemsCopy() const
 {
 	return GetStoredItemsInternal();
+}
+
+TArray<FStoredItemInstanceData> UWarehouseDataSubsystem::GetStoredItemInstancesCopy() const
+{
+	return GetStoredItemInstancesInternal();
 }
 
 void UWarehouseDataSubsystem::ClearStoredItems()
@@ -32,6 +45,7 @@ bool UWarehouseDataSubsystem::SaveFromWarehouseComponent(const UWarehouseCompone
 	}
 
 	SaveStoredItems(WarehouseComponent->StoredItems);
+	SaveStoredItemInstances(WarehouseComponent->BuildStoredItemInstanceData());
 	return true;
 }
 
@@ -86,6 +100,11 @@ bool UWarehouseDataSubsystem::SavePendingDeliveryDataFromRequest(const TArray<FS
 		return false;
 	}
 
+	if (!ConsumeStoredItemsForDelivery(DeliveryData))
+	{
+		return false;
+	}
+
 	SavePendingDeliveryData(DeliveryData);
 	return true;
 }
@@ -127,9 +146,24 @@ const TArray<FStoredItemData>& UWarehouseDataSubsystem::GetStoredItemsInternal()
 	return EmptyItems;
 }
 
+const TArray<FStoredItemInstanceData>& UWarehouseDataSubsystem::GetStoredItemInstancesInternal() const
+{
+	if (const UProjectGameInstanceBase* ProjectGameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance()))
+	{
+		return ProjectGameInstance->SavedStoredItemInstances;
+	}
+
+	static const TArray<FStoredItemInstanceData> EmptyItems;
+	return EmptyItems;
+}
+
 bool UWarehouseDataSubsystem::BuildValidatedDeliveryData(const TArray<FStoredItemData>& RequestedItems, FDeliveryData& OutDeliveryData) const
 {
 	OutDeliveryData.SelectedItems.Reset();
+	OutDeliveryData.SelectedItemInstances.Reset();
+
+	TSet<int32> UsedInstanceIndices;
+	const TArray<FStoredItemInstanceData>& StoredItemInstances = GetStoredItemInstancesInternal();
 
 	for (const FStoredItemData& RequestedItem : RequestedItems)
 	{
@@ -146,7 +180,89 @@ bool UWarehouseDataSubsystem::BuildValidatedDeliveryData(const TArray<FStoredIte
 		}
 
 		OutDeliveryData.SelectedItems.Add(RequestedItem);
+
+		int32 AddedInstanceCount = 0;
+		for (int32 InstanceIndex = 0; InstanceIndex < StoredItemInstances.Num() && AddedInstanceCount < RequestedItem.Quantity; ++InstanceIndex)
+		{
+			const FStoredItemInstanceData& StoredItemInstance = StoredItemInstances[InstanceIndex];
+			if (UsedInstanceIndices.Contains(InstanceIndex) || StoredItemInstance.ItemClass != RequestedItem.ItemClass)
+			{
+				continue;
+			}
+
+			OutDeliveryData.SelectedItemInstances.Add(StoredItemInstance);
+			UsedInstanceIndices.Add(InstanceIndex);
+			++AddedInstanceCount;
+		}
+
+		// 이전 저장 데이터처럼 개별 상태가 없는 경우에도 배달 테스트가 막히지 않도록 클래스 기반 기본 데이터를 채웁니다.
+		while (AddedInstanceCount < RequestedItem.Quantity)
+		{
+			FStoredItemInstanceData FallbackItemInstance;
+			FallbackItemInstance.ItemClass = RequestedItem.ItemClass;
+			OutDeliveryData.SelectedItemInstances.Add(FallbackItemInstance);
+			++AddedInstanceCount;
+		}
 	}
 
 	return !OutDeliveryData.IsEmpty();
+}
+
+bool UWarehouseDataSubsystem::ConsumeStoredItemsForDelivery(const FDeliveryData& DeliveryData)
+{
+	UProjectGameInstanceBase* ProjectGameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance());
+	if (!ProjectGameInstance || DeliveryData.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<FStoredItemData> UpdatedStoredItems = ProjectGameInstance->SavedStoredItems;
+	for (const FStoredItemData& SelectedItem : DeliveryData.SelectedItems)
+	{
+		if (!SelectedItem.ItemClass || SelectedItem.Quantity <= 0)
+		{
+			continue;
+		}
+
+		const int32 StoredItemIndex = UpdatedStoredItems.IndexOfByPredicate(
+			[&SelectedItem](const FStoredItemData& StoredItem)
+			{
+				return StoredItem.ItemClass == SelectedItem.ItemClass;
+			});
+
+		if (StoredItemIndex == INDEX_NONE || UpdatedStoredItems[StoredItemIndex].Quantity < SelectedItem.Quantity)
+		{
+			return false;
+		}
+
+		UpdatedStoredItems[StoredItemIndex].Quantity -= SelectedItem.Quantity;
+		if (UpdatedStoredItems[StoredItemIndex].Quantity <= 0)
+		{
+			UpdatedStoredItems.RemoveAt(StoredItemIndex);
+		}
+	}
+
+	TArray<FStoredItemInstanceData> UpdatedStoredItemInstances = ProjectGameInstance->SavedStoredItemInstances;
+	for (const FStoredItemInstanceData& SelectedItemInstance : DeliveryData.SelectedItemInstances)
+	{
+		if (!SelectedItemInstance.ItemClass)
+		{
+			continue;
+		}
+
+		const int32 StoredItemInstanceIndex = UpdatedStoredItemInstances.IndexOfByPredicate(
+			[&SelectedItemInstance](const FStoredItemInstanceData& StoredItemInstance)
+			{
+				return StoredItemInstance.ItemClass == SelectedItemInstance.ItemClass;
+			});
+
+		if (StoredItemInstanceIndex != INDEX_NONE)
+		{
+			UpdatedStoredItemInstances.RemoveAt(StoredItemInstanceIndex);
+		}
+	}
+
+	ProjectGameInstance->SaveStoredItems(UpdatedStoredItems);
+	ProjectGameInstance->SaveStoredItemInstances(UpdatedStoredItemInstances);
+	return true;
 }

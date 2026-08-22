@@ -10,9 +10,15 @@ void UProjectGameInstanceBase::SaveStoredItems(const TArray<FStoredItemData>& In
 	SavedStoredItems = InStoredItems;
 }
 
+void UProjectGameInstanceBase::SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances)
+{
+	SavedStoredItemInstances = InStoredItemInstances;
+}
+
 void UProjectGameInstanceBase::ClearStoredItems()
 {
 	SavedStoredItems.Reset();
+	SavedStoredItemInstances.Reset();
 }
 
 void UProjectGameInstanceBase::SavePendingDeliveryData(const FDeliveryData& InDeliveryData)
@@ -23,6 +29,7 @@ void UProjectGameInstanceBase::SavePendingDeliveryData(const FDeliveryData& InDe
 void UProjectGameInstanceBase::ClearPendingDeliveryData()
 {
 	PendingDeliveryData.SelectedItems.Reset();
+	PendingDeliveryData.SelectedItemInstances.Reset();
 }
 
 void UProjectGameInstanceBase::SaveEconomyData()

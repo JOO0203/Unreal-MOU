@@ -17,6 +17,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
 	TArray<FStoredItemData> SavedStoredItems;
 
+	// 레벨 이동 후에도 유지할 창고 아이템 개별 상태 데이터
+	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
+	TArray<FStoredItemInstanceData> SavedStoredItemInstances;
+
 	// 배달 맵으로 가져갈 아이템
 	UPROPERTY(BlueprintReadOnly, Category = "Delivery|Save")
 	FDeliveryData PendingDeliveryData;
@@ -38,6 +42,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
 	void SaveStoredItems(const TArray<FStoredItemData>& InStoredItems);
+
+	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
+	void SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances);
 
 	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
 	void ClearStoredItems();
