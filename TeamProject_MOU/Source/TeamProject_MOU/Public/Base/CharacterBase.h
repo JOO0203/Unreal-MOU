@@ -91,6 +91,14 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
 	void OnSpeedUpdated(float CurrentSpeed, float MaxSpeed);
 
+	// 무게(CurrentWeight/MaxWeight) 변경 시 호출되는 이벤트 (UI 업데이트용)
+	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
+	void OnWeightUpdated(float CurrentWeight, float MaxWeight, float WeightRatio);
+
+	// 배터리(Battery/MaxBattery) 변경 시 호출되는 이벤트 (UI 업데이트용)
+	UFUNCTION(BlueprintImplementableEvent, Category = "Attributes")
+	void OnBatteryUpdated(float CurrentBattery, float MaxBattery, float BatteryRatio);
+
 protected:
 	// GAS 리플리케이션 모드 (멀티플레이 동기화 설정)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AbilitySystem")
@@ -120,9 +128,20 @@ protected:
 	void HandleCurrentWeightChanged(const FOnAttributeChangeData& Data);
 	void HandleMaxWeightChanged(const FOnAttributeChangeData& Data);
 
+	// 배터리 변경 콜백 핸들러 (발광 시스템 연동)
+	virtual void HandleBatteryChanged(const FOnAttributeChangeData& Data);
+	virtual void HandleMaxBatteryChanged(const FOnAttributeChangeData& Data);
+
+public:
+	// 현재 과적 및 운반 상태에 따른 적정 걷기 속도 계산 (기본 300, 과적1: 255, 과적2/무거운택배: 150, 과적3: 0)
+	UFUNCTION(BlueprintCallable, Category = "Attributes|Movement")
+	float GetCalculatedWalkSpeed() const;
+
 	// 과적(Encumbrance) 상태 업데이트 및 이동속도/상태 디버프 적용
+	UFUNCTION(BlueprintCallable, Category = "Status|Encumbrance")
 	void UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight);
 
+protected:
 	// ---------------------------------------------------------
 	// [과적(Encumbrance) GameplayEffect 설정]
 	// ---------------------------------------------------------
