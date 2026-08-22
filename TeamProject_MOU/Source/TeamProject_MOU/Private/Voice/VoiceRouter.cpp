@@ -411,7 +411,7 @@ int32 UVoiceRouter::RouteRadio(APlayerController* SenderPC, FVoiceFrameOut& Out,
 
 		// ★ SpeakerHearRadius 를 직접 읽지 않는다. 인벤토리에 들어간 무전기는
 		//   반경이 줄어야 하고, 그 계산은 GetEffectiveHearRadius() 안에만 있다.
-		const float HearRadius = Radio->GetEffectiveHearRadius();
+		const float HearRadius   = Radio->GetEffectiveHearRadius();
 		const float HearRadiusSq = HearRadius * HearRadius;
 
 		// 이 무전기에서 나는 소리라고 표시한다. 받는 쪽은 이 액터 위치에서 재생한다.

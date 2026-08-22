@@ -137,13 +137,13 @@ EMOULobbyBackendType UMOUServerSettings::ResolveBackendType(FString* OutSource)
 		Switch.TrimStartAndEndInline();
 		if (Switch.Equals(TEXT("EOS"), ESearchCase::IgnoreCase))
 		{
-			Type = EMOULobbyBackendType::EOS;
+			Type   = EMOULobbyBackendType::EOS;
 			Source = TEXT("실행 인자 -MOULobbyBackend");
 		}
 		else if (Switch.Equals(TEXT("Socket"), ESearchCase::IgnoreCase)
 			|| Switch.Equals(TEXT("CustomSocket"), ESearchCase::IgnoreCase))
 		{
-			Type = EMOULobbyBackendType::CustomSocket;
+			Type   = EMOULobbyBackendType::CustomSocket;
 			Source = TEXT("실행 인자 -MOULobbyBackend");
 		}
 		else
