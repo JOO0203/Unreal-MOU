@@ -1,16 +1,32 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "Base/ProjectGameInstanceBase.h"
+
 #include "Base/ProjectGameStateBase.h"
 #include "Engine/World.h"
 
-// ==================================
-// Save Economy Data
-// ==================================
+void UProjectGameInstanceBase::SaveStoredItems(const TArray<FStoredItemData>& InStoredItems)
+{
+	SavedStoredItems = InStoredItems;
+}
+
+void UProjectGameInstanceBase::ClearStoredItems()
+{
+	SavedStoredItems.Reset();
+}
+
+void UProjectGameInstanceBase::SavePendingDeliveryData(const FDeliveryData& InDeliveryData)
+{
+	PendingDeliveryData = InDeliveryData;
+}
+
+void UProjectGameInstanceBase::ClearPendingDeliveryData()
+{
+	PendingDeliveryData.SelectedItems.Reset();
+}
+
 void UProjectGameInstanceBase::SaveEconomyData()
 {
-	// ÇöÀç world°¡ Á¸ÀçÇÏÁö¾ÊÀ¸¸é ÀúÀåÇÒ ¼ö ¾ø±â¿¡ Á¾·á
 	UWorld* World = GetWorld();
 
 	if (!World)
@@ -18,67 +34,41 @@ void UProjectGameInstanceBase::SaveEconomyData()
 		return;
 	}
 
-	// ÇöÀç ¸Ê¿¡ »ç¿ëÁßÀÎ ProjectGameStateBase °¡Á®¿È
 	AProjectGameStateBase* ProjectGameState = World->GetGameState<AProjectGameStateBase>();
 
-	if (!ProjectGameState)
+	if (!ProjectGameState || !ProjectGameState->HasAuthority())
 	{
 		return;
 	}
 
-	// °æÁ¦ µ¥ÀÌÅÍÀÇ ½ÇÁ¦ °ªÀº Server°¡ °ü¸®ÇÏ¹Ç·Î ClientÀÇ GameInstance¿¡¼­´Â ÀúÀåÇÏÁö ¾ÊÀ½.
-	if (!ProjectGameState->HasAuthority())
-	{
-		return;
-	}
-
-	// ÇöÀç GameStateÀÇ ÆÀ °ø¿ë °æÁ¦ µ¥ÀÌÅÍ¸¦ ·¹º§ ÀÌµ¿ ÈÄ »ì¾ÆÀÖ´Â GamseInstance¿¡ º¹»ç
+	// ê²Œìž„ ìƒíƒœì˜ ê²½ì œ ì •ë³´ë¥¼ ë ˆë²¨ ì´ë™ ì „ì— ìž„ì‹œ ë³´ê´€
 	SavedGold = ProjectGameState->Gold;
 	SavedReputation = ProjectGameState->Reputation;
 	SavedDebt = ProjectGameState->CurrentDebt;
 	SavedDebtCycle = ProjectGameState->DebtCycle;
-
-
-	// Á¤»óÀûÀ¸·Î ÇÑ¹ø ÀÌ»ó ÀúÀåµÇ¾úÀ½À» ±â·Ï
 	bHaveSavedEconomyData = true;
 }
 
-// ==================================
-// Load Economy Data
-// ==================================
-
 void UProjectGameInstanceBase::LoadEconomyData()
 {
-	// ¾ÆÁ÷ ÇÑ¹øµµ ÀúÀåÇÑ ÀûÀÌ ¾ø´Ù¸é Ã³À½ °ÔÀÓÀ» ½ÃÀÛÇÑ »óÈ² ÀÌ¹Ç·Î º¹¿øÇÒ µ¥ÀÌÅÍ°¡ ¾øÀ½
 	if (!bHaveSavedEconomyData)
 	{
 		return;
 	}
 
-	// ÇöÀç ¿ùµå È®ÀÎ
 	UWorld* World = GetWorld();
 	if (!World)
 	{
 		return;
 	}
-	
-	// ¸Ê ÀÌµ¿ ÈÄ »õ·Î »ý¼ºµÈ ProjectGameState °¡Á®¿È
+
 	AProjectGameStateBase* ProjectGameState = World->GetGameState<AProjectGameStateBase>();
-	if (!ProjectGameState)
+	if (!ProjectGameState || !ProjectGameState->HasAuthority())
 	{
 		return;
 	}
 
-	// GameState °ª º¯°æÀº Server°¡ °ü¸®ÇÏ¹Ç·Î ClientÀÇ GameInstance¿¡¼­´Â ÀúÀåÇÏÁö ¾ÊÀ½.
-	// Server¿¡¼­ º¹¿øµÈ °æÁ¦ µ¥ÀÌÅÍ´Â GameState ReplicationÀ» ÅëÇØ Client¿¡°Ô Àü´Þ
-	if (!ProjectGameState->HasAuthority())
-	{
-		return;
-	}
-
-
-	// GameInstance¿¡ º¸°üµÇ¾î ÀÖ´ø °æÁ¦ µ¥ÀÌÅÍ¸¦ »õ GameState¿¡ ´Ù½Ã Àû¿ë
-	// °ª Á¦ÇÑ ¹× UI °»½Å Ã³¸®µµ ÇÔ²² ¼öÇà
+	// ì €ìž¥í•´ ë‘” ê²½ì œ ì •ë³´ë¥¼ ìƒˆ ë ˆë²¨ì˜ ê²Œìž„ ìƒíƒœì— ë‹¤ì‹œ ì ìš©
 	ProjectGameState->SetGold(SavedGold);
 	ProjectGameState->SetReputation(SavedReputation);
 	ProjectGameState->SetCurrentDebt(SavedDebt);
