@@ -12,8 +12,8 @@
 // 로그인 화면 자동 표시를 위해 포함한다. Chat 서브시스템은 이 컨트롤러를 몰라도
 // 되지만(느슨한 결합), 컨트롤러는 "게임이 시작되면 로그인 화면부터 띄운다" 는
 // 정책을 알아야 하므로 여기서만 의존한다.
-#include "Chat/ChatSubsystem.h"
-#include "Chat/LoginWidgetBase.h"
+#include "Server/ChatSubsystem.h"
+#include "Server/Lobby/LoginWidgetBase.h"
 #include "Engine/GameInstance.h"
 
 // 음성 RPC 창구. 컨트롤러는 음성 시스템의 내부를 몰라도 되지만,

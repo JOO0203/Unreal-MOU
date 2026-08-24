@@ -42,7 +42,7 @@
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (v6) |
+| 1 | 프로토콜 정의 (`ChatProtocol.h`) | 완료 (**v7**, 2026-08-24) |
 | 2 | 세션 구조체 (`Session.h/.cpp`) | 완료 |
 | 3 | 길이 프리픽스 프레이밍 (`Framing.h/.cpp`) | 완료 (split/merge/bad 3종 통과) |
 | 4 | 로그인 — 계정(아이디/비밀번호) 인증 | **완료** (PBKDF2 해시, UserId 영속) |
@@ -57,8 +57,20 @@
 | 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 참여자 쪽 **완료** (v6, 호스트 준비 신호). 방장 쪽은 맵 이름 미정 |
 | 로비-백엔드 | `ILobbyBackend` 로 계정/세션 탐색 분리 (EOS 전환 대비) | **완료** (v6). EOS 구현체는 뼈대 |
 | 로비-보안 | `PreLogin` 에서 방 비밀번호 재검사 | **미착수** ← 진짜 관문 |
-| 8 | 리슨서버 → 채팅서버 신원 미러링 | **미착수** |
-| 9 | 귓속말 | **미착수** |
+| 8 | 리슨서버 → 채팅서버 신원 미러링 | **폐기** (2026-08-24) — 아래 참고 |
+| 9 | 귓속말 | 형태가 바뀌어 완료 — **v7 친구/메신저**로 흡수됨 |
+| 친구 | 친구 신청/수락/삭제, 접속 상태(Presence) | **완료** (v7). `Friends.cpp`, `TestClient` `/add /accept /decline /unfriend` |
+| 메신저 | 1:1 DM 송수신·오프라인 보관·기록 조회·읽음 처리 | **완료** (v7). `DirectMessages.cpp` |
+| 메신저-UI | 친구 목록 패널 + 대화창 (언리얼) | **완료**. `UFriendListWidgetBase`, `UMessengerWidgetBase` (WBP 불필요) |
+| 인게임 채팅 | 죽은사람끼리만 쓰는 채팅 (리슨서버 RPC, 서버 미경유) | **설계만 완료, 미착수**. `Server/Chat/InGame/` 에 화면 코드(구 `ChatWidgetBase`) 보관 중 |
+
+> **8단계(리슨서버 → 채팅서버 신원 미러링)가 왜 폐기됐나**: 대기실 상태 미러링과
+> 혼동하기 쉬운데 별개다. 이건 "누가 죽었는가"를 채팅 서버에 알려 `Dead` 채널을
+> 쓰려던 계획이었다. 리슨서버가 외부 서버에 인증 연결을 하나 더 유지해야 하고,
+> 그 연결이 끊기면 게임 내 채팅이 죽는 새 실패 모드가 생겨서 포기했다. 대신
+> 죽은사람 채팅은 **외부 서버를 아예 안 타고** 리슨서버 RPC 로만 처리하기로
+> 방향을 바꿨다 — `EChatChannel::Dead` 옵코드는 프로토콜에 번호만 남기고 더
+> 안 쓴다. 자세한 논거는 `CHAT_DESIGN.md` 3절.
 
 > 단계 번호는 원래 `MOU_Server/README.md` 의 로드맵을 따르되, 계정·로비처럼
 > 로드맵에 없던 작업은 별도 이름을 붙였다.
@@ -115,15 +127,26 @@ Unreal-MOU/
 │   │   ├─ Accounts.h/.cpp      계정 DB (아이디/비밀번호/닉네임). 동기 커밋
 │   │   ├─ Crypto.h/.cpp        SHA-256 / PBKDF2 / HMAC 자체 구현 (외부 의존성 없음)
 │   │   ├─ ChatLog.h/.cpp       채팅 로그 DB. 비동기 큐 + 라이터 스레드
-│   │   └─ Rooms.h/.cpp         방 레지스트리 (메모리만, 휘발성)
+│   │   ├─ Rooms.h/.cpp         방 레지스트리 (메모리만, 휘발성)
+│   │   ├─ Friends.h/.cpp       친구 관계 DB. Accounts 와 같은 동기 커밋 (v7)
+│   │   └─ DirectMessages.h/.cpp 1:1 메시지 DB. 동기 커밋, 오프라인 보관 (v7)
 │   └─ TestClient/
 │       └─ TestClient.cpp       검증용 콘솔 클라이언트 (계정/로비 명령 포함)
 └─ TeamProject_MOU/             언리얼 프로젝트
     └─ Source/TeamProject_MOU/
         ├─ TeamProject_MOU.Build.cs
-        ├─ Public/Chat/         채팅+계정+로비 헤더
-        └─ Private/Chat/        채팅+계정+로비 구현
+        ├─ Public/Server/       외부 서버와 말하는 것 전부 (헤더)
+        │    ├─ Net/              프레이밍 · 소켓 워커
+        │    ├─ Lobby/            로그인 · 방 · 대기실
+        │    ├─ Chat/             로비 채팅(메신저) · 인게임 채팅
+        │    └─ Social/           친구 · 접속 상태
+        └─ Private/Server/      같은 구조의 구현
 ```
+
+> **`Chat/` 이 아니라 `Server/` 인 이유** (2026-08-24 개편): 이 폴더에는 처음부터
+> 채팅뿐 아니라 로그인·방·대기실이 같이 들어 있었다. 공통점은 "채팅" 이 아니라
+> **"`Server.exe` 와 TCP 로 말하는 코드"** 다. 이름을 내용에 맞추고, 그 아래를
+> 기능별로 나눴다. 자세한 것은 `Public/Server/Chat/CHAT_DESIGN.md`.
 
 ### 2-3. Visual Studio 버전 고정 ★ 중요
 
@@ -531,7 +554,7 @@ Project Settings → Game → MOU Server → Lobby Backend
 
 현실적인 최종 구성은 **"EOS = 계정·세션, 자체 서버 = 채팅·게임 데이터"** 다.
 EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장하면 둘이 이어진다.
-붙이는 순서는 `Chat/EOSLobbyBackend.h` 주석에 단계별로 적어뒀다.
+붙이는 순서는 `Server/Lobby/EOSLobbyBackend.h` 주석에 단계별로 적어뒀다.
 
 ### 스레드 경계 상세
 
@@ -573,26 +596,31 @@ EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장
 | `Server/Crypto.h/.cpp` | SHA-256 / HMAC-SHA256 / PBKDF2 자체 구현. 외부 라이브러리(OpenSSL 등) 없이 비밀번호 해시만 목적 |
 | `Server/ChatLog.h/.cpp` | 채팅 로그 DB. MPSC 큐 + 라이터 스레드 1개. **비동기** — 채팅 지연보다 유실 허용을 택한다 |
 | `Server/Rooms.h/.cpp` | 방 레지스트리. **메모리만** (SQLite 미사용, 휘발성) |
+| `Server/Friends.h/.cpp` | 친구 관계 DB (v7). `Accounts` 와 같은 이유로 **동기 커밋** — 수락 여부는 유실되면 안 된다. `low_id`/`high_id` 정규화를 이 파일에서만 한다 |
+| `Server/DirectMessages.h/.cpp` | 1:1 메시지 DB (v7). **동기 커밋** + 커서 페이징. 저장이 항상 전송보다 먼저다 |
 | `TestClient/TestClient.cpp` | 검증용 콘솔 클라이언트. 계정/로비 명령 포함 |
 
 ### 언리얼 (`TeamProject_MOU/Source/TeamProject_MOU/`)
 
 | 파일 | 역할 |
 |---|---|
-| `Public/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUChat` |
-| `Public/Chat/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP`, `EMOULobbyBackendType` |
-| `Public/Chat/LobbyBackend.h`<br>`Private/Chat/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FChatClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
-| `Public/Chat/SocketLobbyBackend.h`<br>`Private/Chat/SocketLobbyBackend.cpp` | 자체 서버 백엔드. **패킷 조립은 여기서만 한다.** 워커 스레드 수명도 여기가 소유 |
-| `Public/Chat/EOSLobbyBackend.h`<br>`Private/Chat/EOSLobbyBackend.cpp` | EOS 백엔드 **뼈대.** 각 함수가 어떤 EOS API 로 바뀌는지, 붙이는 순서가 주석에 있다 |
-| `Public/Chat/ServerSettings.h`<br>`Private/Chat/ServerSettings.cpp` | `UDeveloperSettings`. 서버 주소 / 백엔드 종류 / 호스트 준비 대기 상한. 우선순위: 실행 인자 > 개인 ini > 팀 공유 ini |
-| `Public/Chat/ChatFraming.h`<br>`Private/Chat/ChatFraming.cpp` | 프레이밍의 `TArray` 버전 + UTF-8 변환. 서버 `Framing.cpp` 와 로직 동일. BP enum ↔ 서버 enum `static_assert` 전부 여기 모여있다 |
-| `Public/Chat/ChatClientRunnable.h`<br>`Private/Chat/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
-| `Public/Chat/ChatSubsystem.h`<br>`Private/Chat/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 패킷은 조립하지 않는다 |
-| `Public/Chat/ChatWidgetBase.h`<br>`Private/Chat/ChatWidgetBase.cpp` | `UUserWidget`. 채팅 로그 + 입력창. PIE 다중 창 지원(`TMap<World, Widget>`) |
-| `Public/Chat/LoginWidgetBase.h`<br>`Private/Chat/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 채팅 위젯 + 로비 자동 생성 |
-| `Public/Chat/LobbyWidgetBase.h`<br>`Private/Chat/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
-| `Public/Chat/RoomCreateWidgetBase.h`<br>`Private/Chat/RoomCreateWidgetBase.cpp` | `UUserWidget`. 제목 + 비번 4자리로 방 생성. 리슨서버는 열지 않는다 |
-| `Public/Chat/RoomListWidgetBase.h`<br>`Private/Chat/RoomListWidgetBase.cpp` | `UUserWidget`. 방 목록 표시 + 참여. 줄 하나는 `URoomListEntryWidget`(같은 헤더) |
+| `Public/Server/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUChat` |
+| `Public/Server/Lobby/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP`, `EMOULobbyBackendType` |
+| `Public/Server/Lobby/LobbyBackend.h`<br>`Private/Server/Lobby/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FChatClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
+| `Public/Server/Lobby/SocketLobbyBackend.h`<br>`Private/Server/Lobby/SocketLobbyBackend.cpp` | 자체 서버 백엔드. **패킷 조립은 여기서만 한다.** 워커 스레드 수명도 여기가 소유 |
+| `Public/Server/Lobby/EOSLobbyBackend.h`<br>`Private/Server/Lobby/EOSLobbyBackend.cpp` | EOS 백엔드 **뼈대.** 각 함수가 어떤 EOS API 로 바뀌는지, 붙이는 순서가 주석에 있다 |
+| `Public/Server/ServerSettings.h`<br>`Private/Server/ServerSettings.cpp` | `UDeveloperSettings`. 서버 주소 / 백엔드 종류 / 호스트 준비 대기 상한. 우선순위: 실행 인자 > 개인 ini > 팀 공유 ini |
+| `Public/Server/Net/ChatFraming.h`<br>`Private/Server/Net/ChatFraming.cpp` | 프레이밍의 `TArray` 버전 + UTF-8 변환. 서버 `Framing.cpp` 와 로직 동일. BP enum ↔ 서버 enum `static_assert` 전부 여기 모여있다 |
+| `Public/Server/Net/ChatClientRunnable.h`<br>`Private/Server/Net/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
+| `Public/Server/ChatSubsystem.h`<br>`Private/Server/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 친구/메신저 델리게이트도 여기서 나간다(v7). 패킷은 조립하지 않는다 |
+| `Public/Server/Lobby/LoginWidgetBase.h`<br>`Private/Server/Lobby/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 로비 자동 생성. **(구) 전체채팅 자동 생성은 v7 부터 기본 꺼짐** — `bShowChatWidgetOnSuccess=false` |
+| `Public/Server/Lobby/LobbyWidgetBase.h`<br>`Private/Server/Lobby/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
+| `Public/Server/Lobby/RoomCreateWidgetBase.h`<br>`Private/Server/Lobby/RoomCreateWidgetBase.cpp` | `UUserWidget`. 제목 + 비번 4자리로 방 생성. 리슨서버는 열지 않는다 |
+| `Public/Server/Lobby/RoomListWidgetBase.h`<br>`Private/Server/Lobby/RoomListWidgetBase.cpp` | `UUserWidget`. 방 목록 표시 + 참여. 줄 하나는 `URoomListEntryWidget`(같은 헤더) |
+| `Public/Server/Social/FriendTypes.h` | BP 노출 타입 (v7): `FMOUFriend`, `FMOUDirectMessage`, `EMOUFriendStateBP`, `EMOUPresenceBP`, `EMOUFriendResultBP` |
+| `Public/Server/Social/FriendListWidgetBase.h`<br>`Private/Server/Social/FriendListWidgetBase.cpp` | `UFriendEntryWidget` + `UFriendListWidgetBase` (v7). 친구 목록 패널. 폭 고정(`PanelWidth`), 상태 문구 자동 소멸(`StatusClearSeconds`) |
+| `Public/Server/Chat/MessengerWidgetBase.h`<br>`Private/Server/Chat/MessengerWidgetBase.cpp` | `UDmWindowWidget` + `UMessengerWidgetBase` (v7). 대화창 여러 개 + 친구 목록 통합 패널 |
+| `Public/Server/Chat/InGame/ChatWidgetBase.h`<br>`Private/Server/Chat/InGame/ChatWidgetBase.cpp` | (구) 전체채팅 위젯. **로비에서는 더 이상 안 뜬다.** 화면 코드(로그 스크롤/입력창/토글키)를 인게임 죽은사람 채팅에 재활용하려고 `Chat/InGame/` 으로 옮겨 보관 중(2026-08-24) |
 
 ### 왜 프레이밍을 두 번 구현했나
 
@@ -1070,16 +1098,15 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   MOU_Server/Server/Rooms.h     Rooms.cpp
   MOU_Server/ThirdParty/sqlite/ sqlite3.h  sqlite3.c  README.md
 
-언리얼:
-  Source/TeamProject_MOU/Public/Chat/   ChatTypes.h  LobbyTypes.h  ChatFraming.h
-                                         ChatClientRunnable.h  ChatSubsystem.h
-                                         ChatWidgetBase.h  LoginWidgetBase.h
-                                         LobbyWidgetBase.h  RoomCreateWidgetBase.h
-                                         RoomListWidgetBase.h
-  Source/TeamProject_MOU/Private/Chat/  ChatFraming.cpp  ChatClientRunnable.cpp
-                                         ChatSubsystem.cpp  ChatWidgetBase.cpp
-                                         LoginWidgetBase.cpp  LobbyWidgetBase.cpp
-                                         RoomCreateWidgetBase.cpp  RoomListWidgetBase.cpp
+언리얼 (Public/ 과 Private/ 이 같은 구조. .h 는 Public, .cpp 는 Private):
+  Source/TeamProject_MOU/Public/Server/        ChatSubsystem.h  ServerSettings.h
+  Source/TeamProject_MOU/Public/Server/Net/    ChatFraming.h  ChatClientRunnable.h
+  Source/TeamProject_MOU/Public/Server/Lobby/  LobbyBackend.h  SocketLobbyBackend.h
+                                               EOSLobbyBackend.h  LobbyTypes.h
+                                               LoginWidgetBase.h  LobbyWidgetBase.h
+                                               RoomCreateWidgetBase.h  RoomListWidgetBase.h
+  Source/TeamProject_MOU/Public/Server/Chat/   ChatTypes.h  ChatWidgetBase.h
+  Source/TeamProject_MOU/Public/Server/Social/ (친구 시스템 — 구현 예정)
 ```
 
 > 로비 UI 3종을 추가할 때 **팀 공용 파일은 하나도 건드리지 않았다.** `Build.cs` 도 그대로다
@@ -1101,8 +1128,16 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 ### 파일 인코딩 — **UTF-8 (BOM 포함)**
 
-`Chat/` 폴더의 모든 `.h`/`.cpp` 는 UTF-8 **BOM 포함**으로 저장돼 있다.
-주석에 한글이 있어서 BOM 이 없으면 MSVC 가 CP949 로 오해해 깨진다.
+`Server/` 폴더의 `.h`/`.cpp` 는 UTF-8 로 저장한다.
+주석에 한글이 있어서, BOM 이 없으면 MSVC 가 CP949 로 오해해 깨질 수 있다.
+
+> **★ 실제로는 BOM 이 섞여 있다** (2026-08-24 확인). `Lobby/` 의 9개 파일
+> (`LobbyBackend`, `SocketLobbyBackend`, `EOSLobbyBackend`, `LobbyTypes`,
+> `LoginWidgetBase` 의 `.h`/`.cpp`)은 **BOM 없이** 저장돼 있고 나머지는 있다.
+> 이 상태로 지금까지 빌드가 통과해 왔으므로 BOM 이 절대 조건은 아니다
+> (`Build.cs` 에 `/utf-8` 지정은 없다 — 엔진 기본 동작으로 보이지만 확인하지
+> 않았다). **새 파일은 BOM 을 넣어 통일한다** — 이미 없는 파일을 굳이 바꾸지는
+> 않는다(전부 재저장하면 diff 만 커지고 얻는 것이 없다).
 
 **편집기에서 저장할 때 인코딩을 바꾸지 말 것.** VS 는 기존 인코딩을 유지하니 보통 문제없다.
 
@@ -1545,7 +1580,7 @@ EOS Session  ──▶ 방 목록 / NAT 통과
 ```
 
 상용 게임들이 실제로 쓰는 구조다. 붙이는 순서(Dev Portal 등록 → 플러그인 3종 →
-`DefaultEngine.ini` → `Build.cs` → 각 함수 구현)는 `Chat/EOSLobbyBackend.h` 주석에
+`DefaultEngine.ini` → `Build.cs` → 각 함수 구현)는 `Server/Lobby/EOSLobbyBackend.h` 주석에
 단계별로 적어뒀다.
 
 ### 14-7. 예상 질문

@@ -134,6 +134,16 @@ struct FVoiceStream
 	/** 마지막으로 받은 발화 모드. 재생 시점에 감쇠 반경을 정하는 데 쓴다. */
 	EVoiceMode LastMode = EVoiceMode::Normal;
 
+	/**
+	 * 마지막으로 받은 반경 배율(MinRadiusScale~1.0). ★ 근접에서만 쓴다.
+	 *
+	 * 서버가 실어 보낸 Frame.Loudness(정규화된 발화 강도)를
+	 * MOUVoice::GetRadiusScaleFromNormalized 에 넣은 값을 그대로 저장해 둔다 -
+	 * 재생 시점(PumpStream)마다 다시 계산할 필요가 없다. 무전 라우트는
+	 * 반경이 무전기 속성에서 오므로(SetRadioMode) 이 값을 쓰지 않는다.
+	 */
+	float LastRadiusScale = 1.f;
+
 	/** 이 스트림의 라우트. 소리를 어디에 붙일지와 어떤 톤으로 낼지를 정한다. */
 	EVoiceRoute Route = EVoiceRoute::Proximity;
 

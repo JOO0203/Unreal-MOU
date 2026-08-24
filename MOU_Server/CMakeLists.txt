@@ -51,6 +51,10 @@ add_executable(Server
     Server/Crypto.cpp
     Server/Rooms.cpp
     Server/Session.cpp
+    # v7 친구 + 메신저. 둘 다 Accounts 와 같은 동기 SQLite 다
+    # (ChatLog 의 비동기 큐와 다른 이유는 각 헤더 주석 참고).
+    Server/Friends.cpp
+    Server/DirectMessages.cpp
 )
 target_include_directories(Server PRIVATE Server)
 target_link_libraries(Server PRIVATE mou_shared sqlite3)
@@ -59,3 +63,18 @@ add_executable(TestClient
     TestClient/TestClient.cpp
 )
 target_link_libraries(TestClient PRIVATE mou_shared)
+
+# 친구/메신저 저장소 회귀 테스트 (v7 M2).
+#
+# 서버를 띄우지 않고 DB 계층만 직접 부른다 - 소켓을 태우면 실패했을 때
+# "네트워크 문제인지 로직 문제인지" 를 다시 갈라야 해서 진단이 느려진다.
+# 종료 코드 0 = 전부 통과.
+add_executable(FriendsTest
+    Tests/FriendsTest.cpp
+    Server/Friends.cpp
+    Server/DirectMessages.cpp
+    Server/Accounts.cpp
+    Server/Crypto.cpp
+)
+target_include_directories(FriendsTest PRIVATE Server)
+target_link_libraries(FriendsTest PRIVATE mou_shared sqlite3)

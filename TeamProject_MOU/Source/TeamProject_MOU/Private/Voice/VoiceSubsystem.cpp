@@ -292,7 +292,20 @@ bool UVoiceSubsystem::Tick(float DeltaTime)
 				? EVoiceRoute::Radio
 				: EVoiceRoute::Proximity;
 
-			VoiceComp->SendVoiceFrame(EncodedScratch, Frame.Loudness, VoiceMode, RequestedRoute);
+			// ★ 원본 RMS 가 아니라 **정규화된 발화 강도**를 보낸다.
+			//
+			//   서버는 이 클라의 마이크 보정값(VadThreshold)을 모르므로, 원본을
+			//   받아서는 "크게 말한 것" 과 "마이크가 센 것" 을 구분할 수 없다.
+			//   그대로 반경에 쓰면 부스트를 켠 마이크가 공짜로 큰 원을 얻는다 -
+			//   숨는 것이 핵심인 게임에서 밸런스가 무너진다.
+			//   그래서 보정값을 아는 이쪽에서 정규화해 보낸다(VoiceTypes.h).
+			//
+			//   엔벨로프를 통과한 값을 쓴다. 순간 RMS 를 보내면 받는 쪽 원이
+			//   음절마다 펄럭인다.
+			const float Intensity = MOUVoice::NormalizeLoudness(
+				Frame.LoudnessEnvelope, GetMicSensitivity());
+
+			VoiceComp->SendVoiceFrame(EncodedScratch, Intensity, VoiceMode, RequestedRoute);
 			++FramesTransmitted;
 		}
 
@@ -425,12 +438,30 @@ void UVoiceSubsystem::DrawRadiusDebug()
 	constexpr float LifeTime = -1.f;  // 한 프레임만. 매 틱 다시 그린다
 	constexpr uint8 Depth    = 0;
 
-	// ★ 이 두 값은 V8 의 ReportNoiseEvent 가 쓸 값과 같은 함수에서 나온다.
-	//   그래서 화면에 보이는 원이 곧 실제 판정 범위다(VoiceTypes.h 참고).
-	const float HearRadius = MOUVoice::GetHearRadius(VoiceMode);
-	const float NoiseRange = MOUVoice::GetNoiseRange(VoiceMode);
+	// ★★ 실제로 나가는 값과 **같은 함수**를 거쳐야 한다.
+	//
+	//   여기서 보이는 원이 곧 판정 범위여야 밸런싱이 가능하다. 정규화 인자도
+	//   전송할 때와 똑같이 (엔벨로프, 내 감도) 조합이어야 한다 - 여기만
+	//   원본 RMS 를 쓰면 화면의 원이 남에게 들리는 거리와 조용히 어긋난다
+	//   (VoiceTypes.h 의 단일 진실 공급원 주석).
+	const float Envelope  = GetLoudnessEnvelope();
+	const float Intensity = GetCurrentIntensity();
+	const float Scale     = MOUVoice::GetRadiusScaleFromNormalized(Intensity);
 
-	// 초록 = 사람이 듣는 거리
+	const float HearRadius = MOUVoice::GetScaledHearRadius(VoiceMode, Intensity);
+	const float NoiseRange = MOUVoice::GetScaledNoiseRange(VoiceMode, Intensity);
+
+	// 모드가 정하는 상한. 얇은 회색으로 같이 그린다.
+	//
+	// ★ 이게 없으면 **지금 원이 작은 이유가 조용히 말해서인지, 모드가
+	//   속삭임이라서인지 화면만 봐서는 구분할 수 없다.** 두 원의 간격이 곧
+	//   "더 크게 말하면 얼마나 커지는가" 라서, 곡선을 튜닝할 때 이 여백을 본다.
+	DrawDebugCircle(World, Center, MOUVoice::GetHearRadius(VoiceMode), Segments,
+		FColor(90, 90, 90), false, LifeTime, Depth, 1.f, AxisX, AxisY, /*bDrawAxis=*/false);
+	DrawDebugCircle(World, Center, MOUVoice::GetNoiseRange(VoiceMode), Segments,
+		FColor(90, 60, 60), false, LifeTime, Depth, 1.f, AxisX, AxisY, /*bDrawAxis=*/false);
+
+	// 초록 = 사람이 듣는 거리 (음량이 반영된 실제 값)
 	DrawDebugCircle(World, Center, HearRadius, Segments, FColor::Green,
 		false, LifeTime, Depth, 4.f, AxisX, AxisY, /*bDrawAxis=*/false);
 
@@ -438,12 +469,19 @@ void UVoiceSubsystem::DrawRadiusDebug()
 	DrawDebugCircle(World, Center, NoiseRange, Segments, FColor::Red,
 		false, LifeTime, Depth, 4.f, AxisX, AxisY, /*bDrawAxis=*/false);
 
-	// 지금 어떤 모드로 말하는 중인지 머리 위에 띄운다.
-	// 링만 있으면 두 원 중 어느 쪽이 어느 모드인지 헷갈린다.
+	// 머리 위 숫자. 원만 보면 "왜 이 크기인지" 를 알 수 없어서, 곡선의 입력부터
+	// 출력까지(순간 RMS -> 엔벨로프 -> 정규화 -> 배율 -> 거리) 순서대로 찍는다.
+	// 튜닝할 때 어느 단계에서 값이 뭉개지는지 이 줄 하나로 좁힐 수 있다.
 	DrawDebugString(World, Pawn->GetActorLocation() + FVector(0.f, 0.f, 100.f),
-		FString::Printf(TEXT("%s  들림 %.0fm / NPC %.0fm  (음량 %.2f)"),
+		FString::Printf(
+			TEXT("%s  들림 %.1fm / NPC %.1fm  (상한 %.0fm / %.0fm)\n")
+			TEXT("RMS %.3f -> 엔벨 %.3f -> 강도 %.2f -> 배율 %.2f  [감도 %.3f, 상한 %.2f]"),
 			MOUVoice::GetVoiceModeName(VoiceMode),
-			HearRadius / 100.f, NoiseRange / 100.f, GetCurrentLoudness()),
+			HearRadius / 100.f, NoiseRange / 100.f,
+			MOUVoice::GetHearRadius(VoiceMode) / 100.f,
+			MOUVoice::GetNoiseRange(VoiceMode) / 100.f,
+			GetCurrentLoudness(), Envelope, Intensity, Scale,
+			GetMicSensitivity(), MOUVoice::LoudnessCeiling),
 		nullptr, FColor::White, 0.f /*이번 프레임만*/);
 #endif
 }
@@ -727,13 +765,52 @@ float UVoiceSubsystem::GetCurrentLoudness() const
 	return CaptureSource.IsValid() ? CaptureSource->GetCurrentLoudness() : 0.f;
 }
 
+float UVoiceSubsystem::GetLoudnessEnvelope() const
+{
+	return CaptureSource.IsValid() ? CaptureSource->GetLoudnessEnvelope() : 0.f;
+}
+
+float UVoiceSubsystem::GetCurrentIntensity() const
+{
+	// ★ 정규화가 일어나는 곳은 여기 하나다(전송 경로는 프레임별 엔벨로프를
+	//   써야 해서 예외지만, 부르는 함수는 같다). 지름길을 만들면 화면의 원과
+	//   남에게 들리는 거리가 어긋난다.
+	return MOUVoice::NormalizeLoudness(GetLoudnessEnvelope(), GetMicSensitivity());
+}
+
+float UVoiceSubsystem::GetCurrentRadiusScale() const
+{
+	return MOUVoice::GetRadiusScaleFromNormalized(GetCurrentIntensity());
+}
+
 void UVoiceSubsystem::SetMicSensitivity(float InThreshold)
 {
-	if (CaptureSource.IsValid())
+	if (!CaptureSource.IsValid())
 	{
-		CaptureSource->SetVadThreshold(InThreshold);
-		UE_LOG(LogMOUVoice, Log, TEXT("마이크 감도(VAD 임계값) = %.4f"), InThreshold);
+		return;
 	}
+
+	CaptureSource->SetVadThreshold(InThreshold);
+
+	// ★ 감도를 바꾸면 음량->반경 조절 구간의 **시작점**이 같이 움직인다.
+	//   상한이 그 아래로 내려가면 조절 구간이 사라져 모든 발화가 최대 반경이
+	//   된다 - 조용히 죽는 종류의 버그라 여기서 막는다(VoiceTypes.h 의
+	//   MinLoudnessSpan 주석). 감도를 바꾸는 경로는 자동 보정과 이 함수뿐이고,
+	//   자동 보정도 결국 여기를 지나므로 한 곳에서 막으면 충분하다.
+	const float Applied = CaptureSource->GetVadThreshold();
+
+	if (MOUVoice::EnsureUsableLoudnessSpan(Applied))
+	{
+		UE_LOG(LogMOUVoice, Warning,
+			TEXT("★ 감도(%.4f)가 음량 상한에 너무 가까워 반경 조절 구간이 없어질 뻔했다. ")
+			TEXT("상한을 %.4f 로 올렸다. 속삭임/외침의 반경 차이가 좁게 느껴지면 ")
+			TEXT("MOU.Voice.LoudnessCurve 로 상한을 더 올릴 것."),
+			Applied, MOUVoice::LoudnessCeiling);
+	}
+
+	UE_LOG(LogMOUVoice, Log,
+		TEXT("마이크 감도(VAD 임계값) = %.4f (조절 구간 %.4f ~ %.4f)"),
+		Applied, Applied, MOUVoice::LoudnessCeiling);
 }
 
 float UVoiceSubsystem::GetMicSensitivity() const
@@ -978,8 +1055,16 @@ FString UVoiceSubsystem::GetStatsString() const
 		}
 	}
 
+	// ★ 반경은 이제 모드 상한이 아니라 **음량이 곱해진 실제 값**을 찍는다.
+	//   상한만 보여주면 "표에는 15m 인데 실제로는 8m 에서 안 들린다" 를
+	//   설명할 수 없어서, 아날로그 반경을 튜닝하는 동안 이 줄이 거짓말을 한다.
+	//   괄호 안이 모드 상한, 앞이 지금 실제로 나가는 거리다.
+	const float Intensity = GetCurrentIntensity();
+
 	return FString::Printf(
-		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s(들림%.0f/NPC%.0f) 감도=%.4f 음량=%.4f ")
+		TEXT("마이크=%s 음소거=%s 루프백=%s 발화=%s 모드=%s ")
+		TEXT("| 들림%.0f/NPC%.0f(상한%.0f/%.0f) 배율=%.2f 강도=%.2f ")
+		TEXT("| 감도=%.4f 음량=%.4f 엔벨=%.4f ")
 		TEXT("| 수신프레임=%d 버림=%d ")
 		TEXT("| 재생버퍼=%d샘플(%.0fms) 언더런=%d 오버플로=%d%s%s"),
 		IsCaptureReady() ? TEXT("준비됨") : TEXT("없음"),
@@ -987,10 +1072,15 @@ FString UVoiceSubsystem::GetStatsString() const
 		bLoopbackEnabled ? TEXT("ON") : TEXT("OFF"),
 		bIsSpeaking ? TEXT("O") : TEXT("X"),
 		MOUVoice::GetVoiceModeName(VoiceMode),
+		MOUVoice::GetScaledHearRadius(VoiceMode, Intensity),
+		MOUVoice::GetScaledNoiseRange(VoiceMode, Intensity),
 		MOUVoice::GetHearRadius(VoiceMode),
 		MOUVoice::GetNoiseRange(VoiceMode),
+		MOUVoice::GetRadiusScaleFromNormalized(Intensity),
+		Intensity,
 		GetMicSensitivity(),
 		GetCurrentLoudness(),
+		GetLoudnessEnvelope(),
 		FramesReceived,
 		FramesDropped,
 		Buffered,
@@ -1106,6 +1196,64 @@ namespace
 					const bool bEnable = Args.IsValidIndex(0) ? (FCString::Atoi(*Args[0]) != 0) : true;
 					Voice->SetShowRadiusDebug(bEnable);
 				}
+			}));
+
+	/**
+	 * 음량 -> 반경 곡선을 실시간으로 튜닝한다.
+	 *
+	 * ★ 값이 MOUVoice 네임스페이스의 전역이라 **서버·클라 양쪽에서 따로
+	 *   실행해야 한다.** PIE 처럼 한 프로세스에 서버·클라가 같이 있을 때만
+	 *   한 번으로 양쪽에 반영된다 - 데디케이티드 서버로 가면 서버 쪽에서도
+	 *   실행하지 않으면 NPC 반경과 화면의 원이 어긋난다(VoiceTypes.h 주석).
+	 *
+	 * 인자 없이 부르면 현재 값을 보여준다. 인자 순서: Ceiling, MinScale, Exponent.
+	 * 하나만 바꾸고 싶으면 나머지에 현재 값을 그대로 넣는다.
+	 */
+	FAutoConsoleCommandWithWorldAndArgs GVoiceLoudnessCurveCommand(
+		TEXT("MOU.Voice.LoudnessCurve"),
+		TEXT("음량->반경 곡선을 조절한다. 사용법: MOU.Voice.LoudnessCurve [Ceiling] [MinScale] [Exponent]. ")
+		TEXT("인자 없이 부르면 현재 값 표시. 서버·클라 양쪽에서 따로 실행해야 한다(★ 위 주석)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (!Args.IsValidIndex(0))
+				{
+					UE_LOG(LogMOUVoice, Log,
+						TEXT("Loudness Ceiling=%.3f  MinRadiusScale=%.2f  CurveExponent=%.2f"),
+						MOUVoice::LoudnessCeiling, MOUVoice::MinRadiusScale, MOUVoice::RadiusCurveExponent);
+					return;
+				}
+
+				MOUVoice::LoudnessCeiling = FMath::Max(FCString::Atof(*Args[0]), UE_KINDA_SMALL_NUMBER);
+
+				if (Args.IsValidIndex(1))
+				{
+					MOUVoice::MinRadiusScale = FMath::Clamp(FCString::Atof(*Args[1]), 0.f, 1.f);
+				}
+				if (Args.IsValidIndex(2))
+				{
+					MOUVoice::RadiusCurveExponent = FMath::Max(FCString::Atof(*Args[2]), UE_KINDA_SMALL_NUMBER);
+				}
+
+				// ★ 감도보다 낮은 상한을 넣으면 조절 구간이 사라진다(모든 발화가
+				//   최대 반경). 손으로 넣는 값이라 더 쉽게 일어난다 - 되돌리지 않고
+				//   밀어올린 뒤 왜 그랬는지 말해준다. 조용히 고치면 다음에 또 넣는다.
+				if (const UVoiceSubsystem* Voice = FindVoiceSubsystem(World))
+				{
+					const float Threshold = Voice->GetMicSensitivity();
+
+					if (MOUVoice::EnsureUsableLoudnessSpan(Threshold))
+					{
+						UE_LOG(LogMOUVoice, Warning,
+							TEXT("★ 상한이 현재 감도(%.4f)보다 낮거나 너무 가까웠다. ")
+							TEXT("%.4f 로 올렸다 - 그대로 두면 속삭여도 최대 반경이 된다."),
+							Threshold, MOUVoice::LoudnessCeiling);
+					}
+				}
+
+				UE_LOG(LogMOUVoice, Log,
+					TEXT("Loudness Ceiling=%.3f  MinRadiusScale=%.2f  CurveExponent=%.2f 로 설정."),
+					MOUVoice::LoudnessCeiling, MOUVoice::MinRadiusScale, MOUVoice::RadiusCurveExponent);
 			}));
 
 	FAutoConsoleCommandWithWorldAndArgs GVoiceModeCommand(

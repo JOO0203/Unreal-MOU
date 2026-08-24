@@ -135,6 +135,12 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 	Stream.LastMode      = Mode;
 	Stream.Route         = Route;
 
+	// ★ 서버가 확정한 정규화 강도를 반경 배율로 바꿔 캐시해 둔다.
+	//   PumpStream 은 이 값이 나온 것과 **같은 함수**(GetRadiusScaleFromNormalized)를
+	//   거쳐야 화면(디버그 링)·NPC 반경과 어긋나지 않는다(VoiceTypes.h).
+	Stream.LastRadiusScale = MOUVoice::GetRadiusScaleFromNormalized(
+		MOUVoice::DequantizeLoudness(Frame.Loudness));
+
 	// 무전이면 소리를 낼 무전기가 프레임에 실려 온다.
 	// 매번 갱신한다 - 같은 사람이라도 무전기를 바꿔 들 수 있다.
 	Stream.RadioActor = (Route == EVoiceRoute::Radio) ? Frame.RadioActor.Get() : nullptr;
@@ -355,7 +361,7 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 		}
 		else
 		{
-			Synth->SetProximityMode(Mode);
+			Synth->SetProximityMode(Mode, Stream.LastRadiusScale);
 		}
 
 		// 등록 전에는 SetupAttachment, 등록 후에는 AttachToComponent 다.
@@ -369,9 +375,10 @@ UVoiceSynthComponent* UVoicePlaybackComponent::EnsureSynthForStream(
 	}
 	else if (Stream.Route == EVoiceRoute::Proximity)
 	{
-		// 발화 모드가 바뀌었으면 감쇠만 갈아끼운다(모드가 그대로면 즉시 반환한다).
-		// 무전은 반경이 무전기 속성이라 발화 모드와 무관하다.
-		Synth->SetProximityMode(Mode);
+		// 모드나 음량 배율이 바뀌었으면 감쇠만 갈아끼운다(둘 다 그대로면
+		// SetProximityMode 안에서 즉시 반환한다 - RadiusScaleUpdateEpsilon 참고).
+		// 무전은 반경이 무전기 속성이라 발화 모드/음량과 무관하다.
+		Synth->SetProximityMode(Mode, Stream.LastRadiusScale);
 	}
 
 	return Synth;
