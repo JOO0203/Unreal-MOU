@@ -267,3 +267,21 @@ void AItemBase::OnUnequipped_Implementation(AActor* Equipper)
 		AttachToActor(Equipper, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 	}
 }
+
+void AItemBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const
+{
+	OutData.ItemClass = GetClass();
+	OutData.Transform = GetActorTransform();
+	OutData.CurrentUseCount = CurrentUseCount;
+	OutData.CurrentDurability = CurrentDurability;
+	OutData.ExtraSaveData.Reset();
+}
+
+void AItemBase::LoadItemFromData_Implementation(const FStoredItemInstanceData& InData)
+{
+	CurrentUseCount = InData.CurrentUseCount;
+	CurrentDurability = InData.CurrentDurability;
+	SetActorTransform(InData.Transform);
+
+	OnRep_CurrentDurability();
+}

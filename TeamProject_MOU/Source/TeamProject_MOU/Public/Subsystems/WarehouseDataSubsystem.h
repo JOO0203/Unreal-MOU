@@ -18,9 +18,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	void SaveStoredItems(const TArray<FStoredItemData>& InStoredItems);
 
+	// 창고 아이템 개별 상태 데이터를 GameInstance에 저장
+	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
+	void SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances);
+
 	// 현재 저장된 창고 데이터를 복사본으로 반환
 	UFUNCTION(BlueprintPure, Category = "Warehouse|Storage")
 	TArray<FStoredItemData> GetStoredItemsCopy() const;
+
+	// 현재 저장된 창고 아이템 개별 상태 데이터를 복사본으로 반환
+	UFUNCTION(BlueprintPure, Category = "Warehouse|Storage")
+	TArray<FStoredItemInstanceData> GetStoredItemInstancesCopy() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	void ClearStoredItems();
@@ -59,5 +67,7 @@ public:
 
 private:
 	const TArray<FStoredItemData>& GetStoredItemsInternal() const;
+	const TArray<FStoredItemInstanceData>& GetStoredItemInstancesInternal() const;
 	bool BuildValidatedDeliveryData(const TArray<FStoredItemData>& RequestedItems, FDeliveryData& OutDeliveryData) const;
+	bool ConsumeStoredItemsForDelivery(const FDeliveryData& DeliveryData);
 };
