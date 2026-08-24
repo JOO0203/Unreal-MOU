@@ -235,6 +235,12 @@ void APackageBase::OnUse_Implementation()
 	UE_LOG(LogTemp, Warning, TEXT("[%s] 택배는 사용할 수 없습니다! (옮기기만 가능)"), *GetName());
 }
 
+bool APackageBase::CanInteract_Implementation(AActor* Interactor) const
+{
+	// 택배는 F키 상호작용 대상이 아니며, 오직 E키로만 잡고/들고/던집니다.
+	return false;
+}
+
 void APackageBase::MulticastPickUp_Implementation(AActor* Picker)
 {
 	Super::MulticastPickUp_Implementation(Picker);

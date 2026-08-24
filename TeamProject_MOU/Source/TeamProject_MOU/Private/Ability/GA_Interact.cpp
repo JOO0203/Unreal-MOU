@@ -16,6 +16,12 @@ UGA_Interact::UGA_Interact()
 		SetAssetTags(AssetTagsContainer);
 	}
 
+	FGameplayTag SprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Sprint"), false);
+	if (SprintTag.IsValid())
+	{
+		CancelAbilitiesWithTag.AddTag(SprintTag);
+	}
+
 	FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
 	FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
 	FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);

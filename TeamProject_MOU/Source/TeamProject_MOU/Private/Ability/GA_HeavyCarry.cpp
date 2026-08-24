@@ -15,6 +15,7 @@ UGA_HeavyCarry::UGA_HeavyCarry()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(HeavyTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(HeavyTag);
 	}
 
 	FGameplayTag BlockSprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Block.Sprint"), false);
@@ -32,6 +33,7 @@ UGA_HeavyCarry::UGA_HeavyCarry()
 	FGameplayTag SprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Sprint"), false);
 	if (SprintTag.IsValid())
 	{
+		CancelAbilitiesWithTag.AddTag(SprintTag);
 		BlockAbilitiesWithTag.AddTag(SprintTag);
 	}
 }
@@ -57,10 +59,14 @@ void UGA_HeavyCarry::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			OriginalBaseMoveSpeed = Attr->GetMoveSpeed();
-			Attr->SetMoveSpeed(OriginalBaseMoveSpeed * SpeedMultiplier);
+			float CarrySpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(CarrySpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = CarrySpeed;
+			}
 		}
 	}
 }
@@ -68,6 +74,8 @@ void UGA_HeavyCarry::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 void UGA_HeavyCarry::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	ACharacterBase* Char = GetCharacterFromActorInfo();
+
 	if (ASC && ActiveHeavyCarryEffectHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(ActiveHeavyCarryEffectHandle);
@@ -75,9 +83,14 @@ void UGA_HeavyCarry::EndAbility(const FGameplayAbilitySpecHandle Handle, const F
 	}
 	else if (UBaseAttributeSet* Attr = GetBaseAttributeSet())
 	{
-		if (HasAuthority(&ActivationInfo))
+		if (HasAuthority(&ActivationInfo) && Char)
 		{
-			Attr->SetMoveSpeed(OriginalBaseMoveSpeed);
+			float BaseSpeed = Char->GetCalculatedWalkSpeed();
+			Attr->SetMoveSpeed(BaseSpeed);
+			if (Char->GetCharacterMovement())
+			{
+				Char->GetCharacterMovement()->MaxWalkSpeed = BaseSpeed;
+			}
 		}
 	}
 
