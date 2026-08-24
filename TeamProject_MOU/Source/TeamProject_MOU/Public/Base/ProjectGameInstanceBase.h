@@ -37,6 +37,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	int32 SavedDebtCycle = 0;
 
+	// 맵 이동 전 현재 경제 HalfDay를 임시 저장
+	// 새로운 GameState 생성 후 상환 기한 진행 상태를 이어가기 위해 사용
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
+	int32 SavedEconomyCurrentHalfDay = 0;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	bool bHaveSavedEconomyData = false;
 

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "Economy/EconomyTypes.h"
 #include "ProjectGameStateBase.generated.h"
 
 /**
@@ -71,22 +72,38 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Reputation")
 	void OnReputationUpdated(int32 NewReputation);
 
-
 	// ==============================================
 	// Debt
 	// ==============================================
 
-	// 현재 갚아야하는 빚
+	// 최초 빚
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
+	int32 InitialDebt;
+
+	// 현재 갚아야 하는 빚
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentDebt, Category = "Economy|Debt")
 	int32 CurrentDebt;
 
-	// 다음 갚아야하는 빚 증가 배율
+	// 빚 증가 계산의 기본 증가량
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
-	float DebtMultiplier;
+	int32 BaseDebtIncrease;
 
-	// 현재 몇 번째 상환 주기인지
+	// 빚 증가 속도 조절값
+	// 값이 작을수록 후반 빚 증가 속도가 빨라짐
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
+	float DebtGrowthDivisor;
+
+	// 현재 몇 번째 상환 회차인지
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_DebtCycle, Category = "Economy|Debt")
 	int32 DebtCycle;
+
+	// 현재 상환 회차 기준 빚 증가량 계산(이번에 얼마 증가하냐)
+	UFUNCTION(BlueprintPure, Category = "Economy|Debt")
+	int32 CalculateDebtIncrease() const;
+
+	// 현재 상환 회차 기준 다음 빚 계산(증가량까지 포함해서 다음 빚 총액이 얼마냐)
+	UFUNCTION(BlueprintPure, Category = "Economy|Debt")
+	int32 CalculateNextDebt() const;
 
 	// 현재 빚을 상환
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
@@ -96,17 +113,67 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	void SetCurrentDebt(int32 NewDebt);
 
-	// 빚 상환 주기를 직접 설정
+	// 빚 상환 회차를 직접 설정
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	void SetDebtCycle(int32 NewDebtCycle);
+
+	// 현재 상환 기한을 확인하고 상환 처리 결과 반환
+	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
+	EDebtProcessResult ProcessDebtDeadline();
 
 	// 빚 변경시 UI 갱신용
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
 	void OnDebtUpdated(int32 NewDebt);
 
-	// 빚 상환주기 변경 시 UI 갱신용
+	// 빚 상환 회차 변경 시 UI 갱신용
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
 	void OnDebtCycleUpdated(int32 NewDebtCycle);
+
+	// ==============================================
+	// Economy Time
+	// ==============================================
+
+	// 현재 경제 시스템에서 경과한 HalfDay
+	// 임시 시간값이며 맵 이동 1회당 1 증가
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_EconomyCurrentHalfDay, Category = "Economy|Time")
+	int32 EconomyCurrentHalfDay;
+
+	// 빚 상환 간격
+	// 현재 임시 시간 기준 14 HalfDay = 7일
+	// 추후 실제 일수 시스템 추가 시 해당 시간 기준과 연결
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Time")
+	int32 DebtPeriodHalfDay;
+
+	// 경제 시간 1 HalfDay 진행
+	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
+	void AdvanceEconomyHalfDay();
+
+	// 현재 경제 HalfDay 반환
+	UFUNCTION(BlueprintPure, Category = "Economy|Time")
+	int32 GetEconomyCurrentHalfDay() const;
+
+	// 저장 데이터 복원용
+	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
+	void SetEconomyCurrentHalfDay(int32 NewHalfDay);
+
+	// 현재 상환 회차 기준 다음 상환 시점을 계산
+	// DebtCycle * DebtPeriodHalfDay
+	UFUNCTION(BlueprintPure, Category = "Economy|Time")
+	int32 GetNextDebtDueHalfDay() const;
+
+	// 현재 경제 시간이 다음 상환 시점 이상인지 확인
+	// true이면 빚 상환 처리 필요
+	UFUNCTION(BlueprintPure, Category = "Economy|Time")
+	bool IsDebtDue() const;
+
+	// 다음 빚 상환까지 남은 HalfDay 반환
+	// 이미 기한에 도달한 경우 0 반환
+	UFUNCTION(BlueprintPure, Category = "Economy|Time")
+	int32 GetRemainingDebtHalfDay() const;
+
+	// 경제 시간 변경 시 BP/UI 갱신용
+	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Time")
+	void OnEconomyHalfDayUpdated(int32 NewHalfDay);
 
 protected:
 	UFUNCTION()
@@ -120,6 +187,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_DebtCycle();
+
+	UFUNCTION()
+	void OnRep_EconomyCurrentHalfDay();
 
 	virtual void GetLifetimeReplicatedProps(
 		TArray<FLifetimeProperty>& OutLifetimeProps) const override;

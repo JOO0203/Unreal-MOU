@@ -48,11 +48,13 @@ void UProjectGameInstanceBase::SaveEconomyData()
 		return;
 	}
 
-	// 게임 상태의 경제 정보를 레벨 이동 전에 임시 보관
+	// 게임 상태의 Gold / Reputation / Debt / DebtCycle / Economy HalfDay를
+	// 레벨 이동 전에 GameInstance에 임시 보관
 	SavedGold = ProjectGameState->Gold;
 	SavedReputation = ProjectGameState->Reputation;
 	SavedDebt = ProjectGameState->CurrentDebt;
 	SavedDebtCycle = ProjectGameState->DebtCycle;
+	SavedEconomyCurrentHalfDay = ProjectGameState->GetEconomyCurrentHalfDay();
 	bHaveSavedEconomyData = true;
 }
 
@@ -80,4 +82,5 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	ProjectGameState->SetReputation(SavedReputation);
 	ProjectGameState->SetCurrentDebt(SavedDebt);
 	ProjectGameState->SetDebtCycle(SavedDebtCycle);
+	ProjectGameState->SetEconomyCurrentHalfDay(SavedEconomyCurrentHalfDay);
 }
