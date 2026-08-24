@@ -3,6 +3,7 @@
 
 #include "Base/ProjectGameStateBase.h"
 
+#include "Economy/EconomyDebtProcessor.h"
 #include "Net/UnrealNetwork.h"
 
 AProjectGameStateBase::AProjectGameStateBase()
@@ -10,9 +11,16 @@ AProjectGameStateBase::AProjectGameStateBase()
 	Gold = 0;
 	Reputation = 0;
 
-	CurrentDebt = 200;
-	DebtMultiplier = 1.5f;
+	InitialDebt = 500;
+	CurrentDebt = InitialDebt;
+
+	BaseDebtIncrease = 250;
+	DebtGrowthDivisor = 8.0f;
+
 	DebtCycle = 1;
+
+	EconomyCurrentHalfDay = 0;
+	DebtPeriodHalfDay = 14;
 }
 
 // ==============================================
@@ -124,6 +132,26 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 // Debt
 // ==============================================
 
+//증가량 = BaseDebtIncrease × (1 + ((DebtCycle - 1)² / DebtGrowthDivisor))
+int32 AProjectGameStateBase::CalculateDebtIncrease() const
+{
+	const float CycleValue = static_cast<float>(FMath::Max(0, DebtCycle - 1));
+
+	const float SafeDivisor = FMath::Max(0.01f, DebtGrowthDivisor);
+
+	const float GrowthFactor = 1.0f + (FMath::Square(CycleValue) / SafeDivisor);
+
+	const float Increase = static_cast<float>(BaseDebtIncrease) * GrowthFactor;
+
+	return FMath::RoundToInt(Increase);
+}
+
+// 현재 빚 + 이번 증가량
+int32 AProjectGameStateBase::CalculateNextDebt() const
+{
+	return CurrentDebt + CalculateDebtIncrease();
+}
+
 bool AProjectGameStateBase::PayDebt()
 {
 	if (!HasAuthority())
@@ -131,17 +159,21 @@ bool AProjectGameStateBase::PayDebt()
 		return false;
 	}
 
-	// 빚을 낼 돈이 부족함
+	// 현재 빚을 갚을 골드가 부족하면 상환 실패
 	if (!SpendGold(CurrentDebt))
 	{
-		return  false;
+		return false;
 	}
 
-	// 상환 성공
+	// 현재 DebtCycle 기준으로 다음 빚을 먼저 계산
+	const int32 NextDebt = CalculateNextDebt();
+
+	// 상환 성공 후 다음 회차로 증가
 	DebtCycle++;
 	OnDebtCycleUpdated(DebtCycle);
 
-	CurrentDebt = FMath::RoundToInt(CurrentDebt * DebtMultiplier);
+	// 계산된 다음 빚 적용
+	CurrentDebt = NextDebt;
 	OnDebtUpdated(CurrentDebt);
 
 	return true;
@@ -171,6 +203,64 @@ void AProjectGameStateBase::SetDebtCycle(int32 NewDebtCycle)
 	OnDebtCycleUpdated(DebtCycle);
 }
 
+EDebtProcessResult AProjectGameStateBase::ProcessDebtDeadline()
+{
+	return FEconomyDebtProcessor::Process(this);
+}
+
+// ==============================================
+// Economy Time
+// ==============================================
+
+// 경제 시간 1 HalfDay 진행
+void AProjectGameStateBase::AdvanceEconomyHalfDay()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	EconomyCurrentHalfDay++;
+
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
+// 현재 경제 HalfDay 반환
+int32 AProjectGameStateBase::GetEconomyCurrentHalfDay() const
+{
+	return EconomyCurrentHalfDay;
+}
+
+// 저장 데이터 복원용
+void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	EconomyCurrentHalfDay = FMath::Max(0, NewHalfDay);
+
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
+// 다음 빚 상환 HalfDay 반환
+int32 AProjectGameStateBase::GetNextDebtDueHalfDay() const
+{
+	return DebtCycle * DebtPeriodHalfDay;
+}
+
+// 현재 빚 상환 기한에 도달했는지 확인
+bool AProjectGameStateBase::IsDebtDue() const
+{
+	return EconomyCurrentHalfDay >= GetNextDebtDueHalfDay();
+}
+
+// 빚 상환까지 남은 HalfDay
+int32 AProjectGameStateBase::GetRemainingDebtHalfDay() const
+{
+	return FMath::Max(0,GetNextDebtDueHalfDay() - EconomyCurrentHalfDay);
+}
 
 // ==============================================
 // RepNotify
@@ -195,6 +285,11 @@ void AProjectGameStateBase::OnRep_DebtCycle()
 	OnDebtCycleUpdated(DebtCycle);
 }
 
+void AProjectGameStateBase::OnRep_EconomyCurrentHalfDay()
+{
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
 // ==============================================
 // Replication
 // ==============================================
@@ -206,4 +301,6 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
+	DOREPLIFETIME(AProjectGameStateBase, EconomyCurrentHalfDay);
 }
+
