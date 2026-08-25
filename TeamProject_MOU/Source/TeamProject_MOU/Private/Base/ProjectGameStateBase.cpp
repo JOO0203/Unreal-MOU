@@ -8,7 +8,7 @@
 
 AProjectGameStateBase::AProjectGameStateBase()
 {
-	Gold = 0;
+	Gold = 1000;
 	Reputation = 0;
 
 	InitialDebt = 500;
