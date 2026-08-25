@@ -13,6 +13,10 @@ class TEAMPROJECT_MOU_API UProjectGameInstanceBase : public UGameInstance
 	GENERATED_BODY()
 
 public:
+	// GameInstance BP에서 새 런의 초기 창고 물품 DataAsset을 지정합니다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Storage|Initial")
+	TObjectPtr<class UWarehouseInitialDataAsset> InitialWarehouseData;
+
 	// 레벨 이동 후에도 유지할 창고  데이터
 	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
 	TArray<FStoredItemData> SavedStoredItems;
@@ -20,6 +24,10 @@ public:
 	// 레벨 이동 후에도 유지할 창고 아이템 개별 상태 데이터
 	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
 	TArray<FStoredItemInstanceData> SavedStoredItemInstances;
+
+	// 초기 창고 물품이 이번 런에서 이미 적용되었는지 확인합니다.
+	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
+	bool bWarehouseInitialized = false;
 
 	// 배달 맵으로 가져갈 아이템
 	UPROPERTY(BlueprintReadOnly, Category = "Delivery|Save")
@@ -60,9 +68,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Economy|Save")
 	void LoadEconomyData();
 
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void ResetRunData();
+
 	UFUNCTION(BlueprintCallable, Category = "Delivery|Save")
 	void SavePendingDeliveryData(const FDeliveryData& InDeliveryData);
 
 	UFUNCTION(BlueprintCallable, Category = "Delivery|Save")
 	void ClearPendingDeliveryData();
 };
+

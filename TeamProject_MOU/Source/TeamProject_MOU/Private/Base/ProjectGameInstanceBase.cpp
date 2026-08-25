@@ -4,10 +4,12 @@
 
 #include "Base/ProjectGameStateBase.h"
 #include "Engine/World.h"
+#include "Subsystems/WarehouseDataSubsystem.h"
 
 void UProjectGameInstanceBase::SaveStoredItems(const TArray<FStoredItemData>& InStoredItems)
 {
 	SavedStoredItems = InStoredItems;
+	bWarehouseInitialized = true;
 }
 
 void UProjectGameInstanceBase::SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances)
@@ -84,3 +86,21 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	ProjectGameState->SetDebtCycle(SavedDebtCycle);
 	ProjectGameState->SetEconomyCurrentHalfDay(SavedEconomyCurrentHalfDay);
 }
+
+void UProjectGameInstanceBase::ResetRunData()
+{
+	SavedGold = 0;
+	SavedReputation = 0;
+	SavedDebt = 0;
+	SavedDebtCycle = 0;
+	SavedEconomyCurrentHalfDay = 0;
+	bHaveSavedEconomyData = false;
+	ClearStoredItems();
+	bWarehouseInitialized = false;
+	ClearPendingDeliveryData();
+	if (UWarehouseDataSubsystem* WarehouseSubsystem = GetSubsystem<UWarehouseDataSubsystem>())
+	{
+		WarehouseSubsystem->InitializeWarehouseFromDataAsset();
+	}
+}
+

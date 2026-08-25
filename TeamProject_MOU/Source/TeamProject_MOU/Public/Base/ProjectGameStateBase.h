@@ -22,24 +22,24 @@ public:
 	// Gold
 	// ==============================================
 
-	// ÇöÀç ÆÀÀÌ º¸À¯ÇÑ °ñµå
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Gold, Category = "Economy")
 	int32 Gold;
 
-	// °ñµå Ãß°¡
+	// ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	void AddGold(int32 Amount);
 
-	// °ñµå »ç¿ë
-	// °ñµå°¡ ºÎÁ·ÇÏ¸é false ¹ÝÈ¯
+	// ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+	// ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½ false ï¿½ï¿½È¯
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	bool SpendGold(int32 Amount);
 
-	// ÇöÀç °ñµå·Î ±¸¸Å °¡´ÉÇÑÁö È®ÀÎ
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½
 	UFUNCTION(BlueprintPure, Category = "Economy")
 	bool CanAfford(int32 Amount) const;
 
-	// ÀúÀå µ¥ÀÌÅÍ¿¡¼­ º¹¿øÇÒ ¶§ »ç¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	void SetGold(int32 NewGold);
 
@@ -47,16 +47,16 @@ public:
 	// Reputation
 	// ==============================================
 
-	// ÆÀ ÆòÆÇ
+	// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	// -100 ~ 100
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Reputation, Category = "Reputation")
 	int32 Reputation;
 
-	// ÆòÆÇ Áõ°¨
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Reputation")
 	void AddReputation(int32 Amount);
 
-	// ÀúÀå µ¥ÀÌÅÍ¿¡¼­ º¹¿øÇÒ ¶§ »ç¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Reputation")
 	void SetReputation(int32 NewReputation);
 
@@ -64,11 +64,11 @@ public:
 	// UI / BluePrintEvent
 	// ==============================================
 	
-	// °ñµå°¡ º¯°æµÇ¾úÀ» ¶§ BP¿¡¼­ UI °»½Å¿ë
+	// ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ï¿½ï¿½ ï¿½ï¿½ BPï¿½ï¿½ï¿½ï¿½ UI ï¿½ï¿½ï¿½Å¿ï¿½
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy")
 	void OnGoldUpdated(int32 NewGold);
 
-	// ÆòÆÇÀÌ º¯°æµÇ¾úÀ» ¶§ BP¿¡¼­ UI °»½Å¿ë
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ï¿½ï¿½ ï¿½ï¿½ BPï¿½ï¿½ï¿½ï¿½ UI ï¿½ï¿½ï¿½Å¿ï¿½
 	UFUNCTION(BlueprintImplementableEvent, Category = "Reputation")
 	void OnReputationUpdated(int32 NewReputation);
 
@@ -76,56 +76,56 @@ public:
 	// Debt
 	// ==============================================
 
-	// ÃÖÃÊ ºú
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
 	int32 InitialDebt;
 
-	// ÇöÀç °±¾Æ¾ß ÇÏ´Â ºú
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Æ¾ï¿½ ï¿½Ï´ï¿½ ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentDebt, Category = "Economy|Debt")
 	int32 CurrentDebt;
 
-	// ºú Áõ°¡ °è»êÀÇ ±âº» Áõ°¡·®
+	// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½âº» ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
 	int32 BaseDebtIncrease;
 
-	// ºú Áõ°¡ ¼Óµµ Á¶Àý°ª
-	// °ªÀÌ ÀÛÀ»¼ö·Ï ÈÄ¹Ý ºú Áõ°¡ ¼Óµµ°¡ »¡¶óÁü
+	// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Óµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ä¹ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Óµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Debt")
 	float DebtGrowthDivisor;
 
-	// ÇöÀç ¸î ¹øÂ° »óÈ¯ È¸Â÷ÀÎÁö
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Â° ï¿½ï¿½È¯ È¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_DebtCycle, Category = "Economy|Debt")
 	int32 DebtCycle;
 
-	// ÇöÀç »óÈ¯ È¸Â÷ ±âÁØ ºú Áõ°¡·® °è»ê(ÀÌ¹ø¿¡ ¾ó¸¶ Áõ°¡ÇÏ³Ä)
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½(ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï³ï¿½)
 	UFUNCTION(BlueprintPure, Category = "Economy|Debt")
 	int32 CalculateDebtIncrease() const;
 
-	// ÇöÀç »óÈ¯ È¸Â÷ ±âÁØ ´ÙÀ½ ºú °è»ê(Áõ°¡·®±îÁö Æ÷ÇÔÇØ¼­ ´ÙÀ½ ºú ÃÑ¾×ÀÌ ¾ó¸¶³Ä)
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Ñ¾ï¿½ï¿½ï¿½ ï¿½ó¸¶³ï¿½)
 	UFUNCTION(BlueprintPure, Category = "Economy|Debt")
 	int32 CalculateNextDebt() const;
 
-	// ÇöÀç ºúÀ» »óÈ¯
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	bool PayDebt();
 
-	// ºú °ªÀ» Á÷Á¢ ¼³Á¤
+	// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	void SetCurrentDebt(int32 NewDebt);
 
-	// ºú »óÈ¯ È¸Â÷¸¦ Á÷Á¢ ¼³Á¤
+	// ï¿½ï¿½ ï¿½ï¿½È¯ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	void SetDebtCycle(int32 NewDebtCycle);
 
-	// ÇöÀç »óÈ¯ ±âÇÑÀ» È®ÀÎÇÏ°í »óÈ¯ Ã³¸® °á°ú ¹ÝÈ¯
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½È¯ Ã³ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½È¯
 	UFUNCTION(BlueprintCallable, Category = "Economy|Debt")
 	EDebtProcessResult ProcessDebtDeadline();
 
-	// ºú º¯°æ½Ã UI °»½Å¿ë
+	// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ UI ï¿½ï¿½ï¿½Å¿ï¿½
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
 	void OnDebtUpdated(int32 NewDebt);
 
-	// ºú »óÈ¯ È¸Â÷ º¯°æ ½Ã UI °»½Å¿ë
+	// ï¿½ï¿½ ï¿½ï¿½È¯ È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ UI ï¿½ï¿½ï¿½Å¿ï¿½
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Debt")
 	void OnDebtCycleUpdated(int32 NewDebtCycle);
 
@@ -133,45 +133,45 @@ public:
 	// Economy Time
 	// ==============================================
 
-	// ÇöÀç °æÁ¦ ½Ã½ºÅÛ¿¡¼­ °æ°úÇÑ HalfDay
-	// ÀÓ½Ã ½Ã°£°ªÀÌ¸ç ¸Ê ÀÌµ¿ 1È¸´ç 1 Áõ°¡
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã½ï¿½ï¿½Û¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ HalfDay
+	// ï¿½Ó½ï¿½ ï¿½Ã°ï¿½ï¿½ï¿½ï¿½Ì¸ï¿½ ï¿½ï¿½ ï¿½Ìµï¿½ 1È¸ï¿½ï¿½ 1 ï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_EconomyCurrentHalfDay, Category = "Economy|Time")
 	int32 EconomyCurrentHalfDay;
 
-	// ºú »óÈ¯ °£°Ý
-	// ÇöÀç ÀÓ½Ã ½Ã°£ ±âÁØ 14 HalfDay = 7ÀÏ
-	// ÃßÈÄ ½ÇÁ¦ ÀÏ¼ö ½Ã½ºÅÛ Ãß°¡ ½Ã ÇØ´ç ½Ã°£ ±âÁØ°ú ¿¬°á
+	// ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ó½ï¿½ ï¿½Ã°ï¿½ ï¿½ï¿½ï¿½ï¿½ 14 HalfDay = 7ï¿½ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï¼ï¿½ ï¿½Ã½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½ ï¿½ï¿½ ï¿½Ø´ï¿½ ï¿½Ã°ï¿½ ï¿½ï¿½ï¿½Ø°ï¿½ ï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Time")
 	int32 DebtPeriodHalfDay;
 
-	// °æÁ¦ ½Ã°£ 1 HalfDay ÁøÇà
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ã°ï¿½ 1 HalfDay ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
 	void AdvanceEconomyHalfDay();
 
-	// ÇöÀç °æÁ¦ HalfDay ¹ÝÈ¯
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ HalfDay ï¿½ï¿½È¯
 	UFUNCTION(BlueprintPure, Category = "Economy|Time")
 	int32 GetEconomyCurrentHalfDay() const;
 
-	// ÀúÀå µ¥ÀÌÅÍ º¹¿ø¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
 	void SetEconomyCurrentHalfDay(int32 NewHalfDay);
 
-	// ÇöÀç »óÈ¯ È¸Â÷ ±âÁØ ´ÙÀ½ »óÈ¯ ½ÃÁ¡À» °è»ê
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	// DebtCycle * DebtPeriodHalfDay
 	UFUNCTION(BlueprintPure, Category = "Economy|Time")
 	int32 GetNextDebtDueHalfDay() const;
 
-	// ÇöÀç °æÁ¦ ½Ã°£ÀÌ ´ÙÀ½ »óÈ¯ ½ÃÁ¡ ÀÌ»óÀÎÁö È®ÀÎ
-	// trueÀÌ¸é ºú »óÈ¯ Ã³¸® ÇÊ¿ä
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã°ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì»ï¿½ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½
+	// trueï¿½Ì¸ï¿½ ï¿½ï¿½ ï¿½ï¿½È¯ Ã³ï¿½ï¿½ ï¿½Ê¿ï¿½
 	UFUNCTION(BlueprintPure, Category = "Economy|Time")
 	bool IsDebtDue() const;
 
-	// ´ÙÀ½ ºú »óÈ¯±îÁö ³²Àº HalfDay ¹ÝÈ¯
-	// ÀÌ¹Ì ±âÇÑ¿¡ µµ´ÞÇÑ °æ¿ì 0 ¹ÝÈ¯
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½È¯ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ HalfDay ï¿½ï¿½È¯
+	// ï¿½Ì¹ï¿½ ï¿½ï¿½ï¿½Ñ¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ 0 ï¿½ï¿½È¯
 	UFUNCTION(BlueprintPure, Category = "Economy|Time")
 	int32 GetRemainingDebtHalfDay() const;
 
-	// °æÁ¦ ½Ã°£ º¯°æ ½Ã BP/UI °»½Å¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ã°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ BP/UI ï¿½ï¿½ï¿½Å¿ï¿½
 	UFUNCTION(BlueprintImplementableEvent, Category = "Economy|Time")
 	void OnEconomyHalfDayUpdated(int32 NewHalfDay);
 
@@ -191,6 +191,8 @@ protected:
 	UFUNCTION()
 	void OnRep_EconomyCurrentHalfDay();
 
+
 	virtual void GetLifetimeReplicatedProps(
 		TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
+

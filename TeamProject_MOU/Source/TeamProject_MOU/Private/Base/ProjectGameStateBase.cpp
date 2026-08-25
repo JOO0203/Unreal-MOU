@@ -29,60 +29,60 @@ AProjectGameStateBase::AProjectGameStateBase()
 
 void AProjectGameStateBase::AddGold(int32 Amount)
 {
-	// Å¬¶óÀÌ¾ðÆ®°¡ ÀÓÀÇ·Î °ñµå¸¦ ¼öÁ¤ÇÏÁö ¸øÇÏµµ·Ï ÇÔ.
-	// GameStateÀÇ ½ÇÁ¦ Gold °ªÀº ¼­¹ö°¡ °ü¸®
+	// Å¬ï¿½ï¿½ï¿½Ì¾ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½Ç·ï¿½ ï¿½ï¿½å¸¦ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ïµï¿½ï¿½ï¿½ ï¿½ï¿½.
+	// GameStateï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Gold ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (!HasAuthority())
 	{
 		return;
 	}
 
-	// 0 ¶Ç´Â À½¼ö °ñµå´Â AddGold·Î ³ÖÁö ¾ÊÀ½.
-    // °ñµå °¨¼Ò´Â SpendGold¸¦ »ç¿ëÇÏµµ·Ï ¿ªÇÒÀ» ºÐ¸®.
+	// 0 ï¿½Ç´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ AddGoldï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
+    // ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ò´ï¿½ SpendGoldï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ïµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¸ï¿½.
 	if (Amount <= 0)
 	{
 		return;
 	}
 
-	// ½ÇÁ¦ ÆÀ °ñµå Áõ°¡
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	Gold += Amount;
 
 
-	// ¼­¹ö Ãø¿¡¼­µµ Gold º¯°æ »ç½ÇÀ» Blueprint¿¡ ¾Ë·ÁÁÜ.
-	// HUD µîÀÇ UI °»½Å¿¡ »ç¿ëÇÒ ¼ö ÀÖÀ½.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Gold ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ Blueprintï¿½ï¿½ ï¿½Ë·ï¿½ï¿½ï¿½.
+	// HUD ï¿½ï¿½ï¿½ï¿½ UI ï¿½ï¿½ï¿½Å¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
 	OnGoldUpdated(Gold);
 }
 
 bool AProjectGameStateBase::SpendGold(int32 Amount)
 {
-	// ¼­¹ö¿¡¼­¸¸ ½ÇÁ¦ °ñµå Â÷°¨ Çã¿ë
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	if (!HasAuthority())
 	{
 		return false;
 	}
 
-	// 0ÀÌ³ª À½¼ö ±Ý¾× »ç¿ë ¹æÁö
+	// 0ï¿½Ì³ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ý¾ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (Amount <= 0)
 	{
 		return false;
 	}
 
-	// ÇöÀç °ñµå°¡ Amountº¸´Ù ÀûÀ¸¸é ±¸¸Å/ÁöºÒ ½ÇÆÐ
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½å°¡ Amountï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½/ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (!CanAfford(Amount))
 	{
 		return false;
 	}
 
-	// ½ÇÁ¦ °ñµå Â÷°¨
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	Gold -= Amount;
 
-	// UI µî¿¡ º¯°æµÈ Gold Àü´Þ
+	// UI ï¿½î¿¡ ï¿½ï¿½ï¿½ï¿½ï¿½ Gold ï¿½ï¿½ï¿½ï¿½
 	OnGoldUpdated(Gold);
 
 
 	return true;
 }
 
-// µ·À» ¾²Áö¾Ê°í »ì¼ö ÀÖ´ÂÁö °Ë»çÇÏ´Â ÇÔ¼ö
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½ï¿½ï¿½ ï¿½Ë»ï¿½ï¿½Ï´ï¿½ ï¿½Ô¼ï¿½
 bool AProjectGameStateBase::CanAfford(int32 Amount) const
 {
 	return Amount > 0 && Gold >= Amount;
@@ -132,7 +132,7 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 // Debt
 // ==============================================
 
-//Áõ°¡·® = BaseDebtIncrease ¡¿ (1 + ((DebtCycle - 1)©÷ / DebtGrowthDivisor))
+//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ = BaseDebtIncrease ï¿½ï¿½ (1 + ((DebtCycle - 1)ï¿½ï¿½ / DebtGrowthDivisor))
 int32 AProjectGameStateBase::CalculateDebtIncrease() const
 {
 	const float CycleValue = static_cast<float>(FMath::Max(0, DebtCycle - 1));
@@ -146,7 +146,7 @@ int32 AProjectGameStateBase::CalculateDebtIncrease() const
 	return FMath::RoundToInt(Increase);
 }
 
-// ÇöÀç ºú + ÀÌ¹ø Áõ°¡·®
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ + ï¿½Ì¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 int32 AProjectGameStateBase::CalculateNextDebt() const
 {
 	return CurrentDebt + CalculateDebtIncrease();
@@ -159,20 +159,20 @@ bool AProjectGameStateBase::PayDebt()
 		return false;
 	}
 
-	// ÇöÀç ºúÀ» °±À» °ñµå°¡ ºÎÁ·ÇÏ¸é »óÈ¯ ½ÇÆÐ
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½
 	if (!SpendGold(CurrentDebt))
 	{
 		return false;
 	}
 
-	// ÇöÀç DebtCycle ±âÁØÀ¸·Î ´ÙÀ½ ºúÀ» ¸ÕÀú °è»ê
+	// ï¿½ï¿½ï¿½ï¿½ DebtCycle ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	const int32 NextDebt = CalculateNextDebt();
 
-	// »óÈ¯ ¼º°ø ÈÄ ´ÙÀ½ È¸Â÷·Î Áõ°¡
+	// ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	DebtCycle++;
 	OnDebtCycleUpdated(DebtCycle);
 
-	// °è»êµÈ ´ÙÀ½ ºú Àû¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	CurrentDebt = NextDebt;
 	OnDebtUpdated(CurrentDebt);
 
@@ -212,7 +212,7 @@ EDebtProcessResult AProjectGameStateBase::ProcessDebtDeadline()
 // Economy Time
 // ==============================================
 
-// °æÁ¦ ½Ã°£ 1 HalfDay ÁøÇà
+// ï¿½ï¿½ï¿½ï¿½ ï¿½Ã°ï¿½ 1 HalfDay ï¿½ï¿½ï¿½ï¿½
 void AProjectGameStateBase::AdvanceEconomyHalfDay()
 {
 	if (!HasAuthority())
@@ -225,13 +225,13 @@ void AProjectGameStateBase::AdvanceEconomyHalfDay()
 	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
 }
 
-// ÇöÀç °æÁ¦ HalfDay ¹ÝÈ¯
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ HalfDay ï¿½ï¿½È¯
 int32 AProjectGameStateBase::GetEconomyCurrentHalfDay() const
 {
 	return EconomyCurrentHalfDay;
 }
 
-// ÀúÀå µ¥ÀÌÅÍ º¹¿ø¿ë
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
 {
 	if (!HasAuthority())
@@ -244,19 +244,19 @@ void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
 	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
 }
 
-// ´ÙÀ½ ºú »óÈ¯ HalfDay ¹ÝÈ¯
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½È¯ HalfDay ï¿½ï¿½È¯
 int32 AProjectGameStateBase::GetNextDebtDueHalfDay() const
 {
 	return DebtCycle * DebtPeriodHalfDay;
 }
 
-// ÇöÀç ºú »óÈ¯ ±âÇÑ¿¡ µµ´ÞÇß´ÂÁö È®ÀÎ
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½Ñ¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ß´ï¿½ï¿½ï¿½ È®ï¿½ï¿½
 bool AProjectGameStateBase::IsDebtDue() const
 {
 	return EconomyCurrentHalfDay >= GetNextDebtDueHalfDay();
 }
 
-// ºú »óÈ¯±îÁö ³²Àº HalfDay
+// ï¿½ï¿½ ï¿½ï¿½È¯ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ HalfDay
 int32 AProjectGameStateBase::GetRemainingDebtHalfDay() const
 {
 	return FMath::Max(0,GetNextDebtDueHalfDay() - EconomyCurrentHalfDay);
@@ -303,4 +303,5 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
 	DOREPLIFETIME(AProjectGameStateBase, EconomyCurrentHalfDay);
 }
+
 
