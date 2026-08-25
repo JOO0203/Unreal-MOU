@@ -12,7 +12,7 @@
 // 로그인 화면 자동 표시를 위해 포함한다. Chat 서브시스템은 이 컨트롤러를 몰라도
 // 되지만(느슨한 결합), 컨트롤러는 "게임이 시작되면 로그인 화면부터 띄운다" 는
 // 정책을 알아야 하므로 여기서만 의존한다.
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 #include "Server/Lobby/LoginWidgetBase.h"
 #include "Engine/GameInstance.h"
 
@@ -95,7 +95,7 @@ void ATeamProject_MOUPlayerController::ShowLoginWidgetIfNeeded()
 	}
 
 	UGameInstance* GameInstance = GetGameInstance();
-	UChatSubsystem* Chat = GameInstance ? GameInstance->GetSubsystem<UChatSubsystem>() : nullptr;
+	UServerSubsystem* Chat = GameInstance ? GameInstance->GetSubsystem<UServerSubsystem>() : nullptr;
 	if (Chat == nullptr)
 	{
 		UE_LOG(LogTeamProject_MOU, Warning, TEXT("채팅 서브시스템을 찾지 못해 로그인 화면을 띄우지 못했다."));
@@ -103,7 +103,7 @@ void ATeamProject_MOUPlayerController::ShowLoginWidgetIfNeeded()
 	}
 
 	// 이미 로그인되어 있으면 다시 묻지 않는다.
-	// (방장이 방을 만들고 리슨서버로 여행해온 경우 ChatSubsystem 은 GameInstance 소유라
+	// (방장이 방을 만들고 리슨서버로 여행해온 경우 ServerSubsystem 은 GameInstance 소유라
 	//  레벨을 넘어가도 로그인 상태가 그대로 살아있다.)
 	if (Chat->GetConnectionState() == EChatConnectionState::LoggedIn)
 	{

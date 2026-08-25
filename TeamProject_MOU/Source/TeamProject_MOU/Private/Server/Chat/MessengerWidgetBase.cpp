@@ -3,7 +3,7 @@
 
 #include "Server/Chat/MessengerWidgetBase.h"
 
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 #include "Server/Social/FriendListWidgetBase.h"
 
 #include "Blueprint/WidgetTree.h"
@@ -143,10 +143,10 @@ void UDmWindowWidget::NativeConstruct()
 	}
 }
 
-UChatSubsystem* UDmWindowWidget::GetChatSubsystem() const
+UServerSubsystem* UDmWindowWidget::GetServerSubsystem() const
 {
 	const UGameInstance* GI = GetGameInstance();
-	return GI ? GI->GetSubsystem<UChatSubsystem>() : nullptr;
+	return GI ? GI->GetSubsystem<UServerSubsystem>() : nullptr;
 }
 
 void UDmWindowWidget::SetPeer(int64 InPeerUserId, const FString& InPeerNickname)
@@ -269,7 +269,7 @@ void UDmWindowWidget::HandleSendClicked()
 		return;
 	}
 
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->SendDirectMessage(PeerUserId, Text);
 	}
@@ -303,7 +303,7 @@ void UDmWindowWidget::HandleMoreClicked()
 		return;   // 아직 아무것도 못 받았다
 	}
 
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		// ★ 다음에 올 기록은 **앞에** 붙어야 한다. 응답에는 그 구분이 없으므로
 		//   요청한 이 시점에 기억해 둔다(헤더 bAwaitingOlder).
@@ -359,10 +359,10 @@ void UMessengerWidgetBase::BuildDefaultLayout()
 	}
 }
 
-UChatSubsystem* UMessengerWidgetBase::GetChatSubsystem() const
+UServerSubsystem* UMessengerWidgetBase::GetServerSubsystem() const
 {
 	const UGameInstance* GI = GetGameInstance();
-	return GI ? GI->GetSubsystem<UChatSubsystem>() : nullptr;
+	return GI ? GI->GetSubsystem<UServerSubsystem>() : nullptr;
 }
 
 void UMessengerWidgetBase::NativeConstruct()
@@ -389,7 +389,7 @@ void UMessengerWidgetBase::NativeConstruct()
 		}
 	}
 
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->OnDirectMessageReceived.AddUniqueDynamic(this, &UMessengerWidgetBase::HandleDirectMessageReceived);
 		Chat->OnDmHistoryReceived.AddUniqueDynamic(this, &UMessengerWidgetBase::HandleDmHistoryReceived);
@@ -400,7 +400,7 @@ void UMessengerWidgetBase::NativeConstruct()
 void UMessengerWidgetBase::NativeDestruct()
 {
 	// 서브시스템이 이 위젯보다 오래 살므로 반드시 해제한다.
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->OnDirectMessageReceived.RemoveAll(this);
 		Chat->OnDmHistoryReceived.RemoveAll(this);
@@ -412,7 +412,7 @@ void UMessengerWidgetBase::NativeDestruct()
 
 FString UMessengerWidgetBase::ResolveNickname(int64 UserId) const
 {
-	if (const UChatSubsystem* Chat = GetChatSubsystem())
+	if (const UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		for (const FMOUFriend& Entry : Chat->GetFriendsRef())
 		{
@@ -432,7 +432,7 @@ void UMessengerWidgetBase::OpenConversation(int64 PeerUserId)
 		return;
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		return;
@@ -528,7 +528,7 @@ void UMessengerWidgetBase::HandleDirectMessageReceived(const FMOUDirectMessage& 
 	// 다시 읽음 처리를 태우지 않으면 배지가 다시 올라간 채로 남는다.
 	if (!Message.bIsMine)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OpenConversation(Message.PeerUserId);
 		}

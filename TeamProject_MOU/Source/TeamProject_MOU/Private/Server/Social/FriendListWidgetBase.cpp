@@ -3,7 +3,7 @@
 
 #include "Server/Social/FriendListWidgetBase.h"
 
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
@@ -324,10 +324,10 @@ void UFriendListWidgetBase::BuildDefaultLayout()
 	AddRow(FriendScrollBox, ESlateSizeRule::Fill, 0.f);
 }
 
-UChatSubsystem* UFriendListWidgetBase::GetChatSubsystem() const
+UServerSubsystem* UFriendListWidgetBase::GetServerSubsystem() const
 {
 	const UGameInstance* GI = GetGameInstance();
-	return GI ? GI->GetSubsystem<UChatSubsystem>() : nullptr;
+	return GI ? GI->GetSubsystem<UServerSubsystem>() : nullptr;
 }
 
 void UFriendListWidgetBase::NativeConstruct()
@@ -339,7 +339,7 @@ void UFriendListWidgetBase::NativeConstruct()
 		AddFriendButton->OnClicked.AddUniqueDynamic(this, &UFriendListWidgetBase::HandleAddFriendClicked);
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetStatus(TEXT("채팅 서브시스템을 찾지 못했습니다."), /*bIsError=*/true);
@@ -369,7 +369,7 @@ void UFriendListWidgetBase::NativeDestruct()
 
 	// ★ 반드시 해제한다. 서브시스템은 게임 인스턴스 수명이라 이 위젯보다 오래
 	//   사는데, 델리게이트가 남아 있으면 파괴된 위젯을 호출하게 된다.
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->OnFriendListReceived.RemoveAll(this);
 		Chat->OnFriendUpdated.RemoveAll(this);
@@ -433,7 +433,7 @@ void UFriendListWidgetBase::RebuildList()
 		return;
 	}
 
-	const UChatSubsystem* Chat = GetChatSubsystem();
+	const UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		return;
@@ -559,7 +559,7 @@ void UFriendListWidgetBase::HandleAddFriendClicked()
 		return;
 	}
 
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		SetStatus(TEXT("신청 중..."), /*bIsError=*/false);
 		Chat->AddFriend(Query);
@@ -568,7 +568,7 @@ void UFriendListWidgetBase::HandleAddFriendClicked()
 
 void UFriendListWidgetBase::HandleEntryAction(int64 UserId, EFriendEntryAction Action)
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		return;

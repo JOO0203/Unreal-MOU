@@ -3,16 +3,16 @@
 // [이 위젯이 하는 일]
 //   콘솔 명령 MOU.Room.Host 로 하던 일을 화면에서 한다.
 //     1. 방 제목 + 방 비밀번호(숫자 4자리, 선택) 입력
-//     2. UChatSubsystem::CreateRoom() 호출
+//     2. UServerSubsystem::CreateRoom() 호출
 //     3. OnRoomCreated 응답을 받아 성공/실패를 화면에 표시
 //
 // [시스템에서의 위치]
 //     ULobbyWidgetBase (메인메뉴)
 //       ├─ URoomCreateWidgetBase   ← 이 파일. 방을 "만드는" 쪽
 //       └─ URoomListWidgetBase        방에 "들어가는" 쪽
-//   서버와 직접 대화하지 않는다. UChatSubsystem 하고만 대화한다.
-//     보낼 때: UChatSubsystem::CreateRoom()
-//     받을 때: UChatSubsystem::OnRoomCreated
+//   서버와 직접 대화하지 않는다. UServerSubsystem 하고만 대화한다.
+//     보낼 때: UServerSubsystem::CreateRoom()
+//     받을 때: UServerSubsystem::OnRoomCreated
 //   대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 RoomCreateReq 핸들러,
 //                       MOU_Server/Server/Rooms.cpp 의 Rooms::Create()
 //
@@ -33,12 +33,13 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Server/Lobby/LobbyTypes.h"
+#include "Server/Net/NatPortMappingSubsystem.h"   // EMOUNatResultBP
 #include "RoomCreateWidgetBase.generated.h"
 
 class UButton;
 class UEditableTextBox;
 class UTextBlock;
-class UChatSubsystem;
+class UServerSubsystem;
 
 /**
  * 방 생성이 끝났을 때 C++ 소유자에게 알리는 통로 (ULobbyWidgetBase 가 받는다).
@@ -88,6 +89,24 @@ public:
 	/** 방 생성에 성공하면 이 위젯을 자동으로 화면에서 없앨지. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
 	bool bRemoveOnSuccess = true;
+
+	/**
+	 * 이 창이 열리는 순간 공유기(UPnP)에 포트를 열어달라고 요청할지.
+	 *
+	 * [왜 여기서 시작하는가]
+	 *   포트 열기는 SSDP 탐색 + SOAP 왕복이라 몇 초가 걸린다. "방 만들기" 를 누른 뒤에
+	 *   시작하면 그 시간만큼 사용자가 멈춘 화면을 본다. 창이 열리고 사용자가 제목을
+	 *   입력하는 동안 백그라운드로 끝내두면 지연이 사라진다.
+	 *
+	 *   로그인 시점에 미리 하지 않는 이유는, 접속자 대부분이 참가자라서 끝내 호스트가
+	 *   되지 않을 사람의 포트까지 여는 셈이기 때문이다. 포트 매핑이 필요한 것은
+	 *   "밖에서 나에게 들어오는" 연결뿐이고, 그건 방장에게만 해당한다.
+	 *   이 창을 열었다는 것은 호스트가 될 의사를 밝힌 것이므로 여기가 가장 이른 지점이다.
+	 *
+	 * 실패해도 방 생성은 그대로 진행된다. 같은 네트워크에서는 어차피 접속되기 때문이다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
+	bool bOpenPortOnShow = true;
 
 	/**
 	 * 이 위젯이 마우스 커서를 직접 켜고 끌지.
@@ -162,19 +181,50 @@ private:
 	UFUNCTION()
 	void HandleCancelClicked();
 
+	/** 포트 열기가 끝났다. 성공이든 실패든 온다. */
+	UFUNCTION()
+	void HandleNatMappingFinished(EMOUNatResultBP Result, int32 ExternalPort, const FString& ExternalIp);
+
 	// --- 내부 -------------------------------------------------------------
 
 	void BuildDefaultLayout();
 
+	/**
+	 * 검사를 통과한 값으로 실제 요청을 보낸다.
+	 *
+	 * TryCreateRoom 에서 분리한 이유: 포트 열기가 아직 진행 중이면 곧바로 보낼 수 없고,
+	 * 매핑이 끝난 뒤에 같은 요청을 이어서 보내야 하기 때문이다.
+	 */
+	void SubmitCreateRoom();
+
+	/** 방 정보에 신고할 포트. 매핑에 성공했으면 "외부" 포트, 아니면 HostPort 그대로. */
+	int32 ResolveAdvertisedPort() const;
+
+	class UNatPortMappingSubsystem* GetNatSubsystem() const;
+
 	/** 응답을 기다리는 동안 버튼을 잠근다. 중복 요청을 막는다. */
 	void SetBusy(bool bBusy);
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	/** 응답 대기 중인지. */
 	bool bBusy = false;
 
 	bool bSubscribed = false;
+
+	/** NAT 델리게이트 구독 여부. OnRoomCreated 와 따로 관리한다. */
+	bool bNatSubscribed = false;
+
+	/**
+	 * 사용자가 "방 만들기" 를 눌렀지만 포트 열기가 아직 안 끝나서 대기 중인가.
+	 *
+	 * 이게 없으면 매핑 도중에 누른 사용자는 HostPort 로 방이 만들어지고,
+	 * 잠시 뒤 공유기가 다른 외부 포트를 열어줘도 방 정보는 이미 틀린 값으로 나가 있다.
+	 */
+	bool bCreateWaitingForNat = false;
+
+	/** 검사를 통과한 방 제목. 매핑을 기다리는 동안 들고 있어야 한다. */
+	FString SubmittedTitle;
 
 	/**
 	 * 요청할 때 쓴 방 비밀번호.

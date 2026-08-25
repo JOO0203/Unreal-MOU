@@ -9,6 +9,7 @@
 #include "ChatLog.h"
 #include "DirectMessages.h"
 #include "Friends.h"
+#include "NatPortMapping.h"
 #include "Rooms.h"
 #include "Session.h"
 #include "Framing.h"
@@ -40,6 +41,13 @@ namespace
 	void OnInterrupt(int)
 	{
 		GRunning = false;
+
+		// ★ 공유기에 열어둔 포트를 먼저 지운다. 영구 매핑이라 여기서 안 지우면
+		//   프로세스가 사라져도 공유기에는 그대로 남는다.
+		//   네트워크 왕복이라 몇 백 ms 걸릴 수 있는데, 그 대기가 곧 "확실히 지웠다" 는 보장이다.
+		//   Start 를 안 했거나 실패했으면 아무 일도 하지 않는다.
+		Nat::Stop();
+
 		ChatLog::Stop();
 		Accounts::Stop();
 		// v7. 둘 다 동기 커밋이라 큐에 남은 것이 없지만, 커넥션을 닫아야
@@ -1553,10 +1561,39 @@ int main(int argc, char** argv)
 	// MSVC 는 _IOLBF(줄 버퍼링)를 _IOFBF 와 동일하게 처리하므로 무버퍼로 둔다.
 	::setvbuf(stdout, nullptr, _IONBF, 0);
 
-	if (argc < 2 || argc > 3)
+	// 인자 파싱. --upnp 는 어디에 와도 되고, 나머지는 순서대로 <port> [db경로] 다.
+	bool        bUseUpnp = false;
+	const char* PortArg  = nullptr;
+	const char* DbArg    = nullptr;
+
+	for (int Index = 1; Index < argc; ++Index)
 	{
-		std::printf("사용법: %s <port> [db경로]\n", argv[0]);
+		if (std::strcmp(argv[Index], "--upnp") == 0)
+		{
+			bUseUpnp = true;
+		}
+		else if (PortArg == nullptr)
+		{
+			PortArg = argv[Index];
+		}
+		else if (DbArg == nullptr)
+		{
+			DbArg = argv[Index];
+		}
+		else
+		{
+			PortArg = nullptr;   // 인자가 너무 많다. 사용법을 보여준다
+			break;
+		}
+	}
+
+	if (PortArg == nullptr)
+	{
+		std::printf("사용법: %s <port> [db경로] [--upnp]\n", argv[0]);
 		std::printf("  db경로를 생략하면 현재 디렉터리의 chat_log.db 를 쓴다.\n");
+		std::printf("  --upnp : 공유기(UPnP)에 이 포트를 자동으로 열어달라고 요청한다.\n");
+		std::printf("           다른 네트워크에서 접속시킬 때만 필요하다. 같은 공유기\n");
+		std::printf("           안에서만 쓸 거라면 켤 이유가 없다.\n");
 		return 1;
 	}
 
@@ -1576,7 +1613,7 @@ int main(int argc, char** argv)
 	sockaddr_in ServerAddr{};
 	ServerAddr.sin_family      = AF_INET;
 	ServerAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	ServerAddr.sin_port        = htons(static_cast<uint16_t>(std::atoi(argv[1])));
+	ServerAddr.sin_port        = htons(static_cast<uint16_t>(std::atoi(PortArg)));
 
 	if (::bind(ListenSock, reinterpret_cast<sockaddr*>(&ServerAddr), sizeof(ServerAddr)) != 0)
 	{
@@ -1594,7 +1631,7 @@ int main(int argc, char** argv)
 
 	// 채팅 로그 DB. 두 번째 인자로 경로를 바꿀 수 있다 (테스트용으로 분리할 때 편하다).
 	// 열기에 실패해도 서버는 계속 돈다. 로그가 안 남는 것보다 채팅이 끊기는 게 나쁘다.
-	const char* DbPath = (argc >= 3) ? argv[2] : "chat_log.db";
+	const char* DbPath = (DbArg != nullptr) ? DbArg : "chat_log.db";
 	ChatLog::Start(DbPath);
 
 	// 계정도 같은 파일에 둔다(테이블이 다르므로 섞이지 않는다).
@@ -1619,7 +1656,37 @@ int main(int argc, char** argv)
 		std::printf("[경고] 메신저 DB 를 열지 못했다. DM 만 동작하지 않는다.\n");
 	}
 
-	std::printf("=== MOU 채팅 서버 시작 (port %s) ===\n", argv[1]);
+	// 공유기에 이 포트를 열어달라고 요청한다. 블로킹이라 accept 루프 전에 끝낸다.
+	//
+	// ★ 실패해도 서버는 그대로 뜬다. 같은 네트워크에서는 어차피 접속되고,
+	//   UPnP 가 안 되는 것은 "이 경로로는 못 간다" 는 뜻이지 서버 오류가 아니다.
+	if (bUseUpnp)
+	{
+		const uint16_t ListenPort = static_cast<uint16_t>(std::atoi(PortArg));
+		const Nat::EResult Result = Nat::Start(ListenPort, /*bTcp=*/true);
+
+		if (Result == Nat::EResult::Success)
+		{
+			std::printf("[NAT] 외부에서는 %s:%u 로 접속하면 된다.\n",
+				Nat::ExternalIp().empty() ? "<외부IP>" : Nat::ExternalIp().c_str(),
+				static_cast<unsigned>(Nat::MappedExternalPort()));
+
+			// 공유기가 다른 외부 포트를 열어준 경우, 클라이언트는 그 포트로 붙어야 한다.
+			if (Nat::MappedExternalPort() != ListenPort)
+			{
+				std::printf("[NAT] ★ 내부 포트와 외부 포트가 다르다. 클라이언트의 서버 주소를\n");
+				std::printf("        외부 포트(%u)로 설정해야 한다.\n",
+					static_cast<unsigned>(Nat::MappedExternalPort()));
+			}
+		}
+		else
+		{
+			std::printf("[NAT] 포트를 열지 못했다: %s\n", Nat::ResultText(Result));
+			std::printf("[NAT] 같은 네트워크에서만 접속할 수 있다. 서버는 그대로 계속한다.\n");
+		}
+	}
+
+	std::printf("=== MOU 서버 시작 (port %s) ===\n", PortArg);
 
 	while (GRunning)
 	{

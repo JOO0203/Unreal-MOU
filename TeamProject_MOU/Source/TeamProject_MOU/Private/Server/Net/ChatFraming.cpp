@@ -59,7 +59,7 @@ namespace MOUChat
 		if (Total > MOU::kMaxBodySize)
 		{
 			// 여기서 막지 않으면 서버가 Malformed 로 판단해 연결을 끊는다.
-			UE_LOG(LogMOUChat, Warning, TEXT("BuildPacket: 바디 %u 바이트가 상한 %u 를 초과. 전송을 포기한다."),
+			UE_LOG(LogMOUServer, Warning, TEXT("BuildPacket: 바디 %u 바이트가 상한 %u 를 초과. 전송을 포기한다."),
 				Total, MOU::kMaxBodySize);
 			return false;
 		}

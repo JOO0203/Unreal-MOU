@@ -1,8 +1,8 @@
 ﻿// MOU 채팅 - 채팅 UI 위젯 구현.
 //
-// 이 파일은 소켓/패킷을 전혀 모른다. UChatSubsystem 하고만 대화한다.
+// 이 파일은 소켓/패킷을 전혀 모른다. UServerSubsystem 하고만 대화한다.
 //   받을 때: OnChatMessageReceived / OnChatStateChanged / OnChatLoginCompleted 구독
-//   보낼 때: UChatSubsystem::SendChat()
+//   보낼 때: UServerSubsystem::SendChat()
 
 #include "Server/Chat/InGame/ChatWidgetBase.h"
 
@@ -10,7 +10,7 @@
 // ChatProtocol.h 를 직접 넣지 않고 ChatFraming.h 를 거치는 이유는
 // 그쪽이 THIRD_PARTY_INCLUDES_START 로 감싸주기 때문이다.
 #include "Server/Net/ChatFraming.h"
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -62,8 +62,8 @@ void UChatWidgetBase::NativeConstruct()
 
 	// 서브시스템 델리게이트 구독.
 	// 여기가 "워커 스레드 -> 게임 스레드 -> UI" 사슬의 마지막 연결점이다.
-	// UChatSubsystem::Tick 이 게임 스레드에서 브로드캐스트하므로 위젯을 만져도 안전하다.
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	// UServerSubsystem::Tick 이 게임 스레드에서 브로드캐스트하므로 위젯을 만져도 안전하다.
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		if (!bSubscribed)
 		{
@@ -99,7 +99,7 @@ void UChatWidgetBase::NativeConstruct()
 
 void UChatWidgetBase::NativeDestruct()
 {
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->OnChatMessageReceived.RemoveDynamic(this, &UChatWidgetBase::HandleChatMessage);
 		Chat->OnChatStateChanged.RemoveDynamic(this, &UChatWidgetBase::HandleChatStateChanged);
@@ -357,7 +357,7 @@ void UChatWidgetBase::SubmitInput(const FString& RawText)
 		// 모르는 명령이면 그냥 일반 메시지로 취급해서 그대로 보낸다.
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		AddSystemLine(TEXT("채팅 서브시스템이 없어 전송할 수 없습니다."));
@@ -501,7 +501,7 @@ void UChatWidgetBase::RefreshStatusText()
 		return;
 	}
 
-	const UChatSubsystem* Chat = GetChatSubsystem();
+	const UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		StatusText->SetText(FText::FromString(TEXT("채팅: 사용 불가")));
@@ -538,11 +538,11 @@ void UChatWidgetBase::RefreshChannelText()
 // 유틸
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* UChatWidgetBase::GetChatSubsystem() const
+UServerSubsystem* UChatWidgetBase::GetServerSubsystem() const
 {
-	// UChatSubsystem::Get 은 WorldContext 로 GameInstance 를 찾는다.
+	// UServerSubsystem::Get 은 WorldContext 로 GameInstance 를 찾는다.
 	// PIE 창이 여러 개면 이 위젯이 속한 창의 서브시스템이 잡힌다.
-	return UChatSubsystem::Get(this);
+	return UServerSubsystem::Get(this);
 }
 
 const TCHAR* UChatWidgetBase::GetChannelName(EChatChannelBP Channel)

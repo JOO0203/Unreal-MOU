@@ -19,8 +19,8 @@
 //   Steam 을 쓴다면 FSteamLobbyBackend 를 같은 자리에 하나 더 만들면 된다.
 //
 // [교체 시 무엇이 바뀌고 무엇이 안 바뀌는가]
-//   안 바뀜: UChatSubsystem 의 블루프린트 API, 모든 UMG 위젯, 게임 로직 전부.
-//            위젯은 UChatSubsystem 의 델리게이트만 보고 있어서 백엔드를 모른다.
+//   안 바뀜: UServerSubsystem 의 블루프린트 API, 모든 UMG 위젯, 게임 로직 전부.
+//            위젯은 UServerSubsystem 의 델리게이트만 보고 있어서 백엔드를 모른다.
 //   바뀜:    이 인터페이스의 구현체 하나. 그리고 그것을 고르는 설정값 하나.
 //
 //   >> 그래서 "EOS 로 간다" 가 프로젝트 전체를 뒤집는 일이 아니라 파일 하나를 더 쓰는
@@ -30,8 +30,8 @@
 //   - 이 인터페이스의 함수는 전부 **게임 스레드에서만** 호출한다.
 //     FSocketLobbyBackend 의 송신 큐가 SPSC(단일 생산자) 모드라서, 다른 스레드에서
 //     부르면 큐가 조용히 깨진다.
-//   - 결과는 절대 콜백으로 돌려주지 않는다. FChatClientEvent 로 만들어 큐에 넣고,
-//     UChatSubsystem::Tick 이 게임 스레드에서 꺼내 델리게이트를 쏜다.
+//   - 결과는 절대 콜백으로 돌려주지 않는다. FServerClientEvent 로 만들어 큐에 넣고,
+//     UServerSubsystem::Tick 이 게임 스레드에서 꺼내 델리게이트를 쏜다.
 //     구현체가 워커 스레드를 쓰든(소켓) SDK 콜백을 쓰든(EOS) UObject 를 만지는 지점은
 //     Tick 한 곳뿐이어야 한다.
 //   - 여기에는 UObject 가 없다. 인터페이스가 UINTERFACE 가 아닌 순수 C++ 인 이유는
@@ -52,7 +52,7 @@
  *   EOS 백엔드에서는 이 값들이 옵코드가 아니라 "SDK 콜백을 우리 말로 번역한 결과" 다.
  *   예: EOS_Lobby_CreateLobby 의 완료 콜백 -> RoomCreateAck
  */
-enum class EChatClientEventType : uint8
+enum class EServerClientEventType : uint8
 {
 	/** 접속 시도를 시작했다. */
 	Connecting,
@@ -117,9 +117,9 @@ enum class EChatClientEventType : uint8
  * USTRUCT 가 아니다. 워커 스레드나 SDK 콜백 스레드에서 만들어지므로
  * UObject 시스템과 무관해야 한다.
  */
-struct FChatClientEvent
+struct FServerClientEvent
 {
-	EChatClientEventType Type = EChatClientEventType::Disconnected;
+	EServerClientEventType Type = EServerClientEventType::Disconnected;
 
 	/** Type == LoginAck / RegisterAck 일 때만 유효 */
 	FChatLoginResult Login;
@@ -184,7 +184,7 @@ struct FChatClientEvent
 /**
  * 계정 인증 + 세션 탐색을 제공하는 백엔드.
  *
- * 소유자는 UChatSubsystem 하나뿐이다. 직접 생성하지 말고
+ * 소유자는 UServerSubsystem 하나뿐이다. 직접 생성하지 말고
  * MOULobbyBackend::Create() 를 쓴다.
  */
 class TEAMPROJECT_MOU_API ILobbyBackend
@@ -245,7 +245,7 @@ public:
 	//
 	// ★ 새 백엔드를 만들지 않고 기존 인터페이스에 얹는 이유: 친구도 결국
 	//   "서버에 물어보는 일" 이라 교체 지점이 같다. EOS 로 갈아끼울 때도
-	//   이 함수들만 EOS API 로 바꾸면 UChatSubsystem 은 한 줄도 안 바뀐다.
+	//   이 함수들만 EOS API 로 바꾸면 UServerSubsystem 은 한 줄도 안 바뀐다.
 
 	/** 친구 + 대기 중인 신청 전체를 요청한다. 로그인 직후 한 번이면 된다. */
 	virtual void RequestFriendList() = 0;
@@ -282,7 +282,7 @@ public:
 	 * 이 신호가 도착해야 참여자가 떠난다. 부르지 않으면 참여자는 대기실에서 기다린다 —
 	 * 아직 열리지도 않은 주소로 보내 튕기게 만드는 것보다 낫다.
 	 *
-	 * 호출 시점은 UChatSubsystem 이 정한다(리슨서버 넷드라이버가 실제로 뜬 것을 확인).
+	 * 호출 시점은 UServerSubsystem 이 정한다(리슨서버 넷드라이버가 실제로 뜬 것을 확인).
 	 * 위젯이나 게임 로직이 직접 부를 일은 없다.
 	 */
 	virtual void NotifyHostReady() = 0;
@@ -291,9 +291,9 @@ public:
 
 	// --- 게임 스레드 펌프 --------------------------------------------------
 	//
-	// UChatSubsystem::Tick 이 매 프레임 비운다. 더 없으면 false 를 돌려준다.
+	// UServerSubsystem::Tick 이 매 프레임 비운다. 더 없으면 false 를 돌려준다.
 
-	virtual bool DequeueEvent(FChatClientEvent& Out) = 0;
+	virtual bool DequeueEvent(FServerClientEvent& Out) = 0;
 	virtual bool DequeueMessage(FChatMessage& Out) = 0;
 };
 

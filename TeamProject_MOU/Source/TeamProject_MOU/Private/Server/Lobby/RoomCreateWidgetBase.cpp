@@ -1,8 +1,8 @@
 ﻿// MOU 로비 - 방 생성 UI 구현.
 //
-// 이 파일은 소켓/패킷을 전혀 모른다. UChatSubsystem 하고만 대화한다.
-//   보낼 때: UChatSubsystem::CreateRoom()
-//   받을 때: UChatSubsystem::OnRoomCreated
+// 이 파일은 소켓/패킷을 전혀 모른다. UServerSubsystem 하고만 대화한다.
+//   보낼 때: UServerSubsystem::CreateRoom()
+//   받을 때: UServerSubsystem::OnRoomCreated
 
 #include "Server/Lobby/RoomCreateWidgetBase.h"
 
@@ -10,7 +10,7 @@
 // ChatProtocol.h 를 직접 넣지 않고 ChatFraming.h 를 거치는 이유는
 // 그쪽이 THIRD_PARTY_INCLUDES_START 로 감싸주기 때문이다.
 #include "Server/Net/ChatFraming.h"
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -63,7 +63,7 @@ void URoomCreateWidgetBase::NativeConstruct()
 	// NativeConstruct 는 뷰포트에 다시 붙을 때마다 불릴 수 있어 중복 구독을 막는다.
 	if (!bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomCreated.AddDynamic(this, &URoomCreateWidgetBase::HandleRoomCreated);
 			bSubscribed = true;
@@ -88,6 +88,27 @@ void URoomCreateWidgetBase::NativeConstruct()
 	{
 		RoomTitleBox->SetKeyboardFocus();
 	}
+
+	// ★ 창이 열리는 지금 포트 열기를 시작한다. 사용자가 제목을 입력하는 몇 초가
+	//   SSDP 탐색 + SOAP 왕복 시간과 겹쳐서, "방 만들기" 를 누를 때쯤이면 대개 끝나 있다.
+	//   실패해도 방 만들기는 그대로 진행된다 (헤더의 bOpenPortOnShow 주석 참고).
+	if (bOpenPortOnShow)
+	{
+		if (UNatPortMappingSubsystem* Nat = GetNatSubsystem())
+		{
+			if (!bNatSubscribed)
+			{
+				Nat->OnNatMappingFinished.AddDynamic(this, &URoomCreateWidgetBase::HandleNatMappingFinished);
+				bNatSubscribed = true;
+			}
+
+			// 이미 열려 있으면(창을 닫았다 다시 연 경우) 다시 열 필요가 없다.
+			if (Nat->GetMappedExternalPort() == 0 && !Nat->IsMappingInProgress())
+			{
+				Nat->BeginPortMapping(HostPort);
+			}
+		}
+	}
 }
 
 void URoomCreateWidgetBase::NativeDestruct()
@@ -95,12 +116,26 @@ void URoomCreateWidgetBase::NativeDestruct()
 	// 구독 해제를 여기서 반드시 해야 파괴된 위젯으로 델리게이트가 날아오지 않는다.
 	if (bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomCreated.RemoveDynamic(this, &URoomCreateWidgetBase::HandleRoomCreated);
 		}
 		bSubscribed = false;
 	}
+
+	if (bNatSubscribed)
+	{
+		if (UNatPortMappingSubsystem* Nat = GetNatSubsystem())
+		{
+			Nat->OnNatMappingFinished.RemoveDynamic(this, &URoomCreateWidgetBase::HandleNatMappingFinished);
+		}
+		bNatSubscribed = false;
+	}
+
+	// ★ 여기서 ReleasePortMapping 을 부르면 안 된다.
+	//   이 함수는 취소할 때만이 아니라 방 생성에 성공해서 창이 닫힐 때도 불린다.
+	//   성공 시 포트를 닫아버리면 정작 참가자가 못 들어온다.
+	//   취소 경로의 해제는 CancelCreate 가 담당한다.
 
 	Super::NativeDestruct();
 }
@@ -195,11 +230,11 @@ void URoomCreateWidgetBase::BuildDefaultLayout()
 // 동작
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* URoomCreateWidgetBase::GetChatSubsystem() const
+UServerSubsystem* URoomCreateWidgetBase::GetServerSubsystem() const
 {
 	if (const UGameInstance* GameInstance = GetGameInstance())
 	{
-		return GameInstance->GetSubsystem<UChatSubsystem>();
+		return GameInstance->GetSubsystem<UServerSubsystem>();
 	}
 	return nullptr;
 }
@@ -211,7 +246,7 @@ void URoomCreateWidgetBase::TryCreateRoom()
 		return;
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetMessage(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -221,12 +256,12 @@ void URoomCreateWidgetBase::TryCreateRoom()
 	// 서버도 같은 규칙을 검사하지만, 여기서 먼저 걸러주면 왕복 없이 즉시 알려줄 수 있다.
 	if (Chat->GetConnectionState() != EChatConnectionState::LoggedIn)
 	{
-		SetMessage(UChatSubsystem::GetRoomResultText(EMOURoomResultBP::NotAuthed), true);
+		SetMessage(UServerSubsystem::GetRoomResultText(EMOURoomResultBP::NotAuthed), true);
 		return;
 	}
 	if (Chat->GetMyRoomId() != 0)
 	{
-		SetMessage(UChatSubsystem::GetRoomResultText(EMOURoomResultBP::AlreadyHosting), true);
+		SetMessage(UServerSubsystem::GetRoomResultText(EMOURoomResultBP::AlreadyHosting), true);
 		return;
 	}
 
@@ -253,21 +288,109 @@ void URoomCreateWidgetBase::TryCreateRoom()
 	RoomPassword.TrimStartAndEndInline();
 	// 비워두면 공개방. 뭔가 적었다면 반드시 숫자 4자리여야 한다.
 	// "1234 를 넣었는데 공개방이 되어 있더라" 같은 사고를 막으려고 조용히 무시하지 않는다.
-	if (!RoomPassword.IsEmpty() && !UChatSubsystem::IsValidRoomPassword(RoomPassword))
+	if (!RoomPassword.IsEmpty() && !UServerSubsystem::IsValidRoomPassword(RoomPassword))
 	{
 		SetMessage(TEXT("방 비밀번호는 숫자 4자리여야 합니다. (공개방으로 만들려면 비워두세요)"), true);
 		return;
 	}
 
+	SubmittedTitle    = Title;
 	SubmittedPassword = RoomPassword;
 
 	SetBusy(true);
+
+	// ★ 포트 열기가 아직 진행 중이면 여기서 보내지 않는다.
+	//   지금 보내면 HostPort 로 방이 등록되는데, 잠시 뒤 공유기가 다른 외부 포트를
+	//   열어주면 방 정보에 이미 틀린 포트가 나가 있게 된다. 매핑이 끝나면
+	//   HandleNatMappingFinished 가 이어서 보낸다.
+	if (UNatPortMappingSubsystem* Nat = GetNatSubsystem())
+	{
+		if (Nat->IsMappingInProgress())
+		{
+			bCreateWaitingForNat = true;
+			SetMessage(TEXT("공유기에 포트를 여는 중입니다..."), false);
+			return;
+		}
+	}
+
+	SubmitCreateRoom();
+}
+
+void URoomCreateWidgetBase::SubmitCreateRoom()
+{
+	UServerSubsystem* Server = GetServerSubsystem();
+	if (Server == nullptr)
+	{
+		SetBusy(false);
+		SetMessage(TEXT("서버 시스템을 찾을 수 없습니다."), true);
+		return;
+	}
+
 	SetMessage(TEXT("방을 만드는 중..."), false);
-	Chat->CreateRoom(Title, RoomPassword, HostPort);
+	Server->CreateRoom(SubmittedTitle, SubmittedPassword, ResolveAdvertisedPort());
+}
+
+int32 URoomCreateWidgetBase::ResolveAdvertisedPort() const
+{
+	// 공유기가 열어준 외부 포트가 있으면 그것을 신고한다.
+	// 리슨서버는 HostPort 그대로 열린다 — 공유기가 외부 포트를 내부 포트로 넘겨주므로
+	// 바뀌는 것은 "밖에서 부를 주소" 뿐이고, 프로토콜도 Server.exe 도 그대로다.
+	if (const UNatPortMappingSubsystem* Nat = GetNatSubsystem())
+	{
+		const int32 External = Nat->GetMappedExternalPort();
+		if (External > 0)
+		{
+			return External;
+		}
+	}
+	return HostPort;
+}
+
+UNatPortMappingSubsystem* URoomCreateWidgetBase::GetNatSubsystem() const
+{
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		return GameInstance->GetSubsystem<UNatPortMappingSubsystem>();
+	}
+	return nullptr;
+}
+
+void URoomCreateWidgetBase::HandleNatMappingFinished(EMOUNatResultBP Result, int32 ExternalPort, const FString& ExternalIp)
+{
+	// 사용자가 이미 "방 만들기" 를 눌러 기다리고 있었다면, 지금이 보낼 때다.
+	if (bCreateWaitingForNat)
+	{
+		bCreateWaitingForNat = false;
+		SubmitCreateRoom();
+		return;
+	}
+
+	// 아직 입력 중이다. 결과만 알려주고 흐름은 막지 않는다.
+	if (Result == EMOUNatResultBP::Success)
+	{
+		SetMessage(FString::Printf(
+			TEXT("공유기에 포트를 열었습니다. 다른 네트워크에서도 접속할 수 있습니다. (%s:%d)"),
+			ExternalIp.IsEmpty() ? TEXT("외부IP") : *ExternalIp, ExternalPort), false);
+	}
+	else
+	{
+		// ★ 실패해도 오류가 아니다. 같은 네트워크에서는 그대로 접속되므로
+		//   방 만들기를 막지 않는다. 사용자에게는 "밖에서는 못 들어온다" 만 알려준다.
+		SetMessage(UNatPortMappingSubsystem::GetNatResultText(Result).ToString(), false);
+	}
 }
 
 void URoomCreateWidgetBase::CancelCreate()
 {
+	// ★ 호스트가 되기를 그만뒀으므로 열어둔 포트를 닫는다.
+	//   성공 시에는 닫지 않는다 — 그때는 매핑이 계속 살아 있어야 참가자가 들어온다.
+	if (UNatPortMappingSubsystem* Nat = GetNatSubsystem())
+	{
+		Nat->ReleasePortMapping();
+	}
+
+	bCreateWaitingForNat = false;
+
 	OnRoomCreateCancelled.ExecuteIfBound();
 	RemoveFromParent();
 }
@@ -282,7 +405,7 @@ void URoomCreateWidgetBase::HandleRoomCreated(bool bSuccess, int32 RoomId, EMOUR
 	if (!bSuccess)
 	{
 		SubmittedPassword.Empty();
-		SetMessage(UChatSubsystem::GetRoomResultText(Result), true);
+		SetMessage(UServerSubsystem::GetRoomResultText(Result), true);
 		return;
 	}
 

@@ -119,7 +119,7 @@ namespace MOUChat
 	 * 헤더 + 바디를 하나의 바이트 배열로 조립한다. 실제 전송은 하지 않는다.
 	 *
 	 * 조립과 전송을 분리한 이유: 패킷은 게임 스레드에서 만들고,
-	 * 전송은 워커 스레드가 한다 (UChatSubsystem -> TQueue -> FChatClientRunnable).
+	 * 전송은 워커 스레드가 한다 (UServerSubsystem -> TQueue -> FServerClientRunnable).
 	 *
 	 * 바디를 두 조각(BodyA/BodyB)으로 받는 이유는 "고정 헤더부 + 가변 길이 텍스트" 형태의
 	 * 패킷(ChatSend, ChatBroadcast)이 있기 때문이다. 서버의 SendPacket2 와 같은 구조다.

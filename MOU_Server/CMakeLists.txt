@@ -55,6 +55,10 @@ add_executable(Server
     # (ChatLog 의 비동기 큐와 다른 이유는 각 헤더 주석 참고).
     Server/Friends.cpp
     Server/DirectMessages.cpp
+    # 공유기(UPnP)에 자기 리슨 포트를 열어달라고 요청한다. --upnp 로만 동작한다.
+    # 언리얼 쪽에도 같은 이름의 파일이 있지만 여는 포트가 달라서 별개다
+    # (여기는 Server.exe 의 9000/TCP, 저기는 리슨서버의 7777/UDP).
+    Server/NatPortMapping.cpp
 )
 target_include_directories(Server PRIVATE Server)
 target_link_libraries(Server PRIVATE mou_shared sqlite3)

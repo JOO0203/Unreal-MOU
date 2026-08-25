@@ -149,7 +149,7 @@ EMOULobbyBackendType UMOUServerSettings::ResolveBackendType(FString* OutSource)
 		else
 		{
 			// 오타를 조용히 넘기면 "왜 EOS 로 안 바뀌지" 를 한참 헤매게 된다.
-			UE_LOG(LogMOUChat, Warning,
+			UE_LOG(LogMOUServer, Warning,
 				TEXT("-MOULobbyBackend=%s 를 알아듣지 못했다. 쓸 수 있는 값: EOS, Socket"), *Switch);
 		}
 	}
@@ -222,7 +222,7 @@ void UMOUServerSettings::SaveEndpointOverrideForThisMachine(const FString& InHos
 	// 지금 돌고 있는 세션에도 즉시 반영한다. (다음 접속부터 적용)
 	GetMutableDefault<UMOUServerSettings>()->ReloadConfig();
 
-	UE_LOG(LogMOUChat, Log, TEXT("채팅 서버 주소를 이 PC 에만 저장했다: %s"), *GetResolvedEndpointText());
+	UE_LOG(LogMOUServer, Log, TEXT("서버 주소를 이 PC 에만 저장했다: %s"), *GetResolvedEndpointText());
 }
 
 void UMOUServerSettings::ClearEndpointOverrideForThisMachine()
@@ -239,6 +239,6 @@ void UMOUServerSettings::ClearEndpointOverrideForThisMachine()
 
 	GetMutableDefault<UMOUServerSettings>()->ReloadConfig();
 
-	UE_LOG(LogMOUChat, Log, TEXT("개인 채팅 서버 설정을 지웠다. 팀 공유 설정으로 돌아간다: %s"),
+	UE_LOG(LogMOUServer, Log, TEXT("개인 서버 설정을 지웠다. 팀 공유 설정으로 돌아간다: %s"),
 		*GetResolvedEndpointText());
 }

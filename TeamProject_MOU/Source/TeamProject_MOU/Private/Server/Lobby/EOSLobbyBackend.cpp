@@ -11,14 +11,14 @@ bool FEOSLobbyBackend::Start(const FString& /*Host*/, int32 /*Port*/)
 
 	// 실패를 사건으로 올린다. 로그만 남기면 화면에는 아무 변화가 없어서
 	// "설정을 바꿨는데 왜 로그인 창이 안 넘어가지" 를 한참 헤매게 된다.
-	FChatClientEvent Event;
-	Event.Type   = EChatClientEventType::ConnectFailed;
+	FServerClientEvent Event;
+	Event.Type   = EServerClientEventType::ConnectFailed;
 	Event.Detail = TEXT("EOS 백엔드는 아직 구현되지 않았습니다. ")
 	               TEXT("Project Settings -> Game -> MOU Server -> Lobby Backend 를 ")
 	               TEXT("'자체 서버 (TCP)' 로 되돌리세요.");
 	InboundEvents.Enqueue(MoveTemp(Event));
 
-	UE_LOG(LogMOUChat, Error,
+	UE_LOG(LogMOUServer, Error,
 		TEXT("EOS 백엔드가 선택됐지만 아직 구현되지 않았다. 붙이는 순서는 EOSLobbyBackend.h 참고."));
 
 	// Start 자체는 성공으로 돌려준다. false 를 주면 서브시스템이 백엔드를 즉시
@@ -32,7 +32,7 @@ void FEOSLobbyBackend::Shutdown()
 	InboundEvents.Empty();
 }
 
-bool FEOSLobbyBackend::DequeueEvent(FChatClientEvent& Out)
+bool FEOSLobbyBackend::DequeueEvent(FServerClientEvent& Out)
 {
 	return InboundEvents.Dequeue(Out);
 }
@@ -44,7 +44,7 @@ bool FEOSLobbyBackend::DequeueMessage(FChatMessage& /*Out*/)
 
 void FEOSLobbyBackend::LogNotImplemented(const TCHAR* What) const
 {
-	UE_LOG(LogMOUChat, Warning, TEXT("EOS 백엔드 미구현: %s"), What);
+	UE_LOG(LogMOUServer, Warning, TEXT("EOS 백엔드 미구현: %s"), What);
 }
 
 void FEOSLobbyBackend::SendLogin(const FString&, const FString&, int32)

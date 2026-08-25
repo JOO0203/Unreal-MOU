@@ -19,8 +19,8 @@
 //   따라서 호스트가 게임을 나가도 채팅은 끊기지 않는다.
 //
 //   현재 미해결(8단계 예정): TeamId 와 생사 여부의 권위자는 게임(리슨서버)인데
-//   채팅 서버는 그 정보를 모른다. 지금은 클라이언트가 Login/SetDeadForTest 로
-//   직접 알려주고 있어서 위조가 가능하다. 리슨서버가 채팅 서버에 미러링하도록 바꿔야 한다.
+//   서버는 그 정보를 모른다. 지금은 클라이언트가 Login/SetDeadForTest 로
+//   직접 알려주고 있어서 위조가 가능하다. 리슨서버가 서버에 미러링하도록 바꿔야 한다.
 
 #pragma once
 
@@ -33,7 +33,7 @@
 #include "Server/Lobby/LobbyTypes.h"
 #include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
-#include "ChatSubsystem.generated.h"
+#include "ServerSubsystem.generated.h"
 
 /** 채팅 한 줄을 받았을 때. UI 는 여기 바인딩해서 로그를 채운다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnChatMessageReceived, const FChatMessage&, Message);
@@ -106,7 +106,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDirectMessageReceived, const FMOU
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDmHistoryReceived, int64, PeerUserId, const TArray<FMOUDirectMessage>&, Messages, bool, bHasMore);
 
 /**
- * 채팅 서버 연결의 소유자.
+ * 서버 연결의 소유자.
  *
  * 역할:
  *   1. 백엔드(ILobbyBackend)의 생성과 파괴
@@ -120,7 +120,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDmHistoryReceived, int64, Peer
  *   그래서 백엔드를 EOS 로 바꿔도 이 파일은 한 줄도 바뀌지 않는다.
  */
 UCLASS()
-class TEAMPROJECT_MOU_API UChatSubsystem : public UGameInstanceSubsystem
+class TEAMPROJECT_MOU_API UServerSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 
@@ -136,10 +136,10 @@ public:
 	 * WorldContextObject 는 위젯이나 액터의 self 를 넣으면 된다.
 	 */
 	UFUNCTION(BlueprintPure, Category = "MOU|Chat", meta = (WorldContext = "WorldContextObject"))
-	static UChatSubsystem* Get(const UObject* WorldContextObject);
+	static UServerSubsystem* Get(const UObject* WorldContextObject);
 
 	/**
-	 * 채팅 서버에 접속을 시작한다. 즉시 반환하고 실제 접속은 워커 스레드에서 진행된다.
+	 * 서버에 접속을 시작한다. 즉시 반환하고 실제 접속은 워커 스레드에서 진행된다.
 	 * 접속 결과는 OnChatStateChanged 로 알려준다.
 	 *
 	 * 실패해도 자동으로 재시도하므로, 서버를 나중에 켜도 알아서 붙는다.

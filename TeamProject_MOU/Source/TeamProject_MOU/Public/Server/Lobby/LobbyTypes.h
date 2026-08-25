@@ -3,7 +3,7 @@
 // [이 파일의 위치] ChatTypes.h 와 같은 층이다.
 //   ChatProtocol.h 의 RoomInfo 는 고정 길이 char 배열과 uint64 를 써서
 //   블루프린트에 그대로 노출할 수 없다. 그래서 여기서 UE 친화적인 형태로 다시 정의하고,
-//   소켓 층(FChatClientRunnable)이 변환해서 올려보낸다.
+//   소켓 층(FServerClientRunnable)이 변환해서 올려보낸다.
 //
 // [수정 시 주의]
 //   EMOURoomResultBP 의 숫자 값은 MOU::ERoomResult 와 반드시 일치해야 한다.

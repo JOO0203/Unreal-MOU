@@ -2,7 +2,7 @@
 //
 // [이 위젯이 하는 일]
 //   콘솔 명령(MOU.Chat.Connect / MOU.Chat.Login)으로 하던 일을 화면에서 한다.
-//     1. 채팅 서버에 접속
+//     1. 서버에 접속
 //     2. 아이디/비밀번호로 로그인, 또는 계정 생성
 //     3. 성공하면 스스로 사라지고 채팅 위젯과 로비 메인메뉴(ULobbyWidgetBase)를 띄운다
 //
@@ -30,7 +30,7 @@ class UButton;
 class UEditableTextBox;
 class UTextBlock;
 class UVerticalBox;
-class UChatSubsystem;
+class UServerSubsystem;
 
 /**
  * 접속 + 로그인 + 계정 생성을 한 화면에서 처리하는 위젯.
@@ -55,7 +55,7 @@ public:
 	// --- 설정 -------------------------------------------------------------
 
 	/**
-	 * 접속할 채팅 서버. **비워두는 것이 기본이자 권장값이다.**
+	 * 접속할 서버. **비워두는 것이 기본이자 권장값이다.**
 	 *
 	 * 비어 있으면(호스트가 빈 문자열, 포트가 0) 접속 직전에
 	 * UMOUServerSettings 가 정한 주소를 쓴다 — 즉 Config/DefaultGame.ini 의
@@ -207,7 +207,7 @@ private:
 
 	void ShowLobbyWidget();
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	/** 가입 성공 직후 자동 로그인을 하기 위한 플래그. */
 	bool bAutoLoginAfterRegister = false;

@@ -13,7 +13,7 @@
 //
 // [★★ 왜 워커 스레드가 아닌가 - 설계가 바뀐 이유]
 //
-//   처음에는 기존 채팅(FChatClientRunnable)처럼 워커 스레드로 만들었다가 되돌렸다.
+//   처음에는 기존 채팅(FServerClientRunnable)처럼 워커 스레드로 만들었다가 되돌렸다.
 //   엔진 구현을 열어보니 그렇게 하면 안 되는 구조였다:
 //
 //     class FVoiceCaptureWindows : public IVoiceCapture, public FTSTickerObjectBase

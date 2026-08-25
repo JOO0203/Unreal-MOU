@@ -1,12 +1,12 @@
 // MOU 로비 - 자체 서버 백엔드 구현.
 //
-// 여기 있는 코드는 전부 UChatSubsystem.cpp 에서 옮겨온 것이다.
+// 여기 있는 코드는 전부 UServerSubsystem.cpp 에서 옮겨온 것이다.
 // 옮긴 이유는 동작을 바꾸려는 게 아니라, 서브시스템이 "패킷" 이라는 단어를
 // 몰라도 되게 만들기 위해서다. 그 선이 그어져 있어야 EOS 백엔드를 끼울 수 있다.
 
 #include "Server/Lobby/SocketLobbyBackend.h"
 
-#include "Server/Net/ChatClientRunnable.h"
+#include "Server/Net/ServerClientRunnable.h"
 #include "HAL/RunnableThread.h"
 
 FSocketLobbyBackend::~FSocketLobbyBackend()
@@ -18,29 +18,29 @@ FSocketLobbyBackend::~FSocketLobbyBackend()
 
 bool FSocketLobbyBackend::Start(const FString& Host, int32 Port)
 {
-	if (ChatThread != nullptr)
+	if (ServerThread != nullptr)
 	{
 		// 이미 워커가 돌고 있다. 워커 자체가 재연결 루프를 갖고 있으므로
 		// 끊긴 상태여도 새로 만들 필요가 없다.
-		UE_LOG(LogMOUChat, Log, TEXT("이미 채팅 클라이언트가 동작 중이다. 접속 요청을 무시한다."));
+		UE_LOG(LogMOUServer, Log, TEXT("이미 채팅 클라이언트가 동작 중이다. 접속 요청을 무시한다."));
 		return true;
 	}
 
-	ChatClient = new FChatClientRunnable(Host, Port);
+	ServerClient = new FServerClientRunnable(Host, Port);
 
 	// 스레드 이름에 접속 대상을 넣어두면 PIE 창을 여러 개 띄웠을 때
 	// 디버거의 스레드 목록에서 구분하기 쉽다.
-	ChatThread = FRunnableThread::Create(
-		ChatClient,
+	ServerThread = FRunnableThread::Create(
+		ServerClient,
 		*FString::Printf(TEXT("MOUChatClient_%s_%d"), *Host, Port),
 		0,
 		TPri_BelowNormal);   // 채팅은 게임 프레임보다 우선순위가 낮아도 된다
 
-	if (ChatThread == nullptr)
+	if (ServerThread == nullptr)
 	{
-		UE_LOG(LogMOUChat, Error, TEXT("채팅 워커 스레드 생성 실패"));
-		delete ChatClient;
-		ChatClient = nullptr;
+		UE_LOG(LogMOUServer, Error, TEXT("채팅 워커 스레드 생성 실패"));
+		delete ServerClient;
+		ServerClient = nullptr;
 		return false;
 	}
 
@@ -49,42 +49,42 @@ bool FSocketLobbyBackend::Start(const FString& Host, int32 Port)
 
 void FSocketLobbyBackend::Shutdown()
 {
-	if (ChatThread != nullptr)
+	if (ServerThread != nullptr)
 	{
 		// 1) 종료 요청 플래그를 세운다
-		if (ChatClient != nullptr)
+		if (ServerClient != nullptr)
 		{
-			ChatClient->Stop();
+			ServerClient->Stop();
 		}
 
 		// 2) 워커가 Run() 을 빠져나올 때까지 반드시 기다린다.
 		//    bShouldWait 를 false 로 두면 아직 살아있는 스레드가 이미 해제된 큐를 건드려서
 		//    "PIE 를 껐다 켜면 에디터가 통째로 죽는" 증상이 난다. 언리얼에서 가장 흔한 실수다.
-		ChatThread->Kill(/*bShouldWait=*/true);
+		ServerThread->Kill(/*bShouldWait=*/true);
 
-		delete ChatThread;
-		ChatThread = nullptr;
+		delete ServerThread;
+		ServerThread = nullptr;
 	}
 
 	// 3) 스레드가 완전히 끝난 뒤에 러너블을 해제한다.
 	//    순서를 뒤집으면 아직 Run() 안에 있는 워커가 해제된 메모리를 만진다.
-	delete ChatClient;
-	ChatClient = nullptr;
+	delete ServerClient;
+	ServerClient = nullptr;
 }
 
-bool FSocketLobbyBackend::DequeueEvent(FChatClientEvent& Out)
+bool FSocketLobbyBackend::DequeueEvent(FServerClientEvent& Out)
 {
-	return ChatClient != nullptr && ChatClient->DequeueEvent(Out);
+	return ServerClient != nullptr && ServerClient->DequeueEvent(Out);
 }
 
 bool FSocketLobbyBackend::DequeueMessage(FChatMessage& Out)
 {
-	return ChatClient != nullptr && ChatClient->DequeueMessage(Out);
+	return ServerClient != nullptr && ServerClient->DequeueMessage(Out);
 }
 
 void FSocketLobbyBackend::SendEmpty(MOU::EOpcode Opcode, const TCHAR* LogLabel)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -92,10 +92,10 @@ void FSocketLobbyBackend::SendEmpty(MOU::EOpcode Opcode, const TCHAR* LogLabel)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, Opcode, nullptr, 0))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
 		if (LogLabel != nullptr)
 		{
-			UE_LOG(LogMOUChat, Log, TEXT("%s 전송"), LogLabel);
+			UE_LOG(LogMOUServer, Log, TEXT("%s 전송"), LogLabel);
 		}
 	}
 }
@@ -106,7 +106,7 @@ void FSocketLobbyBackend::SendEmpty(MOU::EOpcode Opcode, const TCHAR* LogLabel)
 
 void FSocketLobbyBackend::SendLogin(const FString& LoginId, const FString& Password, int32 TeamId)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -120,15 +120,15 @@ void FSocketLobbyBackend::SendLogin(const FString& LoginId, const FString& Passw
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::LoginReq, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
 		// 비밀번호는 절대 로그에 남기지 않는다.
-		UE_LOG(LogMOUChat, Log, TEXT("LoginReq 전송: %s (팀 %d)"), *LoginId, TeamId);
+		UE_LOG(LogMOUServer, Log, TEXT("LoginReq 전송: %s (팀 %d)"), *LoginId, TeamId);
 	}
 }
 
 void FSocketLobbyBackend::SendRegister(const FString& LoginId, const FString& Password, const FString& Nickname)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -142,8 +142,8 @@ void FSocketLobbyBackend::SendRegister(const FString& LoginId, const FString& Pa
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RegisterReq, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("RegisterReq 전송: %s (닉네임 %s)"), *LoginId, *Nickname);
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("RegisterReq 전송: %s (닉네임 %s)"), *LoginId, *Nickname);
 	}
 }
 
@@ -153,7 +153,7 @@ void FSocketLobbyBackend::SendRegister(const FString& LoginId, const FString& Pa
 
 void FSocketLobbyBackend::SendChat(EChatChannelBP Channel, const FString& Text)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -171,7 +171,7 @@ void FSocketLobbyBackend::SendChat(EChatChannelBP Channel, const FString& Text)
 	}
 	if (SentLength < OriginalLength)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("메시지가 상한(%u바이트)을 넘어 잘렸다. %d -> %d 바이트"),
+		UE_LOG(LogMOUServer, Warning, TEXT("메시지가 상한(%u바이트)을 넘어 잘렸다. %d -> %d 바이트"),
 			MOU::kMaxTextLen, OriginalLength, SentLength);
 	}
 
@@ -186,13 +186,13 @@ void FSocketLobbyBackend::SendChat(EChatChannelBP Channel, const FString& Text)
 			&Body, sizeof(Body),
 			TextBytes.GetData(), static_cast<uint32>(SentLength)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
 	}
 }
 
 void FSocketLobbyBackend::SendSetDead(int64 UserId, bool bDead)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -204,8 +204,8 @@ void FSocketLobbyBackend::SendSetDead(int64 UserId, bool bDead)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::SetDead, &Body, sizeof(Body)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("SetDead 전송: %s"), bDead ? TEXT("사망") : TEXT("생존"));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("SetDead 전송: %s"), bDead ? TEXT("사망") : TEXT("생존"));
 	}
 }
 
@@ -218,7 +218,7 @@ void FSocketLobbyBackend::SendSetDead(int64 UserId, bool bDead)
 
 void FSocketLobbyBackend::CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -240,8 +240,8 @@ void FSocketLobbyBackend::CreateRoom(const FString& Title, const FString& RoomPa
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomCreateReq, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("RoomCreateReq 전송: \"%s\" 포트 %d %s"),
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("RoomCreateReq 전송: \"%s\" 포트 %d %s"),
 			*Title, HostPort, bUsePassword ? TEXT("[비번]") : TEXT(""));
 	}
 }
@@ -253,7 +253,7 @@ void FSocketLobbyBackend::RequestRoomList()
 
 void FSocketLobbyBackend::JoinRoom(int32 RoomId, const FString& RoomPassword)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -269,8 +269,8 @@ void FSocketLobbyBackend::JoinRoom(int32 RoomId, const FString& RoomPassword)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomJoinReq, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("RoomJoinReq 전송: #%d"), RoomId);
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("RoomJoinReq 전송: #%d"), RoomId);
 	}
 }
 
@@ -281,7 +281,7 @@ void FSocketLobbyBackend::LeaveRoom()
 
 void FSocketLobbyBackend::SetReady(bool bReady)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -292,8 +292,8 @@ void FSocketLobbyBackend::SetReady(bool bReady)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomReadyReq, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("RoomReadyReq 전송: %s"), bReady ? TEXT("준비완료") : TEXT("준비해제"));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("RoomReadyReq 전송: %s"), bReady ? TEXT("준비완료") : TEXT("준비해제"));
 	}
 }
 
@@ -310,9 +310,9 @@ void FSocketLobbyBackend::NotifyHostReady()
 // ---------------------------------------------------------------------------
 // 친구 / 메신저 (v7)
 //
-// ★ 패킷 조립은 이 파일에서만 한다. UChatSubsystem 은 "무엇을 하고 싶은지" 만
+// ★ 패킷 조립은 이 파일에서만 한다. UServerSubsystem 은 "무엇을 하고 싶은지" 만
 //   말하고 바이트가 어떻게 나가는지는 모른다 — 백엔드를 EOS 로 바꿔도
-//   UChatSubsystem 이 한 줄도 안 바뀌는 이유다.
+//   UServerSubsystem 이 한 줄도 안 바뀌는 이유다.
 // ---------------------------------------------------------------------------
 
 void FSocketLobbyBackend::RequestFriendList()
@@ -322,7 +322,7 @@ void FSocketLobbyBackend::RequestFriendList()
 
 void FSocketLobbyBackend::AddFriend(const FString& Query)
 {
-	if (ChatClient == nullptr)
+	if (ServerClient == nullptr)
 	{
 		return;
 	}
@@ -336,14 +336,14 @@ void FSocketLobbyBackend::AddFriend(const FString& Query)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::FriendAddReq, &Body, sizeof(Body)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("FriendAddReq 전송: \"%s\""), *Query);
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("FriendAddReq 전송: \"%s\""), *Query);
 	}
 }
 
 void FSocketLobbyBackend::RespondFriendRequest(int64 FromUserId, bool bAccept)
 {
-	if (ChatClient == nullptr || FromUserId == 0)
+	if (ServerClient == nullptr || FromUserId == 0)
 	{
 		return;
 	}
@@ -355,15 +355,15 @@ void FSocketLobbyBackend::RespondFriendRequest(int64 FromUserId, bool bAccept)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::FriendRespondReq, &Body, sizeof(Body)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("FriendRespondReq 전송: from=%lld %s"),
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("FriendRespondReq 전송: from=%lld %s"),
 			FromUserId, bAccept ? TEXT("수락") : TEXT("거절"));
 	}
 }
 
 void FSocketLobbyBackend::RemoveFriend(int64 TargetUserId)
 {
-	if (ChatClient == nullptr || TargetUserId == 0)
+	if (ServerClient == nullptr || TargetUserId == 0)
 	{
 		return;
 	}
@@ -374,14 +374,14 @@ void FSocketLobbyBackend::RemoveFriend(int64 TargetUserId)
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::FriendRemoveReq, &Body, sizeof(Body)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Log, TEXT("FriendRemoveReq 전송: target=%lld"), TargetUserId);
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Log, TEXT("FriendRemoveReq 전송: target=%lld"), TargetUserId);
 	}
 }
 
 void FSocketLobbyBackend::SendDirectMessage(int64 TargetUserId, const FString& Text)
 {
-	if (ChatClient == nullptr || TargetUserId == 0)
+	if (ServerClient == nullptr || TargetUserId == 0)
 	{
 		return;
 	}
@@ -398,7 +398,7 @@ void FSocketLobbyBackend::SendDirectMessage(int64 TargetUserId, const FString& T
 	}
 	if (SentLength < OriginalLength)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("DM 이 상한(%u바이트)을 넘어 잘렸다. %d -> %d 바이트"),
+		UE_LOG(LogMOUServer, Warning, TEXT("DM 이 상한(%u바이트)을 넘어 잘렸다. %d -> %d 바이트"),
 			MOU::kMaxTextLen, OriginalLength, SentLength);
 	}
 
@@ -411,13 +411,13 @@ void FSocketLobbyBackend::SendDirectMessage(int64 TargetUserId, const FString& T
 			&Body, sizeof(Body),
 			TextBytes.GetData(), static_cast<uint32>(SentLength)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
 	}
 }
 
 void FSocketLobbyBackend::RequestDmHistory(int64 PeerUserId, int64 BeforeMessageId)
 {
-	if (ChatClient == nullptr || PeerUserId == 0)
+	if (ServerClient == nullptr || PeerUserId == 0)
 	{
 		return;
 	}
@@ -429,15 +429,15 @@ void FSocketLobbyBackend::RequestDmHistory(int64 PeerUserId, int64 BeforeMessage
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::DmHistoryReq, &Body, sizeof(Body)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
-		UE_LOG(LogMOUChat, Verbose, TEXT("DmHistoryReq 전송: peer=%lld before=%lld"),
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
+		UE_LOG(LogMOUServer, Verbose, TEXT("DmHistoryReq 전송: peer=%lld before=%lld"),
 			PeerUserId, BeforeMessageId);
 	}
 }
 
 void FSocketLobbyBackend::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
 {
-	if (ChatClient == nullptr || RoomId == 0)
+	if (ServerClient == nullptr || RoomId == 0)
 	{
 		return;
 	}
@@ -451,6 +451,6 @@ void FSocketLobbyBackend::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bo
 	TArray<uint8> Packet;
 	if (MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomStateUpdate, &Request, sizeof(Request)))
 	{
-		ChatClient->EnqueuePacket(MoveTemp(Packet));
+		ServerClient->EnqueuePacket(MoveTemp(Packet));
 	}
 }

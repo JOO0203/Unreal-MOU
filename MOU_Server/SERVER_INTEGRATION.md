@@ -57,6 +57,7 @@
 | 로비-여행 | 방장 `OpenLevel(listen)` / 참여자 `ClientTravel` | 참여자 쪽 **완료** (v6, 호스트 준비 신호). 방장 쪽은 맵 이름 미정 |
 | 로비-백엔드 | `ILobbyBackend` 로 계정/세션 탐색 분리 (EOS 전환 대비) | **완료** (v6). EOS 구현체는 뼈대 |
 | 로비-보안 | `PreLogin` 에서 방 비밀번호 재검사 | **미착수** ← 진짜 관문 |
+| NAT | UPnP 자동 포트포워딩 (로그인 서버 9000 + 방장 리슨서버 7777) | **완료** (2026-08-25). CGNAT 은 여전히 안 됨 — 14-5절 |
 | 8 | 리슨서버 → 채팅서버 신원 미러링 | **폐기** (2026-08-24) — 아래 참고 |
 | 9 | 귓속말 | 형태가 바뀌어 완료 — **v7 친구/메신저**로 흡수됨 |
 | 친구 | 친구 신청/수락/삭제, 접속 상태(Presence) | **완료** (v7). `Friends.cpp`, `TestClient` `/add /accept /decline /unfriend` |
@@ -241,6 +242,12 @@ Server.exe 9000
 DB 경로를 지정하고 싶으면 두 번째 인자로: `Server.exe 9000 chat_log.db`
 (계정과 채팅 로그가 같은 파일에 테이블만 나눠서 들어간다.)
 
+**다른 네트워크(각자 집)에서 접속시키려면** `--upnp` 를 붙인다: `Server.exe 9000 --upnp`
+(2026-08-25). 공유기가 UPnP 를 지원하면 시작 시 콘솔에 공인 IP:포트가 찍히고, 그 주소를
+친구의 클라이언트에 `MOU.Chat.SetServer <공인IP> 9000` 으로 알려주면 된다. 실패해도(UPnP
+미지원/CGNAT) 서버는 그대로 뜬다 — 같은 네트워크 접속만 가능한 상태로 남을 뿐이다.
+같은 공유기 안에서만 테스트할 거면 이 옵션은 필요 없다.
+
 **2) 에디터에서 PIE 실행 → `` ` `` 키로 콘솔을 열고, 로그인 UI 를 띄운다**
 
 ```bash
@@ -259,7 +266,7 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
 | 서버 콘솔 | `[가입] player1 (닉네임 홍길동) -> UserId=1` |
 | 서버 콘솔 | `[로그인] 홍길동 -> UserId=1, Team=0` |
 | 채팅창 | `%s(으)로 접속했습니다.` |
-| 에디터 출력 로그 | 필터 `LogMOUChat` 로 같은 내용 |
+| 에디터 출력 로그 | 필터 `LogMOUServer` 로 같은 내용 |
 
 **서버가 꺼져 있어도 게임은 정상 진행된다.** 3초 간격으로 자동 재접속하고,
 재접속에 성공하면 **자동으로 다시 로그인**한다 (계정 인증 실패로 거부된 경우는 재시도하지 않는다).
@@ -312,7 +319,7 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
       │
       │   (방장의 맵 로딩… 몇 초가 걸릴 수도, 금방 끝날 수도 있다)
       │
-      ├─ UChatSubsystem 이 리슨서버 넷드라이버가 뜬 것을 감지
+      ├─ UServerSubsystem 이 리슨서버 넷드라이버가 뜬 것을 감지
       ├─▶ RoomHostReadyReq ─▶ 서버
       └─▶ RoomHostReady ────▶ 참여자 : 지금 ClientTravel
 ```
@@ -328,7 +335,7 @@ MOU.Chat.ShowLogin 127.0.0.1 9000
 > **v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.**
 > 그 3초에는 근거가 없었다 — 방장이 큰 맵을 저사양 PC 에서 열면 모자라서 참여자가
 > 아직 없는 서버에 붙으려다 튕겼고, 반대로 금방 열려도 3초를 그냥 버렸다.
-> 이제 방장 쪽 `UChatSubsystem` 이 리슨서버가 실제로 뜬 것을 확인한 뒤에 신호를 보낸다.
+> 이제 방장 쪽 `UServerSubsystem` 이 리슨서버가 실제로 뜬 것을 확인한 뒤에 신호를 보낸다.
 > 상한은 `HostReadyTimeoutSeconds`(기본 60초)이고, 넘기면 신호를 보내지 않는다 —
 > 열리지도 않은 주소로 참여자를 보내는 것보다 대기실에 남겨두는 편이 낫다.
 
@@ -385,7 +392,7 @@ TestClient.exe 127.0.0.1 9000 아이디 비밀번호 --register 닉네임
 
 4번과 5번 사이에 참여자 화면이 멈춰 있는 것이 정상이다. 그 구간이 실제 게임에서는
 방장의 맵 로딩 시간이고, 언리얼 클라이언트는 그 끝을 감지해 5번을 자동으로 보낸다
-(`UChatSubsystem::PollListenServer`). 콘솔에는 감지할 리슨서버가 없으므로 손으로 친다.
+(`UServerSubsystem::PollListenServer`). 콘솔에는 감지할 리슨서버가 없으므로 손으로 친다.
 
 순서를 뒤집어(`/go` 없이 `/hostready`) 서버 콘솔에 `사유 11`(NotStarted)이 찍히는지도
 확인해두면 좋다. 아직 열리지도 않은 게임으로 사람을 보내지 않는다는 뜻이다.
@@ -457,10 +464,10 @@ TestClient.exe 127.0.0.1 9000 attacker pw123456 --register 공격자  bad
 에디터 GUI 없이 CI 처럼 돌리는 방법. 실제로 이 방식으로 검증했다.
 
 ```bash
-UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unattended -nosplash -nosound -ExecCmds="MOU.Chat.Connect 127.0.0.1 9000,MOU.Chat.Register id123 pw123456 닉네임,MOU.Chat.Login id123 pw123456 0,MOU.Exec.Delayed 4 MOU.Room.List" -LogCmds="LogMOUChat Verbose" -log -abslog="<경로>\ue_test.log"
+UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unattended -nosplash -nosound -ExecCmds="MOU.Chat.Connect 127.0.0.1 9000,MOU.Chat.Register id123 pw123456 닉네임,MOU.Chat.Login id123 pw123456 0,MOU.Exec.Delayed 4 MOU.Room.List" -LogCmds="LogMOUServer Verbose" -log -abslog="<경로>\ue_test.log"
 ```
 
-로그에서 `LogMOUChat` 을 필터링해 확인한다. 한계: `-nullrhi` 라 **화면에 어떻게 보이는지는 확인 못 한다.**
+로그에서 `LogMOUServer` 을 필터링해 확인한다. 한계: `-nullrhi` 라 **화면에 어떻게 보이는지는 확인 못 한다.**
 레이아웃과 색상은 에디터에서 눈으로 봐야 한다.
 
 또 `-ExecCmds` 는 모든 명령을 **한 프레임에** 실행하므로, 서버 왕복(로그인 등)이 끝나야
@@ -478,12 +485,12 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
             │ TCP (게임 리플리케이션과 완전히 별개)
             ▼
   ┌────────────────────────────────────────────────┐
-  │ FChatClientRunnable   (워커 스레드)              │  소켓/바이트만 다룸
+  │ FServerClientRunnable   (워커 스레드)              │  소켓/바이트만 다룸
   │        ↕ TQueue (SPSC)                          │  UObject 접근 절대 금지
   │ FSocketLobbyBackend   (게임 스레드)              │  패킷 조립 ─┐
   │        │  implements ILobbyBackend              │            ├ 교체 지점
   │        │  (FEOSLobbyBackend 로 갈아끼울 수 있다) │            ─┘
-  │ UChatSubsystem        (게임 스레드)              │  상태 보관 / 델리게이트
+  │ UServerSubsystem        (게임 스레드)              │  상태 보관 / 델리게이트
   │        ↓ OnChatMessageReceived 등                │
   │ UChatWidgetBase / ULoginWidgetBase   (UMG)      │  로그·입력창 / 로그인·가입
   │ ULobbyWidgetBase                     (UMG)      │  메인메뉴 + 대기실
@@ -496,6 +503,41 @@ UnrealEditor-Cmd.exe "<경로>\TeamProject_MOU.uproject" -game -nullrhi -unatten
      방을 통해서만 서로의 IP:Port 를 알게 되고, 그 뒤로는 직접 붙는다.
 ```
 
+### NAT 자동 포트포워딩 (2026-08-25 추가)
+
+**뚫어야 하는 관문이 둘이라, 각각 다른 프로세스가 자기 것을 스스로 연다.**
+
+```
+[친구의 클라이언트]
+    │
+    ├─① 로그인/채팅/방목록 ──▶ Server.exe:9000 (TCP)
+    │     Server.exe 자신이 시작 시 --upnp 로 공유기에 9000 을 열어달라고 요청한다
+    │     (MOU_Server/Server/NatPortMapping.cpp)
+    │
+    └─② 방 참여 후 ──────────▶ 방장의 리슨서버:7777 (UDP)
+          방장이 "방 만들기" 창을 여는 순간 그 방장의 PC 가 공유기에 7777 을 요청한다
+          (TeamProject_MOU/.../Server/Net/NatPortMapping.cpp, 게임 클라이언트 쪽)
+```
+
+**포트를 여는 코드는 반드시 그 포트를 실제로 리스닝하는 프로세스 쪽에 있어야 한다.** 그래서
+겉보기엔 같은 기능인데 구현이 두 벌이다 — `Server.exe` 는 자기 자신의 9000 을, 방장의 언리얼
+클라이언트는 자기 자신의(정확히는 리슨서버가 될) 7777 을 각자 연다. 언리얼 클라이언트가 9000 을
+대신 열어주는 식으로 합치면, `Server.exe` 를 다른 PC(예: 클라우드 VM)로 옮기는 순간 엉뚱한
+기기의 포트를 여는 코드가 된다.
+
+프로토콜(SSDP 탐색 + SOAP `AddPortMapping`/`DeletePortMapping`)은 같지만 구현도 두 벌이다 —
+언리얼 쪽은 `FSocket`(엔진 소켓 API), `Server.exe` 쪽은 raw winsock 을 쓴다. `Framing.cpp` /
+`ChatFraming.cpp` 가 두 벌인 것과 같은 이유(6절)다.
+
+| | 여는 주체 | 포트 | 프로토콜 | 시점 |
+|---|---|---|---|---|
+| 로그인 서버 | `Server.exe` 자신 | 9000 | TCP | 서버 시작 시 (`--upnp` 플래그를 줬을 때만) |
+| 방장의 리슨서버 | 방장의 언리얼 클라이언트 | 7777(기본) | UDP | 방 생성창이 열리는 순간(백그라운드) |
+
+**실패해도 서버/방 생성은 그대로 진행된다.** UPnP 미지원 공유기거나 CGNAT 이면 같은 네트워크에서만
+접속 가능한 예전 상태로 조용히 되돌아간다 — 오류가 아니라 "이 경로로는 못 간다" 는 뜻이다.
+CGNAT 은 이 방식으로 근본적으로 못 푼다 (14-5절).
+
 ### 핵심 원칙 4가지
 
 **1. 채팅·계정·로비는 UE 리플리케이션을 쓰지 않는다.**
@@ -504,7 +546,7 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 
 **2. 워커 스레드에서 UObject 를 절대 건드리지 않는다.**
 언리얼의 UObject 는 스레드 세이프하지 않다. 수신 데이터는 순수 데이터 구조체로 바꿔
-`TQueue` 에 넣기만 하고, 게임 스레드의 `UChatSubsystem::Tick` 이 꺼내서 그때 델리게이트를 쏜다.
+`TQueue` 에 넣기만 하고, 게임 스레드의 `UServerSubsystem::Tick` 이 꺼내서 그때 델리게이트를 쏜다.
 이 규칙을 어기면 재현이 어려운 랜덤 크래시가 난다.
 
 **3. 신원은 서버가 확정한다.**
@@ -515,7 +557,9 @@ Server RPC / Multicast 를 타지 않고 `Server.exe` 로 가는 별도 TCP 소�
 **4. 로비 서버는 주소록일 뿐, 게임 트래픽은 지나가지 않는다.**
 방 생성/조회/참여는 메타데이터 교환이다. 참여가 승인되면 클라이언트는 호스트에게
 **직접** `ClientTravel` 한다. 그래서 로비 서버 부하는 방 개수와 무관하게 낮다.
-대신 이 구조는 **같은 네트워크(NAT 없음)에서만** 동작한다 — 자세한 내용은 11절 참고.
+대신 이 구조는 원래 **같은 네트워크(NAT 없음)에서만** 동작했다. **UPnP 자동 포트포워딩(2026-08-25)**
+으로 흔한 가정용 공유기 환경에서는 자동으로 뚫리지만, 통신사 NAT(CGNAT) 안에서는 여전히 안 된다 —
+자세한 내용은 11절과 14-5절 참고.
 
 ### 백엔드 교체 (v6에서 추가)
 
@@ -531,7 +575,7 @@ Project Settings → Game → MOU Server → Lobby Backend
 |---|---|---|
 | 계정 | `accounts` 테이블 (SQLite) | EOS Connect (`ProductUserId`) |
 | 방 목록 | `Rooms.cpp` (메모리) | EOS Session / Lobby |
-| **NAT 통과** | **안 됨 (포트포워딩 필요)** | **됨 (P2P 릴레이)** |
+| **NAT 통과** | **UPnP 로 자동화됨 (2026-08-25). CGNAT 은 여전히 안 됨** | **됨 (P2P 릴레이, CGNAT 포함)** |
 | 사망자 채널 | 됨 | **안 됨** — 게임 상태를 아는 쪽만 판정할 수 있다 |
 | 채팅 로그 영속화 | 됨 | **안 됨** |
 | 준비물 | 없음 | Epic Dev Portal 등록, 플러그인 3종, SDK |
@@ -549,7 +593,7 @@ Project Settings → Game → MOU Server → Lobby Backend
 
 | | |
 |---|---|
-| **안 바뀜** | `UChatSubsystem` 의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
+| **안 바뀜** | `UServerSubsystem` 의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
 | **바뀜** | `FEOSLobbyBackend` 의 내용, 그리고 그것을 고르는 설정값 한 줄 |
 
 현실적인 최종 구성은 **"EOS = 계정·세션, 자체 서버 = 채팅·게임 데이터"** 다.
@@ -561,7 +605,7 @@ EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장
 ```
      게임 스레드                            워커 스레드
    ┌─────────────────┐                 ┌──────────────────────────┐
-   │ UChatSubsystem  │                 │  FChatClientRunnable     │
+   │ UServerSubsystem  │                 │  FServerClientRunnable     │
    │                 │                 │                          │
    │ SendChat()      │──OutboundQ────▶ │  PumpSend()  → Socket    │
    │ Login()         │                 │                          │
@@ -598,21 +642,25 @@ EOS Connect 의 `ProductUserId` 를 `accounts` 테이블의 외부 키로 저장
 | `Server/Rooms.h/.cpp` | 방 레지스트리. **메모리만** (SQLite 미사용, 휘발성) |
 | `Server/Friends.h/.cpp` | 친구 관계 DB (v7). `Accounts` 와 같은 이유로 **동기 커밋** — 수락 여부는 유실되면 안 된다. `low_id`/`high_id` 정규화를 이 파일에서만 한다 |
 | `Server/DirectMessages.h/.cpp` | 1:1 메시지 DB (v7). **동기 커밋** + 커서 페이징. 저장이 항상 전송보다 먼저다 |
+| `Server/NatPortMapping.h/.cpp` | (2026-08-25) `Server.exe` 자신의 9000 포트를 UPnP 로 여는 클라이언트. `--upnp` 플래그로만 켜진다. raw winsock 사용 — 언리얼 쪽 동명 파일과 다른 구현(위 "NAT 자동 포트포워딩" 참고) |
 | `TestClient/TestClient.cpp` | 검증용 콘솔 클라이언트. 계정/로비 명령 포함 |
 
 ### 언리얼 (`TeamProject_MOU/Source/TeamProject_MOU/`)
 
 | 파일 | 역할 |
 |---|---|
-| `Public/Server/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUChat` |
+| `Public/Server/Chat/ChatTypes.h` | BP 노출 타입: `FChatMessage`, `FChatLoginResult`, `EChatChannelBP`, `EChatLoginResultBP`, `EChatConnectionState`, `LogMOUServer` |
 | `Public/Server/Lobby/LobbyTypes.h` | BP 노출 로비 타입: `FMOURoomInfo`, `FMOURoomJoinResult`, `EMOURoomResultBP`, `EMOURoomStateBP`, `EMOULobbyBackendType` |
-| `Public/Server/Lobby/LobbyBackend.h`<br>`Private/Server/Lobby/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FChatClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
+| `Public/Server/Lobby/LobbyBackend.h`<br>`Private/Server/Lobby/LobbyBackend.cpp` | **`ILobbyBackend` 인터페이스 + 팩토리.** 계정/세션 탐색의 교체 지점. `FServerClientEvent`(백엔드 → 게임 스레드 사건)도 여기 있다 |
 | `Public/Server/Lobby/SocketLobbyBackend.h`<br>`Private/Server/Lobby/SocketLobbyBackend.cpp` | 자체 서버 백엔드. **패킷 조립은 여기서만 한다.** 워커 스레드 수명도 여기가 소유 |
 | `Public/Server/Lobby/EOSLobbyBackend.h`<br>`Private/Server/Lobby/EOSLobbyBackend.cpp` | EOS 백엔드 **뼈대.** 각 함수가 어떤 EOS API 로 바뀌는지, 붙이는 순서가 주석에 있다 |
 | `Public/Server/ServerSettings.h`<br>`Private/Server/ServerSettings.cpp` | `UDeveloperSettings`. 서버 주소 / 백엔드 종류 / 호스트 준비 대기 상한. 우선순위: 실행 인자 > 개인 ini > 팀 공유 ini |
 | `Public/Server/Net/ChatFraming.h`<br>`Private/Server/Net/ChatFraming.cpp` | 프레이밍의 `TArray` 버전 + UTF-8 변환. 서버 `Framing.cpp` 와 로직 동일. BP enum ↔ 서버 enum `static_assert` 전부 여기 모여있다 |
-| `Public/Server/Net/ChatClientRunnable.h`<br>`Private/Server/Net/ChatClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
-| `Public/Server/ChatSubsystem.h`<br>`Private/Server/ChatSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 친구/메신저 델리게이트도 여기서 나간다(v7). 패킷은 조립하지 않는다 |
+| `Public/Server/Net/ServerClientRunnable.h`<br>`Private/Server/Net/ServerClientRunnable.cpp` | `FRunnable` 워커. 접속·재접속·송수신·패킷 파싱. **소유자는 `FSocketLobbyBackend`** |
+| `Public/Server/Net/NatPortMapping.h`<br>`Private/Server/Net/NatPortMapping.cpp` | (2026-08-25) UPnP 프로토콜(SSDP/SOAP). 순수 C++, `FSocket` 만 씀. `Server.exe` 쪽 동명 파일과 여는 포트가 다르다(위 "NAT 자동 포트포워딩" 참고) |
+| `Public/Server/Net/NatMappingRunnable.h`<br>`Private/Server/Net/NatMappingRunnable.cpp` | (2026-08-25) `FRunnable` 워커. `FNatPortMapping` 을 블로킹으로 돌리고, **매핑에 성공한 뒤에도 종료될 때까지 살아있다가 나가면서 지운다** — 스레드 수명이 곧 매핑 수명 |
+| `Public/Server/Net/NatPortMappingSubsystem.h`<br>`Private/Server/Net/NatPortMappingSubsystem.cpp` | (2026-08-25) `UGameInstanceSubsystem`. 게임 스레드 진입점. `ILobbyBackend` 뒤에 안 숨긴 이유: 대화 상대가 `Server.exe` 가 아니라 공유기라 EOS 로 갈아끼워도 그대로 남는 코드다 |
+| `Public/Server/ServerSubsystem.h`<br>`Private/Server/ServerSubsystem.cpp` | `UGameInstanceSubsystem`. **진입점. UI/게임플레이는 이것만 쓴다.** 백엔드를 고르고, 방장의 리슨서버가 뜨는지 감시한다. 친구/메신저 델리게이트도 여기서 나간다(v7). 패킷은 조립하지 않는다 |
 | `Public/Server/Lobby/LoginWidgetBase.h`<br>`Private/Server/Lobby/LoginWidgetBase.cpp` | `UUserWidget`. 아이디/비밀번호 로그인 + 계정 생성. 성공 시 로비 자동 생성. **(구) 전체채팅 자동 생성은 v7 부터 기본 꺼짐** — `bShowChatWidgetOnSuccess=false` |
 | `Public/Server/Lobby/LobbyWidgetBase.h`<br>`Private/Server/Lobby/LobbyWidgetBase.cpp` | `UUserWidget`. 메인메뉴 + 대기실. 같은 버튼 3개가 상태에 따라 라벨/동작을 바꾼다 |
 | `Public/Server/Lobby/RoomCreateWidgetBase.h`<br>`Private/Server/Lobby/RoomCreateWidgetBase.cpp` | `UUserWidget`. 제목 + 비번 4자리로 방 생성. 리슨서버는 열지 않는다 |
@@ -660,7 +708,7 @@ PBKDF2 로 10만 회 반복해서 GPU 무차별 대입을 늦추고, 비교는 �
 
 ## 7. API 레퍼런스
 
-### `UChatSubsystem` — 진입점
+### `UServerSubsystem` — 진입점
 
 블루프린트에서는 `Get Chat Subsystem` 노드로 얻는다.
 
@@ -1078,14 +1126,19 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 | `project(MOU_Server C CXX)` | SQLite 앰알가메이션이 C 파일이라 C 언어를 켰다 (이전엔 `CXX` 만) |
 | `sqlite3` 정적 라이브러리 타깃 추가 | `ThirdParty/sqlite/sqlite3.c` 를 빌드해서 `Server` 에 링크 |
 | `Server` 소스에 `Accounts.cpp`/`Crypto.cpp`/`ChatLog.cpp`/`Rooms.cpp` 추가 | |
+| `Server` 소스에 `NatPortMapping.cpp` 추가 (2026-08-25) | UPnP 로 9000 포트를 여는 코드. `--upnp` 로만 켜지므로 링크는 항상 되지만 기본 동작은 그대로다 |
 
-**서버 실행 인자가 바뀌었다.** `Server.exe <port>` → `Server.exe <port> [db경로]`
-(두 번째 인자는 선택이라 기존 실행 스크립트는 그대로 동작한다).
+**서버 실행 인자가 바뀌었다.** `Server.exe <port>` → `Server.exe <port> [db경로] [--upnp]`
+(뒤 두 인자는 전부 선택이라 기존 실행 스크립트는 그대로 동작한다. `--upnp` 는 위치에 상관없이
+아무 데나 넣어도 인식된다).
 
 ### 바뀌지 않은 것 (확인용)
 
 - `TeamProject_MOU.uproject` — 플러그인 추가 없음. `Sockets`/`Networking`/`SlateCore` 는 엔진 기본 모듈
-- `Config/*.ini` — 건드리지 않았다
+- ~~`Config/*.ini` — 건드리지 않았다~~ → **`DefaultEngine.ini` 에 `[CoreRedirects]` 한 줄이 추가됐다 (2026-08-25).**
+  `UChatSubsystem` → `UServerSubsystem` 이름 변경 때문이다. 저장소의 `.uasset` 중 이 클래스를
+  참조하는 것은 없었지만, 팀원 PC 에 아직 커밋되지 않은 블루프린트가 있을 수 있어 안전망으로 넣었다.
+  전원이 한 번씩 열어 재저장한 뒤에는 지워도 된다
 - 기존 게임플레이 코드(`Base/`, `TeamProject_MOUCharacter` 등) — 전혀 건드리지 않았다
 - 콘텐츠(`.uasset`) — 추가/수정 **0개**. 에셋 충돌 걱정 없음
 
@@ -1099,15 +1152,43 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   MOU_Server/ThirdParty/sqlite/ sqlite3.h  sqlite3.c  README.md
 
 언리얼 (Public/ 과 Private/ 이 같은 구조. .h 는 Public, .cpp 는 Private):
-  Source/TeamProject_MOU/Public/Server/        ChatSubsystem.h  ServerSettings.h
-  Source/TeamProject_MOU/Public/Server/Net/    ChatFraming.h  ChatClientRunnable.h
+  Source/TeamProject_MOU/Public/Server/        ServerSubsystem.h  ServerSettings.h
+  Source/TeamProject_MOU/Public/Server/Net/    ChatFraming.h  ServerClientRunnable.h
   Source/TeamProject_MOU/Public/Server/Lobby/  LobbyBackend.h  SocketLobbyBackend.h
                                                EOSLobbyBackend.h  LobbyTypes.h
                                                LoginWidgetBase.h  LobbyWidgetBase.h
                                                RoomCreateWidgetBase.h  RoomListWidgetBase.h
   Source/TeamProject_MOU/Public/Server/Chat/   ChatTypes.h  ChatWidgetBase.h
   Source/TeamProject_MOU/Public/Server/Social/ (친구 시스템 — 구현 예정)
+
+NAT 포트포워딩 (2026-08-25 추가):
+  Source/TeamProject_MOU/Public/Server/Net/    NatPortMapping.h          UPnP 프로토콜 (순수 C++)
+                                               NatMappingRunnable.h      워커 스레드
+                                               NatPortMappingSubsystem.h 게임 스레드 진입점
 ```
+
+### 이름 변경 (2026-08-25) — `Chat` → `Server`
+
+`Server.exe` 는 채팅뿐 아니라 로그인·방·친구·메신저를 전부 다루는데, 클라이언트 쪽
+이름에 `Chat` 이 남아 있어 새로 보는 사람이 "채팅 전용" 으로 오해했다.
+폴더를 `Chat/` 에서 `Server/` 로 옮긴 2026-08-24 개편의 연장이다.
+
+| 이전 | 이후 |
+|---|---|
+| `ChatClientRunnable.h/.cpp` | `ServerClientRunnable.h/.cpp` |
+| `FChatClientRunnable` | `FServerClientRunnable` |
+| `ChatSubsystem.h/.cpp` | `ServerSubsystem.h/.cpp` |
+| `UChatSubsystem` | `UServerSubsystem` |
+| `FChatClientEvent` / `EChatClientEventType` | `FServerClientEvent` / `EServerClientEventType` |
+| `LogMOUChat` | `LogMOUServer` |
+
+**바꾸지 않은 것** — 이것들은 진짜로 채팅 고유라서 그대로 둔다:
+`FChatMessage`, `EChatChannel`/`EChatChannelBP`, `ChatTypes.h`, `ChatFraming.h/.cpp`,
+`ChatWidgetBase`, 서버의 `ChatLog`/`ChatProtocol.h`, 그리고 **콘솔 명령 `MOU.Chat.*`**
+(문서와 팀원 습관에 이미 박혀 있어 지금 바꾸면 얻는 것보다 잃는 것이 크다).
+
+> `LogMOUServer` 선언은 여전히 `Server/Chat/ChatTypes.h` 에 있다. 옮기면 이 카테고리를
+> 쓰는 파일 전부의 include 를 갈아야 해서 미뤘다. 나중에 정리할 후보.
 
 > 로비 UI 3종을 추가할 때 **팀 공용 파일은 하나도 건드리지 않았다.** `Build.cs` 도 그대로다
 > (필요한 모듈 `UMG`/`Slate`/`SlateCore` 가 이미 들어 있다). `.uasset` 추가도 0개다.
@@ -1158,16 +1239,16 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 
 | 하는 곳 | 해도 되는 것 |
 |---|---|
-| `FChatClientRunnable` (워커) | 소켓, 바이트 배열, 순수 구조체, `TQueue` 넣기 |
-| `FChatClientRunnable` (워커) | ❌ UObject, UMG, 델리게이트 브로드캐스트, `UE_LOG` 외 엔진 API |
-| `UChatSubsystem::Tick` (게임) | 큐에서 꺼내기, 델리게이트 브로드캐스트 |
+| `FServerClientRunnable` (워커) | 소켓, 바이트 배열, 순수 구조체, `TQueue` 넣기 |
+| `FServerClientRunnable` (워커) | ❌ UObject, UMG, 델리게이트 브로드캐스트, `UE_LOG` 외 엔진 API |
+| `UServerSubsystem::Tick` (게임) | 큐에서 꺼내기, 델리게이트 브로드캐스트 |
 | `UChatWidgetBase`/`ULoginWidgetBase` (게임) | 위젯 조작 |
 | 서버 `ChatLog` 라이터 스레드 | `sqlite3*` 를 여기서만 건드린다. 다른 스레드가 같은 커넥션을 만지면 전제가 깨진다 |
 | 서버 `Accounts` | 여러 클라이언트 스레드가 동시에 부를 수 있어 자체 뮤텍스로 직렬화한다 |
 
 ### 종료 순서 (지키지 않으면 크래시)
 
-**클라이언트** — 워커 스레드 정리는 **반드시** 이 순서다 (`UChatSubsystem::ShutdownClient`):
+**클라이언트** — 워커 스레드 정리는 **반드시** 이 순서다 (`UServerSubsystem::ShutdownClient`):
 
 1. `ChatClient->Stop()` — 종료 요청 플래그
 2. `ChatThread->Kill(/*bShouldWait=*/true)` — **`true` 필수.** 워커가 `Run()` 을 빠져나올 때까지 대기
@@ -1212,10 +1293,14 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 - **로비 서버의 비밀번호 검사만으로는 못 막는다.** 목록을 거치지 않고 호스트 IP 로 직접
   `ClientTravel` 하면 로비 서버를 건너뛸 수 있다. **호스트의 `AGameModeBase::PreLogin` 에서
   URL 옵션(`RoomPassword`)을 다시 검사해야 실제로 잠긴다.** 이 부분은 아직 미구현 — 12절 참고.
-- **NAT 를 해결해주지 않는다.** 이 구조는 로비(목록) 문제만 풀지 **접속(라우팅)** 문제는 못 푼다.
-  참가자가 호스트의 `IP:Port` 에 직접 닿아야 하므로, **같은 네트워크(같은 공유기/교내망)에서만
-  동작이 보장된다.** 각자 집에서 인터넷으로 붙는 시연이라면 포트포워딩이 필요하거나
-  Steam/EOS 같은 릴레이 서비스로 가야 한다. (이번 프로젝트는 같은 네트워크 시연으로 확정했다.)
+- ~~NAT 를 해결해주지 않는다~~ → **UPnP 자동 포트포워딩으로 흔한 경우는 해결됨 (2026-08-25).**
+  방장이 "방 만들기" 창을 여는 순간 백그라운드로 공유기에 리슨서버 포트를 열어달라고 요청하고,
+  성공하면 그 외부 포트를 방 정보에 신고한다(`URoomCreateWidgetBase`,
+  `TeamProject_MOU/.../Net/NatPortMapping*`). 참가자가 몰라도 되고 별도 조작도 없다.
+  **여전히 안 되는 경우**: 공유기가 UPnP 를 지원하지 않거나(설정에서 꺼둔 경우 포함),
+  방장이 **통신사 NAT(CGNAT)** 안에 있으면 실패한다 — 이때는 예전처럼 같은 네트워크에서만
+  접속되고, 근본적으로는 Steam/EOS 같은 릴레이 서비스가 필요하다(14-5절). 실패해도 방은
+  정상적으로 만들어진다.
 - **방은 SQLite 에 저장하지 않는다 (의도적).** 서버가 재시작되면 호스트들의 리슨서버도
   이미 죽어 있으므로, 방을 복원해봤자 "들어갈 수 없는 방"만 보여주게 된다. 메모리에만 두고
   호스트 접속이 끊기면(정상 종료든 강제 종료든) 세션 정리 시점에 자동으로 지운다.
@@ -1228,7 +1313,7 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   `OpenLevel` 을 부르지 않는다. 맵 이름은 게임 쪽 사정이고 틀리면 검은 화면이 되기 때문이다.
   참여자 쪽(`bAutoTravelOnGameStart`)은 v6 부터 기본으로 켜져 있다.
 - ~~게임 시작 시 참여자가 호스트보다 먼저 붙을 수 있다~~ → **해결됨 (v6).**
-  방장 쪽 `UChatSubsystem` 이 리슨서버 넷드라이버가 뜬 것을 확인하고 `RoomHostReadyReq` 를
+  방장 쪽 `UServerSubsystem` 이 리슨서버 넷드라이버가 뜬 것을 확인하고 `RoomHostReadyReq` 를
   보내면, 서버가 참여자에게 `RoomHostReady` 를 넘긴다. 참여자는 그때 떠난다.
   v5 의 `GuestTravelDelay`(고정 3초)는 사라졌다.
   **남은 한계:** 호스트가 끝내 리슨서버를 열지 못하면 참여자는 대기실에 남는다
@@ -1249,15 +1334,17 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
 ### 언리얼 클라이언트 (일반)
 
 - **엔디안 변환 없음.** 서버·클라이언트 모두 x86 리틀엔디안 전제.
-- 전송 지연이 최대 50ms 붙는다 (`FChatClientRunnable::WaitMilliseconds`).
+- 전송 지연이 최대 50ms 붙는다 (`FServerClientRunnable::WaitMilliseconds`).
   워커가 `Wait()` 에서 깨어나야 큐를 비우기 때문. 채팅에는 무해하다.
 - **콘솔 명령이 Shipping 빌드에도 남는다.** `MOU.Chat.Dead` 같은 치트성 명령에
   `ECVF_Cheat` 가 없다. `MOU.Chat.ShowLogin` 등 일부는 `#if !UE_BUILD_SHIPPING` 으로 뺐지만
   전부는 아니다. 8단계에서 정리할 예정.
-- **신원 위조 가능 (팀 ID / 생사).** 로그인 자체는 계정으로 막혔지만, `TeamId` 는 클라이언트가
-  자유 입력이고 `SetDeadForTest()` 도 검증이 없다. **산 사람이 사망 채널을 엿볼 수 있다.**
-  8단계에서 리슨서버가 신원을 미러링하도록 바꿀 것이므로, **게임플레이 코드에서
-  `SetDeadForTest` 호출을 늘리지 말 것.**
+
+> **팀 ID / 생사 신원 위조 문제는 여기서 뺐다.** `Server.exe` 의 `ChatSend`
+> `Team`/`Dead` 채널·`SetDeadForTest()` 는 로비 메신저(v7, `Friends`/`DirectMessages`)와
+> 무관하고, `Dead` 채널 자체가 리슨서버 RPC 로 이관되면서 `Server.exe` 를 안 타게 됐다
+> (1절 8단계 폐기 참고). 지금은 **인게임 채팅 구현의 몫**이다 —
+> `CHAT_DESIGN.md` 11-2절 · 11-4절 참고.
 
 ### 서버 (`MOU_Server/README.md` 에서 그대로)
 
@@ -1265,6 +1352,14 @@ TCP 는 바이트 스트림이라 `send()` 한 번이 `recv()` 한 번으로 오
   인원이 늘면 세션별 송신 큐 + 전용 송신 스레드로 바꿔야 한다.
 - **스레드를 detach 한다.** 서버 종료 시 클라이언트 스레드를 정리하지 않는다(소켓은 닫힘).
 - 접속자 수 상한은 없다 (고정 배열이 아님).
+- **UPnP 매핑은 영구(Lease=0)로 잡는다.** Lease 를 지원하지 않는 공유기가 흔해서 그렇게
+  택했다(`NatPortMapping.cpp` 주석 참고). 정상 종료(Ctrl+C)면 `Nat::Stop()` 이 지우지만,
+  **작업 관리자로 강제 종료하거나 정전이 나면 공유기에 매핑이 그대로 남는다.** 채팅 로그
+  유실과 같은 종류의 트레이드오프이지만, 저건 로그 몇 줄이고 이건 방화벽 구멍이라 무게가
+  다르다 — 재부팅 후 안 쓰는 매핑이 남아있는지 가끔 공유기 관리 페이지를 확인할 것.
+- **9000 포트의 UPnP 매핑은 `--upnp` 를 켰을 때만 시도된다.** 기본값은 꺼짐이라 이 옵션을
+  안 주면 예전과 동일하게 같은 네트워크에서만 접속된다 — 팀원들이 각자 로컬로 테스트할 때
+  불필요한 포트가 열리지 않게 하려는 것이다.
 
 ---
 
@@ -1422,7 +1517,7 @@ DebugGame 만 빌드해두고 헤드리스 검증을 돌리면 몇 달 전 DLL �
 2. 상태가 `LoggedIn` 인가 (`Connected` 만으로는 서버가 버린다)
 3. 사망 채널로 보내고 있는데 살아있는 상태 아닌가 (서버가 **무응답으로 폐기**한다)
 4. 메시지가 512바이트를 넘지 않나
-5. 에디터 출력 로그에서 `LogMOUChat` 필터로 경고 확인
+5. 에디터 출력 로그에서 `LogMOUServer` 필터로 경고 확인
 
 ### 방 목록에 방이 안 보임
 
@@ -1517,28 +1612,45 @@ EOS로 옮길 수 없는 기능이 이미 이 프로세스 안에 있다.
 
 **동시에, 피드백을 거부하는 것이 아니다.** OSS 전환 경로를 이미 코드에 만들어뒀다 (14-6절).
 
-### 14-5. 인정하는 한계 — NAT
+### 14-5. 인정하는 한계 — NAT (2026-08-25 갱신: 일부 해결됨)
 
-**자체 구현이 풀지 못하는 문제는 방 목록이 아니라 NAT다. 이건 명확히 인정한다.**
+**자체 구현이 풀지 못했던 문제는 방 목록이 아니라 NAT였다. 흔한 경우는 이제 자동으로 풀린다.**
 
 ```
-현재 구조:
+이전 구조:
   참가자 ──────────────────────▶ 호스트 공인IP:7777
             공유기가 이 접속을 막는다 (포트포워딩이 없으면)
+
+지금 구조 (2026-08-25):
+  방장이 "방 만들기" 를 여는 순간
+      └─▶ 방장의 PC 가 UPnP 로 공유기에 "7777 열어줘" 요청 (백그라운드)
+             └─▶ 성공하면 그 외부 포트로 방을 등록 → 참가자는 그냥 접속하면 된다
+             └─▶ 실패하면(미지원/CGNAT) 예전과 같은 LAN 전용 상태로 조용히 되돌아간다
+
+  같은 방식으로 Server.exe 자신의 9000 포트도 `--upnp` 플래그로 열 수 있다
+  (로그인 서버가 로컬 PC 에서 돌 때만 필요 — 원래부터 공인 IP 를 가진 곳에서
+  돌린다면 이 문제 자체가 없다)
 ```
 
 `ClientSession::PeerAddress`는 서버가 `accept()` 시점에 읽은 상대 IP다. 클라이언트가
-신고한 값이 아니라 위조는 안 되지만, **그 IP의 7777 포트가 외부에 열려 있어야** 참가자가
-붙을 수 있다. 호스트가 포트포워딩을 하지 않으면 실패한다.
+신고한 값이 아니라 위조는 안 된다. **UPnP 매핑이 성공하면 그 IP의 (외부) 포트가 자동으로
+열리므로** 더는 호스트가 수동으로 포트포워딩을 할 필요가 없다.
 
 | 시연 환경 | 동작 여부 |
 |---|---|
-| 같은 공유기 / 교내망 (LAN) | ✅ 동작 — **이번 프로젝트는 이 환경으로 확정** |
-| 각자 집에서 인터넷으로 | ❌ 호스트의 포트포워딩 필요 |
+| 같은 공유기 / 교내망 (LAN) | ✅ 동작 (원래부터) |
+| 각자 집에서 인터넷으로, 공유기가 UPnP 지원 | ✅ **자동 동작 (2026-08-25 추가)** — 수동 포트포워딩 불필요 |
+| 각자 집에서 인터넷으로, UPnP 미지원/꺼짐 | ⚠️ 실패 시 LAN 전용으로 되돌아감. 수동 포트포워딩으로 우회 가능 |
+| 방장이 통신사 NAT(CGNAT) 안 | ❌ **여전히 안 됨.** UPnP 로 근본적으로 못 푸는 문제 |
 
-**자체 로비 서버로는 이걸 고칠 수 없다.** NAT 홀펀칭이나 릴레이 서버가 필요하고,
+**CGNAT 은 자체 구현으로 못 고친다.** 공유기의 "외부" IP 자체가 사설 대역이라, 그 위에
+통신사 장비가 한 겹 더 있다는 뜻이다. UPnP 는 내 공유기에만 말을 걸 수 있지 그 위의
+통신사 장비에는 요청을 보낼 방법이 없다. 이건 홀펀칭이나 릴레이 서버가 필요하고,
 그게 정확히 EOS P2P가 제공하는 가치다. **그래서 최종 단계에서 EOS를 붙일 계획이고,
-그때 교체되는 것은 세션 탐색 계층뿐이다.**
+그때 교체되는 것은 (UPnP 로 이미 자동화한 부분을 포함한) 세션 탐색 계층 전체다.**
+
+> UPnP 구현 위치와 왜 두 프로세스(`Server.exe`, 언리얼 클라이언트)에 각각 있는지는
+> 5절 "NAT 자동 포트포워딩" 참고.
 
 ### 14-6. 앞으로의 개발 계획
 
@@ -1546,7 +1658,7 @@ EOS로 옮길 수 없는 기능이 이미 이 프로세스 안에 있다.
 프로젝트 전체를 뒤집는 일이 아니라 **파일 하나를 채우는 일**이 되도록 만들었다.
 
 ```
-UChatSubsystem            BP API / 상태 / 델리게이트   ← 백엔드를 모른다
+UServerSubsystem            BP API / 상태 / 델리게이트   ← 백엔드를 모른다
   └─ ILobbyBackend                                    ← 교체 지점
        ├─ FSocketLobbyBackend   자체 서버 (현재 기본값)
        └─ FEOSLobbyBackend      EOS      (뼈대 + 전환 주석)
@@ -1554,7 +1666,7 @@ UChatSubsystem            BP API / 상태 / 델리게이트   ← 백엔드를 �
 
 | | |
 |---|---|
-| **안 바뀜** | `UChatSubsystem`의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
+| **안 바뀜** | `UServerSubsystem`의 블루프린트 API, UMG 위젯 5종, 게임 로직 전부 |
 | **바뀜** | `FEOSLobbyBackend`의 내용, 그리고 그것을 고르는 설정값 한 줄 |
 
 전환은 `Project Settings → Game → MOU Server → Lobby Backend`에서 고르거나
@@ -1567,9 +1679,10 @@ UChatSubsystem            BP API / 상태 / 델리게이트   ← 백엔드를 �
 | 1 | 자체 서버로 로비·계정·대기실 완성 | ✅ 완료 |
 | 2 | `ILobbyBackend`로 교체 지점 분리 | ✅ 완료 (v6) |
 | 3 | 호스트 준비 신호로 여행 경쟁 상태 제거 | ✅ 완료 (v6) |
+| 3.5 | UPnP 자동 포트포워딩 — NAT 부분 해결 (CGNAT 제외) | ✅ **완료 (2026-08-25)** |
 | 4 | `PreLogin`에서 방 비밀번호 재검사 (보안 관문) | ⬜ 다음 작업 |
 | 5 | LAN 환경 3~4인 실기기 시연 | ⬜ |
-| 6 | `FEOSLobbyBackend` 구현 — NAT 해결 | ⬜ 여력이 되면 |
+| 6 | `FEOSLobbyBackend` 구현 — **CGNAT** 해결 (UPnP 로 안 되는 나머지) | ⬜ 여력이 되면 |
 
 **EOS를 붙일 때의 최종 구성**은 전면 교체가 아니라 **하이브리드**다.
 
@@ -1591,9 +1704,12 @@ EOS Session  ──▶ 방 목록 / NAT 통과
 EOS를 쓰더라도 채팅·로그·커스터마이징 때문에 이 프로세스는 어차피 남는다.
 
 **Q. 그럼 EOS를 지금 붙이면 되지 않나?**
-NAT가 문제가 되는 시점, 즉 **각자 집에서 붙는 시연을 할 때** 붙이는 것이 맞다고 본다.
-이번 프로젝트는 LAN 시연으로 확정됐고, EOS를 지금 붙이면 팀 전원이 Dev Portal 설정을
-공유해야 해서 개발 속도만 떨어진다. 전환 경로는 이미 코드에 있으므로 필요해질 때 붙인다.
+UPnP 자동 포트포워딩(2026-08-25)으로 "각자 집에서 붙는" 시연의 상당수는 이미 된다 —
+가정용 공유기 대부분이 UPnP 를 지원한다. **남은 것은 CGNAT 뿐이고**, 그건 팀원이나
+플레이어가 어떤 통신사·회선을 쓰는지에 달려 있어 우리가 통제할 수 없는 변수다.
+EOS를 지금 붙이면 팀 전원이 Dev Portal 설정을 공유해야 해서 개발 속도만 떨어지는데,
+그 대가로 얻는 게 "CGNAT 인 사람만 추가로 접속 가능"이라 지금 단계에서는 맞지 않는
+교환이라고 본다. 전환 경로는 이미 코드에 있으므로 CGNAT 이 실제로 발목을 잡을 때 붙인다.
 
 **Q. 왜 데디케이트 서버가 필요하다고 보고하지 않았나?**
 필요하지 않기 때문이다. 우리 구조에서 게임 시뮬레이션은 전부 호스트의 리슨서버가 한다.

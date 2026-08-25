@@ -1,7 +1,7 @@
 ﻿// MOU 로비 - 메인메뉴 + 대기실 UI 구현.
 //
 // 이 파일은 소켓/패킷을 전혀 모른다.
-//   상태 조회: UChatSubsystem (연결 상태 / 내 신원 / 방 번호 / 대기실 명단)
+//   상태 조회: UServerSubsystem (연결 상태 / 내 신원 / 방 번호 / 대기실 명단)
 //   서버 왕복: 방에 들어가기 전에는 자식 창이, 들어간 뒤에는 서브시스템 API 가 한다.
 //
 // [화면을 바꾸는 곳은 RefreshUI() 하나뿐이다]
@@ -11,9 +11,10 @@
 
 #include "Server/Lobby/LobbyWidgetBase.h"
 
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 #include "Server/Lobby/RoomCreateWidgetBase.h"
 #include "Server/Lobby/RoomListWidgetBase.h"
+#include "Server/Net/NatPortMappingSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -70,7 +71,7 @@ void ULobbyWidgetBase::NativeConstruct()
 	// NativeConstruct 는 뷰포트에 다시 붙을 때마다 불릴 수 있어 중복 구독을 막는다.
 	if (!bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnChatStateChanged.AddDynamic(this, &ULobbyWidgetBase::HandleChatStateChanged);
 			Chat->OnChatLoginCompleted.AddDynamic(this, &ULobbyWidgetBase::HandleLoginCompleted);
@@ -97,7 +98,7 @@ void ULobbyWidgetBase::NativeConstruct()
 
 	// 서브시스템은 레벨을 넘어가도 살아있으므로, 이 위젯이 새로 만들어졌을 때
 	// 이미 방 안일 수 있다. 지금 상태를 물어보고 거기에 맞춰 연다.
-	if (const UChatSubsystem* Chat = GetChatSubsystem())
+	if (const UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		UIState = (Chat->GetCurrentRoomId() != 0)
 			? EMOULobbyUIState::WaitingRoom
@@ -114,7 +115,7 @@ void ULobbyWidgetBase::NativeDestruct()
 
 	if (bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnChatStateChanged.RemoveDynamic(this, &ULobbyWidgetBase::HandleChatStateChanged);
 			Chat->OnChatLoginCompleted.RemoveDynamic(this, &ULobbyWidgetBase::HandleLoginCompleted);
@@ -227,18 +228,18 @@ void ULobbyWidgetBase::BuildDefaultLayout()
 // 화면 갱신 — 상태를 화면으로 옮기는 유일한 함수
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* ULobbyWidgetBase::GetChatSubsystem() const
+UServerSubsystem* ULobbyWidgetBase::GetServerSubsystem() const
 {
 	if (const UGameInstance* GameInstance = GetGameInstance())
 	{
-		return GameInstance->GetSubsystem<UChatSubsystem>();
+		return GameInstance->GetSubsystem<UServerSubsystem>();
 	}
 	return nullptr;
 }
 
 void ULobbyWidgetBase::RefreshUI()
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 
 	const bool bLoggedIn = (Chat != nullptr) && (Chat->GetConnectionState() == EChatConnectionState::LoggedIn);
 	const bool bInRoom   = (UIState == EMOULobbyUIState::WaitingRoom);
@@ -361,7 +362,7 @@ void ULobbyWidgetBase::RebuildMemberList()
 	// 재사용 로직을 두면 나간 사람의 줄이 남는 종류의 버그가 생긴다.
 	MemberListBox->ClearChildren();
 
-	const UChatSubsystem* Chat = GetChatSubsystem();
+	const UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		return;
@@ -413,7 +414,7 @@ void ULobbyWidgetBase::HandlePrimaryClicked()
 		return;
 	}
 
-	const UChatSubsystem* Chat = GetChatSubsystem();
+	const UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat != nullptr && Chat->IsRoomHost())
 	{
 		RequestStartGame();
@@ -454,7 +455,7 @@ void ULobbyWidgetBase::HandleTertiaryClicked()
 
 void ULobbyWidgetBase::ToggleReady()
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr || Chat->GetCurrentRoomId() == 0)
 	{
 		return;
@@ -468,7 +469,7 @@ void ULobbyWidgetBase::ToggleReady()
 
 void ULobbyWidgetBase::RequestStartGame()
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr || !Chat->IsRoomHost())
 	{
 		return;
@@ -476,7 +477,7 @@ void ULobbyWidgetBase::RequestStartGame()
 
 	if (!Chat->AreAllMembersReady())
 	{
-		SetMessage(UChatSubsystem::GetRoomResultText(EMOURoomResultBP::NotAllReady), true);
+		SetMessage(UServerSubsystem::GetRoomResultText(EMOURoomResultBP::NotAllReady), true);
 		return;
 	}
 
@@ -486,7 +487,7 @@ void ULobbyWidgetBase::RequestStartGame()
 
 void ULobbyWidgetBase::LeaveRoom()
 {
-	if (UChatSubsystem* Chat = GetChatSubsystem())
+	if (UServerSubsystem* Chat = GetServerSubsystem())
 	{
 		Chat->LeaveRoom();
 	}
@@ -524,6 +525,18 @@ void ULobbyWidgetBase::ReturnToMainMenu(bool bRoomClosed)
 	UIState = EMOULobbyUIState::MainMenu;
 	MyRoomPassword.Empty();
 	JoinedRoomPassword.Empty();
+
+	// ★ 방을 떠났으니 공유기에 열어둔 포트를 닫는다.
+	//   방을 나가는 모든 경로(직접 나가기 / 방장 이탈로 쫓겨남)가 이 함수를 지나므로
+	//   여기 한 곳에만 두면 빠뜨릴 일이 없다.
+	//   참여자였다면 애초에 연 포트가 없어서 아무 일도 일어나지 않는다.
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (UNatPortMappingSubsystem* Nat = GameInstance->GetSubsystem<UNatPortMappingSubsystem>())
+		{
+			Nat->ReleasePortMapping();
+		}
+	}
 
 	// v5 까지는 여기서 예약해둔 여행 타이머를 취소했다. 이제 예약이 없다 —
 	// 참여자는 방장의 리슨서버가 실제로 뜬 뒤에 오는 신호를 받고서야 떠나고,
@@ -587,7 +600,7 @@ void ULobbyWidgetBase::HandleGameStarted(const FMOURoomJoinResult& Host, bool bI
 	{
 		// 참여자에게 갈 출발 신호는 이 위젯이 보내지 않는다.
 		// OpenLevel 이 시작되면 이 위젯은 곧 파괴되기 때문이다.
-		// 리슨서버가 실제로 뜬 것을 확인하고 알리는 일은 UChatSubsystem 이 맡는다.
+		// 리슨서버가 실제로 뜬 것을 확인하고 알리는 일은 UServerSubsystem 이 맡는다.
 		TravelAsHost();
 	}
 	// 참여자는 여기서 아무것도 하지 않는다. HandleHostReady 를 기다린다.

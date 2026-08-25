@@ -1,4 +1,4 @@
-﻿// MOU 채팅 - 채팅 서버와 통신하는 전용 워커 스레드.
+﻿// MOU 서버 - Server.exe 와 통신하는 전용 워커 스레드.
 //
 // [이 클래스가 존재하는 이유]
 //   TCP 의 Connect / Recv 는 블로킹 호출이다. 게임 스레드에서 부르면
@@ -9,7 +9,7 @@
 //
 //     게임 스레드                          워커 스레드 (이 클래스)
 //   ┌─────────────────┐               ┌──────────────────────────┐
-//   │ UChatSubsystem  │               │  FChatClientRunnable     │
+//   │ UServerSubsystem  │               │  FServerClientRunnable     │
 //   │                 │               │                          │
 //   │ SendChat()      │──OutboundQ──▶ │  PumpSend() -> Socket    │
 //   │                 │               │                          │
@@ -20,8 +20,8 @@
 //   >> 이 클래스 안에서는 UObject / UMG 위젯을 절대 건드리지 않는다. <<
 //   언리얼의 UObject 는 스레드 세이프하지 않다. 워커 스레드에서 위젯 함수를 부르거나
 //   델리게이트를 브로드캐스트하면 재현이 어려운 랜덤 크래시가 난다.
-//   그래서 여기서는 순수 데이터(FChatMessage, FChatClientEvent)만 만들어 큐에 넣고,
-//   게임 스레드의 UChatSubsystem::Tick 이 꺼내서 그때 델리게이트를 쏜다.
+//   그래서 여기서는 순수 데이터(FChatMessage, FServerClientEvent)만 만들어 큐에 넣고,
+//   게임 스레드의 UServerSubsystem::Tick 이 꺼내서 그때 델리게이트를 쏜다.
 //
 // [대응하는 서버 코드]
 //   MOU_Server/Server/Server.cpp 의 ClientThread() 와 대칭이다.
@@ -37,7 +37,7 @@
 
 #include "Server/Lobby/LobbyTypes.h"
 
-// EChatClientEventType / FChatClientEvent 는 여기 있었지만 LobbyBackend.h 로 옮겼다.
+// EServerClientEventType / FServerClientEvent 는 여기 있었지만 LobbyBackend.h 로 옮겼다.
 // 그 둘은 "소켓 워커가 알리는 사건" 이 아니라 "백엔드가 게임 스레드에 알리는 사건" 이고,
 // EOS 백엔드도 같은 그릇에 결과를 담아야 하기 때문이다.
 #include "Server/Lobby/LobbyBackend.h"
@@ -48,7 +48,7 @@ class FSocket;
 class ISocketSubsystem;
 
 /**
- * 채팅 서버(Server.exe)와 붙어있는 TCP 클라이언트 스레드.
+ * 서버(Server.exe)와 붙어있는 TCP 클라이언트 스레드.
  *
  * [이 클래스는 백엔드가 아니다]
  *   ILobbyBackend 를 구현하는 것은 FSocketLobbyBackend 이고, 이 클래스는 그 안에서
@@ -57,11 +57,11 @@ class ISocketSubsystem;
  *
  * 소유자는 FSocketLobbyBackend 하나뿐이다. 직접 생성하지 않는다.
  */
-class TEAMPROJECT_MOU_API FChatClientRunnable : public FRunnable
+class TEAMPROJECT_MOU_API FServerClientRunnable : public FRunnable
 {
 public:
-	FChatClientRunnable(const FString& InHost, int32 InPort);
-	virtual ~FChatClientRunnable();
+	FServerClientRunnable(const FString& InHost, int32 InPort);
+	virtual ~FServerClientRunnable();
 
 	// --- FRunnable 인터페이스 ---------------------------------------------
 
@@ -88,7 +88,7 @@ public:
 	bool DequeueMessage(FChatMessage& Out) { return InboundMessages.Dequeue(Out); }
 
 	/** 연결 상태 변화를 꺼낸다. 게임 스레드 전용. 더 없으면 false. */
-	bool DequeueEvent(FChatClientEvent& Out) { return InboundEvents.Dequeue(Out); }
+	bool DequeueEvent(FServerClientEvent& Out) { return InboundEvents.Dequeue(Out); }
 
 private:
 	// --- 워커 스레드 내부 -------------------------------------------------
@@ -102,10 +102,10 @@ private:
 	/** 최대 WaitMilliseconds 만큼 대기하며 수신한다. 연결이 끊기면 false. */
 	bool PumpRecv();
 
-	/** 완성된 패킷 하나를 처리한다. 여기서 FChatMessage / FChatClientEvent 로 변환된다. */
+	/** 완성된 패킷 하나를 처리한다. 여기서 FChatMessage / FServerClientEvent 로 변환된다. */
 	void HandlePacket(const MOU::PacketHeader& Header, const TArray<uint8>& Body);
 
-	void PushEvent(EChatClientEventType Type, const FString& Detail = FString());
+	void PushEvent(EServerClientEventType Type, const FString& Detail = FString());
 
 	void DestroySocketIfNeeded();
 
@@ -138,7 +138,7 @@ private:
 	TQueue<FChatMessage, EQueueMode::Spsc> InboundMessages;
 
 	/** 워커 -> 게임 스레드. 연결 상태 변화 */
-	TQueue<FChatClientEvent, EQueueMode::Spsc> InboundEvents;
+	TQueue<FServerClientEvent, EQueueMode::Spsc> InboundEvents;
 
 	// --- 튜닝 값 -----------------------------------------------------------
 

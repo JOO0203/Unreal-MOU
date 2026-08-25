@@ -22,9 +22,9 @@
 //            └─ URoomListWidgetBase               방에 "들어가는" 창
 //   두 자식 창은 방에 들어갈 때까지만 쓰인다. 들어간 뒤로는 이 위젯이 대기실이 된다.
 //
-// [대기실 상태는 채팅 서버가 갖고 있다]
+// [대기실 상태는 서버가 갖고 있다]
 //   누가 방에 있고 누가 준비했는지는 전부 서버가 진실을 안다.
-//   이 위젯은 UChatSubsystem::OnRoomMembersChanged 로 오는 스냅샷을 그릴 뿐이고,
+//   이 위젯은 UServerSubsystem::OnRoomMembersChanged 로 오는 스냅샷을 그릴 뿐이고,
 //   자기가 세거나 추측하지 않는다. 그래서 두 클라이언트가 다른 그림을 볼 일이 없다.
 //
 // [방장이 나가면 방이 사라진다 — 이양하지 않는다]
@@ -71,7 +71,7 @@
 class UButton;
 class UTextBlock;
 class UVerticalBox;
-class UChatSubsystem;
+class UServerSubsystem;
 class URoomCreateWidgetBase;
 class URoomListWidgetBase;
 
@@ -81,7 +81,7 @@ enum class EMOULobbyUIState : uint8
 {
 	/** 방 만들기 / 참여하기 / 게임 종료 */
 	MainMenu    UMETA(DisplayName = "메인메뉴"),
-	/** 방 안. 방장인지는 UChatSubsystem::IsRoomHost() 로 갈린다 */
+	/** 방 안. 방장인지는 UServerSubsystem::IsRoomHost() 로 갈린다 */
 	WaitingRoom UMETA(DisplayName = "대기실")
 };
 
@@ -339,7 +339,7 @@ private:
 	/** 게임 시작 시 참여자가 호스트에게 붙는다. */
 	void TravelAsClient(const FMOURoomJoinResult& Host, const FString& RoomPassword);
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	UPROPERTY()
 	TObjectPtr<URoomCreateWidgetBase> RoomCreateWidget;

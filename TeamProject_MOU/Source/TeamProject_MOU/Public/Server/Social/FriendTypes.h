@@ -141,7 +141,7 @@ struct FMOUDirectMessage
 	 * 내가 보낸 것인가. 말풍선을 좌/우 어느 쪽에 붙일지 정한다.
 	 *
 	 * 서버가 채워 보내는 값이 아니라 **받은 쪽이 자기 UserId 와 비교해** 채운다
-	 * (UChatSubsystem 이 한다). 위젯이 매번 비교하지 않게 하려는 것이다.
+	 * (UServerSubsystem 이 한다). 위젯이 매번 비교하지 않게 하려는 것이다.
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Messenger")
 	bool bIsMine = false;

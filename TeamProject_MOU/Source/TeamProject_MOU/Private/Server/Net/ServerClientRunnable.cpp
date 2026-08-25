@@ -1,53 +1,53 @@
 ﻿// MOU 채팅 - 워커 스레드 구현.
 // 대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 ClientThread()
 
-#include "Server/Net/ChatClientRunnable.h"
+#include "Server/Net/ServerClientRunnable.h"
 
 #include "HAL/PlatformProcess.h"
 #include "IPAddress.h"
 #include "SocketSubsystem.h"
 #include "Sockets.h"
 
-FChatClientRunnable::FChatClientRunnable(const FString& InHost, int32 InPort)
+FServerClientRunnable::FServerClientRunnable(const FString& InHost, int32 InPort)
 	: Host(InHost)
 	, Port(InPort)
 {
 }
 
-FChatClientRunnable::~FChatClientRunnable()
+FServerClientRunnable::~FServerClientRunnable()
 {
-	// 정상 경로에서는 UChatSubsystem 이 Stop() -> Kill(true) 로 스레드를 먼저 정리하므로
+	// 정상 경로에서는 UServerSubsystem 이 Stop() -> Kill(true) 로 스레드를 먼저 정리하므로
 	// 여기 도달했을 때 Socket 은 이미 nullptr 이다. 만약을 대비한 안전망.
 	DestroySocketIfNeeded();
 }
 
-bool FChatClientRunnable::Init()
+bool FServerClientRunnable::Init()
 {
 	// 여기서는 블로킹 작업을 하지 않는다 (헤더 주석 참고).
 	// 서브시스템 포인터를 얻는 정도만 한다.
 	SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 	if (SocketSubsystem == nullptr)
 	{
-		UE_LOG(LogMOUChat, Error, TEXT("소켓 서브시스템을 얻지 못했다. 채팅을 사용할 수 없다."));
+		UE_LOG(LogMOUServer, Error, TEXT("소켓 서브시스템을 얻지 못했다. 채팅을 사용할 수 없다."));
 		return false;
 	}
 	return true;
 }
 
-uint32 FChatClientRunnable::Run()
+uint32 FServerClientRunnable::Run()
 {
 	// 바깥 루프 = 재연결 루프.
-	// 채팅 서버가 꺼져 있거나 도중에 죽어도 게임은 계속 돌아가야 하므로,
+	// 서버가 꺼져 있거나 도중에 죽어도 게임은 계속 돌아가야 하므로,
 	// 실패를 치명적 오류로 보지 않고 계속 재시도한다.
 	while (!bStopRequested)
 	{
-		PushEvent(EChatClientEventType::Connecting);
+		PushEvent(EServerClientEventType::Connecting);
 
 		FString ConnectError;
 		if (!ConnectOnce(ConnectError))
 		{
 			DestroySocketIfNeeded();
-			PushEvent(EChatClientEventType::ConnectFailed, ConnectError);
+			PushEvent(EServerClientEventType::ConnectFailed, ConnectError);
 
 			// 곧바로 재시도하면 서버가 없을 때 로그가 폭주한다.
 			// 다만 통째로 3초를 자면 Stop() 요청에 3초 늦게 반응하므로 잘게 쪼개서 잔다.
@@ -58,8 +58,8 @@ uint32 FChatClientRunnable::Run()
 			continue;
 		}
 
-		UE_LOG(LogMOUChat, Log, TEXT("채팅 서버 연결 성공: %s:%d"), *Host, Port);
-		PushEvent(EChatClientEventType::Connected);
+		UE_LOG(LogMOUServer, Log, TEXT("서버 연결 성공: %s:%d"), *Host, Port);
+		PushEvent(EServerClientEventType::Connected);
 
 		// 안쪽 루프 = 연결이 살아있는 동안의 송수신 루프.
 		// 이전 연결에서 남은 조각이 새 연결에 섞이면 프레이밍이 깨지므로 버퍼를 비우고 시작한다.
@@ -80,7 +80,7 @@ uint32 FChatClientRunnable::Run()
 			}
 			if (DiscardedCount > 0)
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("재접속하면서 미전송 패킷 %d개를 버렸다."), DiscardedCount);
+				UE_LOG(LogMOUServer, Warning, TEXT("재접속하면서 미전송 패킷 %d개를 버렸다."), DiscardedCount);
 			}
 		}
 		while (!bStopRequested)
@@ -96,11 +96,11 @@ uint32 FChatClientRunnable::Run()
 		}
 
 		DestroySocketIfNeeded();
-		PushEvent(EChatClientEventType::Disconnected);
+		PushEvent(EServerClientEventType::Disconnected);
 
 		if (!bStopRequested)
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("채팅 서버 연결이 끊겼다. %dms 후 재시도한다."), ReconnectDelayMilliseconds);
+			UE_LOG(LogMOUServer, Warning, TEXT("서버 연결이 끊겼다. %dms 후 재시도한다."), ReconnectDelayMilliseconds);
 			for (int32 Slept = 0; Slept < ReconnectDelayMilliseconds && !bStopRequested; Slept += WaitMilliseconds)
 			{
 				FPlatformProcess::Sleep(WaitMilliseconds / 1000.0f);
@@ -111,20 +111,20 @@ uint32 FChatClientRunnable::Run()
 	return 0;
 }
 
-void FChatClientRunnable::Stop()
+void FServerClientRunnable::Stop()
 {
 	// 게임 스레드에서 호출된다. 플래그만 세우고 즉시 반환한다.
 	// 워커는 최대 WaitMilliseconds 안에 이 플래그를 보고 빠져나온다.
 	bStopRequested = true;
 }
 
-void FChatClientRunnable::Exit()
+void FServerClientRunnable::Exit()
 {
 	// Run() 이 끝난 뒤 워커 스레드에서 호출된다. 소켓 정리는 여기가 마지막 기회다.
 	DestroySocketIfNeeded();
 }
 
-bool FChatClientRunnable::ConnectOnce(FString& OutError)
+bool FServerClientRunnable::ConnectOnce(FString& OutError)
 {
 	if (SocketSubsystem == nullptr)
 	{
@@ -186,7 +186,7 @@ bool FChatClientRunnable::ConnectOnce(FString& OutError)
 	return true;
 }
 
-bool FChatClientRunnable::PumpSend()
+bool FServerClientRunnable::PumpSend()
 {
 	TArray<uint8> Packet;
 	while (OutboundPackets.Dequeue(Packet))
@@ -199,7 +199,7 @@ bool FChatClientRunnable::PumpSend()
 			int32 Sent = 0;
 			if (!Socket->Send(Packet.GetData() + TotalSent, Packet.Num() - TotalSent, Sent) || Sent <= 0)
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("패킷 전송 실패. 연결을 끊는다."));
+				UE_LOG(LogMOUServer, Warning, TEXT("패킷 전송 실패. 연결을 끊는다."));
 				return false;
 			}
 			TotalSent += Sent;
@@ -208,7 +208,7 @@ bool FChatClientRunnable::PumpSend()
 	return true;
 }
 
-bool FChatClientRunnable::PumpRecv()
+bool FServerClientRunnable::PumpRecv()
 {
 	// 읽을 게 없으면 WaitMilliseconds 만큼 자다가 깬다.
 	// 타임아웃은 오류가 아니다. 아무 일도 없었을 뿐이므로 그대로 루프를 돈다.
@@ -228,14 +228,14 @@ bool FChatClientRunnable::PumpRecv()
 		{
 			return true;
 		}
-		UE_LOG(LogMOUChat, Warning, TEXT("Recv 실패 (오류 코드 %d)"), static_cast<int32>(LastError));
+		UE_LOG(LogMOUServer, Warning, TEXT("Recv 실패 (오류 코드 %d)"), static_cast<int32>(LastError));
 		return false;
 	}
 
 	// Wait 이 true 를 줬는데 0바이트면 서버가 연결을 정상 종료(FIN)한 것이다.
 	if (BytesRead <= 0)
 	{
-		UE_LOG(LogMOUChat, Log, TEXT("서버가 연결을 종료했다."));
+		UE_LOG(LogMOUServer, Log, TEXT("서버가 연결을 종료했다."));
 		return false;
 	}
 
@@ -255,7 +255,7 @@ bool FChatClientRunnable::PumpRecv()
 		{
 			// 여기까지 왔다는 건 스트림 동기화가 깨졌다는 뜻이다.
 			// 어디부터가 다음 패킷인지 알 방법이 없으므로 연결을 끊고 새로 붙는 수밖에 없다.
-			UE_LOG(LogMOUChat, Error, TEXT("비정상 패킷 크기. 스트림이 깨졌으므로 재접속한다."));
+			UE_LOG(LogMOUServer, Error, TEXT("비정상 패킷 크기. 스트림이 깨졌으므로 재접속한다."));
 			return false;
 		}
 
@@ -265,7 +265,7 @@ bool FChatClientRunnable::PumpRecv()
 	return true;
 }
 
-void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TArray<uint8>& Body)
+void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TArray<uint8>& Body)
 {
 	switch (static_cast<MOU::EOpcode>(Header.Opcode))
 	{
@@ -273,15 +273,15 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::LoginAckBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("LoginAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("LoginAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
 		MOU::LoginAckBody Ack{};
 		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
 
-		FChatClientEvent Event;
-		Event.Type                = EChatClientEventType::LoginAck;
+		FServerClientEvent Event;
+		Event.Type                = EServerClientEventType::LoginAck;
 		Event.Login.bSuccess      = (Ack.bSuccess != 0);
 		Event.Login.UserId        = static_cast<int64>(Ack.UserId);
 		Event.Login.TeamId        = Ack.TeamId;
@@ -293,7 +293,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		// 이 층뿐이기 때문이다(서브시스템은 프로토콜을 모른다).
 		if (!Event.Login.bSuccess && Event.Login.Result == EChatLoginResultBP::VersionMismatch)
 		{
-			UE_LOG(LogMOUChat, Error,
+			UE_LOG(LogMOUServer, Error,
 				TEXT("프로토콜 버전 불일치. 클라이언트=%d, 서버=%d. ")
 				TEXT("Server.exe 와 언리얼 프로젝트를 같은 커밋으로 다시 빌드할 것."),
 				static_cast<int32>(MOU::kProtocolVersion), Event.Login.ServerVersion);
@@ -307,7 +307,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RegisterAckBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RegisterAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RegisterAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -316,8 +316,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 		// 가입 결과는 신원이 아니므로 UserId/Name 은 채우지 않는다.
 		// bSuccess 와 Result 만 의미가 있다.
-		FChatClientEvent Event;
-		Event.Type                = EChatClientEventType::RegisterAck;
+		FServerClientEvent Event;
+		Event.Type                = EServerClientEventType::RegisterAck;
 		Event.Login.bSuccess      = (Ack.bSuccess != 0);
 		Event.Login.Result        = static_cast<EChatLoginResultBP>(Ack.Result);
 		Event.Login.ServerVersion = static_cast<int32>(Ack.ServerVersion);
@@ -329,15 +329,15 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomCreateAckBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomCreateAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomCreateAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
 		MOU::RoomCreateAckBody Ack{};
 		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
 
-		FChatClientEvent Event;
-		Event.Type         = EChatClientEventType::RoomCreateAck;
+		FServerClientEvent Event;
+		Event.Type         = EServerClientEventType::RoomCreateAck;
 		Event.RoomId       = static_cast<int32>(Ack.RoomId);
 		Event.bRoomSuccess = (Ack.bSuccess != 0);
 		Event.RoomResult   = static_cast<EMOURoomResultBP>(Ack.Result);
@@ -350,7 +350,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::RoomListAckBody));
 		if (Body.Num() < FixedSize)
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomListAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomListAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -366,12 +366,12 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 		if (SafeCount < Declared)
 		{
-			UE_LOG(LogMOUChat, Warning,
+			UE_LOG(LogMOUServer, Warning,
 				TEXT("RoomListAck 가 %d개라고 했지만 %d개분만 도착했다"), Declared, Available);
 		}
 
-		FChatClientEvent Event;
-		Event.Type = EChatClientEventType::RoomListAck;
+		FServerClientEvent Event;
+		Event.Type = EServerClientEventType::RoomListAck;
 		Event.Rooms.Reserve(SafeCount);
 
 		for (int32 i = 0; i < SafeCount; ++i)
@@ -399,15 +399,15 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomJoinAckBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomJoinAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomJoinAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
 		MOU::RoomJoinAckBody Ack{};
 		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
 
-		FChatClientEvent Event;
-		Event.Type             = EChatClientEventType::RoomJoinAck;
+		FServerClientEvent Event;
+		Event.Type             = EServerClientEventType::RoomJoinAck;
 		Event.Join.bSuccess    = (Ack.bSuccess != 0);
 		Event.Join.RoomId      = static_cast<int32>(Ack.RoomId);
 		Event.Join.HostPort    = static_cast<int32>(Ack.HostPort);
@@ -422,7 +422,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::RoomMemberListBody));
 		if (Body.Num() < FixedSize)
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomMemberList 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomMemberList 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -437,12 +437,12 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 		if (SafeCount < Declared)
 		{
-			UE_LOG(LogMOUChat, Warning,
+			UE_LOG(LogMOUServer, Warning,
 				TEXT("RoomMemberList 가 %d명이라고 했지만 %d명분만 도착했다"), Declared, Available);
 		}
 
-		FChatClientEvent Event;
-		Event.Type      = EChatClientEventType::RoomMemberList;
+		FServerClientEvent Event;
+		Event.Type      = EServerClientEventType::RoomMemberList;
 		Event.RoomId    = static_cast<int32>(Head.RoomId);
 		Event.bAllReady = (Head.bAllReady != 0);
 		Event.Members.Reserve(SafeCount);
@@ -468,15 +468,15 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomClosedBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomClosed 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomClosed 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
 		MOU::RoomClosedBody Closed{};
 		FMemory::Memcpy(&Closed, Body.GetData(), sizeof(Closed));
 
-		FChatClientEvent Event;
-		Event.Type        = EChatClientEventType::RoomClosed;
+		FServerClientEvent Event;
+		Event.Type        = EServerClientEventType::RoomClosed;
 		Event.RoomId      = static_cast<int32>(Closed.RoomId);
 		Event.CloseReason = static_cast<EMOURoomCloseReasonBP>(Closed.Reason);
 		InboundEvents.Enqueue(MoveTemp(Event));
@@ -487,7 +487,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomStartBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomStart 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomStart 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -496,8 +496,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 		// 호스트 주소를 RoomJoinAck 와 같은 그릇에 담는다.
 		// 받는 쪽에서 MakeTravelURL() 을 그대로 쓸 수 있어 처리 경로가 하나로 모인다.
-		FChatClientEvent Event;
-		Event.Type             = EChatClientEventType::RoomStart;
+		FServerClientEvent Event;
+		Event.Type             = EServerClientEventType::RoomStart;
 		Event.RoomId           = static_cast<int32>(Start.RoomId);
 		Event.Join.bSuccess    = true;
 		Event.Join.RoomId      = static_cast<int32>(Start.RoomId);
@@ -511,7 +511,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomHostReadyBody)))
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("RoomHostReady 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("RoomHostReady 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -519,8 +519,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		FMemory::Memcpy(&Ready, Body.GetData(), sizeof(Ready));
 
 		// RoomStart 와 같은 그릇에 담는다. 받는 쪽에서 MakeTravelURL() 을 그대로 쓴다.
-		FChatClientEvent Event;
-		Event.Type             = EChatClientEventType::RoomHostReady;
+		FServerClientEvent Event;
+		Event.Type             = EServerClientEventType::RoomHostReady;
 		Event.RoomId           = static_cast<int32>(Ready.RoomId);
 		Event.Join.bSuccess    = true;
 		Event.Join.RoomId      = static_cast<int32>(Ready.RoomId);
@@ -535,7 +535,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::ChatBroadcastBody));
 		if (Body.Num() < FixedSize)
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("ChatBroadcast 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("ChatBroadcast 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -547,7 +547,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		// 서버가 HandleChatSend 에서 하는 검사와 같은 방어를 클라이언트에서도 한다.
 		if (FixedSize + static_cast<int32>(Broadcast.TextLen) != Body.Num())
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("ChatBroadcast 의 TextLen(%u) 이 실제 크기(%d) 와 맞지 않는다."),
+			UE_LOG(LogMOUServer, Warning, TEXT("ChatBroadcast 의 TextLen(%u) 이 실제 크기(%d) 와 맞지 않는다."),
 				Broadcast.TextLen, Body.Num());
 			break;
 		}
@@ -572,7 +572,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		const int32 FixedSize = static_cast<int32>(sizeof(MOU::FriendListAckBody));
 		if (Body.Num() < FixedSize)
 		{
-			UE_LOG(LogMOUChat, Warning, TEXT("FriendListAck 크기가 부족하다 (%d바이트)"), Body.Num());
+			UE_LOG(LogMOUServer, Warning, TEXT("FriendListAck 크기가 부족하다 (%d바이트)"), Body.Num());
 			break;
 		}
 
@@ -587,12 +587,12 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 		if (SafeCount < Declared)
 		{
-			UE_LOG(LogMOUChat, Warning,
+			UE_LOG(LogMOUServer, Warning,
 				TEXT("FriendListAck 가 %d명이라고 했지만 %d명분만 도착했다"), Declared, Available);
 		}
 
-		FChatClientEvent Event;
-		Event.Type = EChatClientEventType::FriendListAck;
+		FServerClientEvent Event;
+		Event.Type = EServerClientEventType::FriendListAck;
 		Event.Friends.Reserve(SafeCount);
 
 		for (int32 i = 0; i < SafeCount; ++i)
@@ -624,8 +624,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		MOU::FriendAddAckBody Ack{};
 		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
 
-		FChatClientEvent Event;
-		Event.Type           = EChatClientEventType::FriendAddAck;
+		FServerClientEvent Event;
+		Event.Type           = EServerClientEventType::FriendAddAck;
 		Event.bFriendSuccess = (Ack.bSuccess != 0);
 		Event.FriendResult   = static_cast<EMOUFriendResultBP>(Ack.Result);
 		Event.TargetUserId   = static_cast<int64>(Ack.TargetUserId);
@@ -643,8 +643,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		MOU::FriendRequestIncomingBody Note{};
 		FMemory::Memcpy(&Note, Body.GetData(), sizeof(Note));
 
-		FChatClientEvent Event;
-		Event.Type            = EChatClientEventType::FriendRequestIncoming;
+		FServerClientEvent Event;
+		Event.Type            = EServerClientEventType::FriendRequestIncoming;
 		Event.Friend.UserId   = static_cast<int64>(Note.FromUserId);
 		Event.Friend.Nickname = MOUChat::ReadFixedString(Note.FromNickname, static_cast<int32>(MOU::kMaxNameLen));
 		// 받은 신청이므로 상태는 정해져 있다. 서버가 따로 안 보낸다.
@@ -664,8 +664,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		MOU::FriendUpdateBody Src{};
 		FMemory::Memcpy(&Src, Body.GetData(), sizeof(Src));
 
-		FChatClientEvent Event;
-		Event.Type            = EChatClientEventType::FriendUpdate;
+		FServerClientEvent Event;
+		Event.Type            = EServerClientEventType::FriendUpdate;
 		Event.bFriendRemoved  = (Src.bRemoved != 0);
 		Event.Friend.UserId   = static_cast<int64>(Src.UserId);
 		Event.Friend.Nickname = MOUChat::ReadFixedString(Src.Nickname, static_cast<int32>(MOU::kMaxNameLen));
@@ -686,8 +686,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		MOU::FriendPresenceBody Src{};
 		FMemory::Memcpy(&Src, Body.GetData(), sizeof(Src));
 
-		FChatClientEvent Event;
-		Event.Type            = EChatClientEventType::FriendPresence;
+		FServerClientEvent Event;
+		Event.Type            = EServerClientEventType::FriendPresence;
 		Event.Friend.UserId   = static_cast<int64>(Src.UserId);
 		Event.Friend.Presence = static_cast<EMOUPresenceBP>(Src.Presence);
 		Event.Friend.bIsOnline = (Event.Friend.Presence != EMOUPresenceBP::Offline);
@@ -715,20 +715,20 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		// ChatBroadcast 와 같은 방어. 이게 없으면 위조된 TextLen 에 버퍼 밖을 읽는다.
 		if (FixedSize + static_cast<int32>(Src.TextLen) != Body.Num())
 		{
-			UE_LOG(LogMOUChat, Warning,
+			UE_LOG(LogMOUServer, Warning,
 				TEXT("DirectMessage 의 TextLen(%u) 이 실제 크기(%d) 와 맞지 않는다."),
 				Src.TextLen, Body.Num());
 			break;
 		}
 
-		FChatClientEvent Event;
-		Event.Type = EChatClientEventType::DirectMessage;
+		FServerClientEvent Event;
+		Event.Type = EServerClientEventType::DirectMessage;
 		Event.DirectMessage.MessageId  = static_cast<int64>(Src.MessageId);
 		Event.DirectMessage.FromUserId = static_cast<int64>(Src.FromUserId);
 		Event.DirectMessage.ToUserId   = static_cast<int64>(Src.ToUserId);
 		Event.DirectMessage.Timestamp  = static_cast<int64>(Src.Timestamp);
 		Event.DirectMessage.Text       = MOUChat::Utf8ToString(Body.GetData() + FixedSize, Src.TextLen);
-		// bIsMine / PeerUserId 는 내 UserId 를 아는 UChatSubsystem 이 채운다.
+		// bIsMine / PeerUserId 는 내 UserId 를 아는 UServerSubsystem 이 채운다.
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}
@@ -744,8 +744,8 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		MOU::DmHistoryAckBody Head{};
 		FMemory::Memcpy(&Head, Body.GetData(), sizeof(Head));
 
-		FChatClientEvent Event;
-		Event.Type            = EChatClientEventType::DmHistoryAck;
+		FServerClientEvent Event;
+		Event.Type            = EServerClientEventType::DmHistoryAck;
 		Event.PeerUserId      = static_cast<int64>(Head.PeerUserId);
 		Event.bHasMoreHistory = (Head.bHasMore != 0);
 		Event.History.Reserve(Head.Count);
@@ -759,7 +759,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 		{
 			if (Offset + static_cast<int32>(sizeof(MOU::DmEntry)) > Body.Num())
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("DmHistoryAck 가 중간에 잘렸다 (%d번째)"), i);
+				UE_LOG(LogMOUServer, Warning, TEXT("DmHistoryAck 가 중간에 잘렸다 (%d번째)"), i);
 				break;
 			}
 
@@ -769,7 +769,7 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 
 			if (Offset + static_cast<int32>(Entry.TextLen) > Body.Num())
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("DmHistoryAck 본문이 잘렸다 (%d번째)"), i);
+				UE_LOG(LogMOUServer, Warning, TEXT("DmHistoryAck 본문이 잘렸다 (%d번째)"), i);
 				break;
 			}
 
@@ -791,25 +791,25 @@ void FChatClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const TA
 	default:
 		// 서버가 나중에 새 오피코드를 추가해도 구버전 클라이언트가 죽지 않게 무시만 한다.
 		// (서버는 반대로 모르는 오피코드가 오면 연결을 끊는다. 서버 쪽이 더 엄격한 게 맞다)
-		UE_LOG(LogMOUChat, Verbose, TEXT("처리하지 않는 오피코드 %u 를 무시한다."), Header.Opcode);
+		UE_LOG(LogMOUServer, Verbose, TEXT("처리하지 않는 오피코드 %u 를 무시한다."), Header.Opcode);
 		break;
 	}
 }
 
-void FChatClientRunnable::EnqueuePacket(TArray<uint8>&& Packet)
+void FServerClientRunnable::EnqueuePacket(TArray<uint8>&& Packet)
 {
 	OutboundPackets.Enqueue(MoveTemp(Packet));
 }
 
-void FChatClientRunnable::PushEvent(EChatClientEventType Type, const FString& Detail)
+void FServerClientRunnable::PushEvent(EServerClientEventType Type, const FString& Detail)
 {
-	FChatClientEvent Event;
+	FServerClientEvent Event;
 	Event.Type   = Type;
 	Event.Detail = Detail;
 	InboundEvents.Enqueue(MoveTemp(Event));
 }
 
-void FChatClientRunnable::DestroySocketIfNeeded()
+void FServerClientRunnable::DestroySocketIfNeeded()
 {
 	if (Socket != nullptr && SocketSubsystem != nullptr)
 	{

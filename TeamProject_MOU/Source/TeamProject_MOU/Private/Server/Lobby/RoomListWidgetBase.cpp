@@ -1,12 +1,12 @@
 ﻿// MOU 로비 - 방 목록 / 참여 UI 구현.
 //
-// 이 파일은 소켓/패킷을 전혀 모른다. UChatSubsystem 하고만 대화한다.
-//   보낼 때: UChatSubsystem::RequestRoomList() / JoinRoom()
-//   받을 때: UChatSubsystem::OnRoomListReceived / OnRoomJoinCompleted
+// 이 파일은 소켓/패킷을 전혀 모른다. UServerSubsystem 하고만 대화한다.
+//   보낼 때: UServerSubsystem::RequestRoomList() / JoinRoom()
+//   받을 때: UServerSubsystem::OnRoomListReceived / OnRoomJoinCompleted
 
 #include "Server/Lobby/RoomListWidgetBase.h"
 
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -179,7 +179,7 @@ void URoomListWidgetBase::NativeConstruct()
 	// NativeConstruct 는 뷰포트에 다시 붙을 때마다 불릴 수 있어 중복 구독을 막는다.
 	if (!bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomListReceived.AddDynamic(this, &URoomListWidgetBase::HandleRoomListReceived);
 			Chat->OnRoomJoinCompleted.AddDynamic(this, &URoomListWidgetBase::HandleRoomJoinCompleted);
@@ -224,7 +224,7 @@ void URoomListWidgetBase::NativeDestruct()
 
 	if (bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomListReceived.RemoveDynamic(this, &URoomListWidgetBase::HandleRoomListReceived);
 			Chat->OnRoomJoinCompleted.RemoveDynamic(this, &URoomListWidgetBase::HandleRoomJoinCompleted);
@@ -364,18 +364,18 @@ void URoomListWidgetBase::BuildDefaultLayout()
 // 목록
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* URoomListWidgetBase::GetChatSubsystem() const
+UServerSubsystem* URoomListWidgetBase::GetServerSubsystem() const
 {
 	if (const UGameInstance* GameInstance = GetGameInstance())
 	{
-		return GameInstance->GetSubsystem<UChatSubsystem>();
+		return GameInstance->GetSubsystem<UServerSubsystem>();
 	}
 	return nullptr;
 }
 
 void URoomListWidgetBase::RefreshRoomList()
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetStatus(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -385,7 +385,7 @@ void URoomListWidgetBase::RefreshRoomList()
 	// 로그인 전이면 서버가 빈 목록만 돌려준다. 사유를 미리 알려준다.
 	if (Chat->GetConnectionState() != EChatConnectionState::LoggedIn)
 	{
-		SetStatus(UChatSubsystem::GetRoomResultText(EMOURoomResultBP::NotAuthed), true);
+		SetStatus(UServerSubsystem::GetRoomResultText(EMOURoomResultBP::NotAuthed), true);
 		return;
 	}
 
@@ -505,7 +505,7 @@ void URoomListWidgetBase::ConfirmJoinWithPassword()
 	RoomPassword.TrimStartAndEndInline();
 
 	// 서버도 검사하지만, 형식이 틀린 것은 왕복 없이 즉시 알려줄 수 있다.
-	if (!UChatSubsystem::IsValidRoomPassword(RoomPassword))
+	if (!UServerSubsystem::IsValidRoomPassword(RoomPassword))
 	{
 		SetStatus(TEXT("방 비밀번호는 숫자 4자리여야 합니다."), true);
 		return;
@@ -523,7 +523,7 @@ void URoomListWidgetBase::CancelPasswordPrompt()
 
 void URoomListWidgetBase::SendJoinRequest(int32 RoomId, const FString& RoomPassword)
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetStatus(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -544,7 +544,7 @@ void URoomListWidgetBase::HandleRoomJoinCompleted(const FMOURoomJoinResult& Resu
 
 	if (!Result.bSuccess)
 	{
-		SetStatus(UChatSubsystem::GetRoomResultText(Result.Result), true);
+		SetStatus(UServerSubsystem::GetRoomResultText(Result.Result), true);
 
 		// 비밀번호가 틀렸을 때만 입력창을 열어둔 채로 다시 시도하게 한다.
 		// 정원 초과나 없는 방이면 비밀번호를 고쳐봐야 소용없으므로 목록으로 돌려보낸다.

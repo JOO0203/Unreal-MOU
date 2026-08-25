@@ -22,9 +22,9 @@
 #include "ChatTypes.generated.h"
 
 // 채팅 관련 로그는 전부 이 카테고리로 나간다.
-// 에디터 출력 로그 창에서 "LogMOUChat" 으로 필터링하면 채팅만 볼 수 있다.
-// 콘솔에서 상세 로그를 켜려면: Log LogMOUChat Verbose
-DECLARE_LOG_CATEGORY_EXTERN(LogMOUChat, Log, All);
+// 에디터 출력 로그 창에서 "LogMOUServer" 으로 필터링하면 채팅만 볼 수 있다.
+// 콘솔에서 상세 로그를 켜려면: Log LogMOUServer Verbose
+DECLARE_LOG_CATEGORY_EXTERN(LogMOUServer, Log, All);
 
 /**
  * 채팅 채널. MOU::EChatChannel (ChatProtocol.h) 의 블루프린트 미러.
@@ -50,7 +50,7 @@ enum class EChatChannelBP : uint8
 /**
  * 채팅 서버와의 연결 상태.
  *
- * UChatSubsystem 이 이 값을 들고 있고, 바뀔 때마다 OnChatStateChanged 로 알린다.
+ * UServerSubsystem 이 이 값을 들고 있고, 바뀔 때마다 OnChatStateChanged 로 알린다.
  * UI 는 이걸 보고 "연결 중...", "채팅 서버 끊김" 같은 표시를 하면 된다.
  *
  * 주의: Connected 와 LoggedIn 은 다르다.
@@ -71,9 +71,9 @@ enum class EChatConnectionState : uint8
  * 서버에서 받은 채팅 한 줄.
  *
  * [흐름] 채팅서버 ChatBroadcast 패킷
- *        -> FChatClientRunnable::HandlePacket (워커 스레드에서 파싱)
+ *        -> FServerClientRunnable::HandlePacket (워커 스레드에서 파싱)
  *        -> TQueue 에 적재
- *        -> UChatSubsystem::Tick (게임 스레드에서 꺼냄)
+ *        -> UServerSubsystem::Tick (게임 스레드에서 꺼냄)
  *        -> OnChatMessageReceived 델리게이트
  *        -> WBP_Chat 이 한 줄 위젯을 만들어 붙임 (5단계)
  *

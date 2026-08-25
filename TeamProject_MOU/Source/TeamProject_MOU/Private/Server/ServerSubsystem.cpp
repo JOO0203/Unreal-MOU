@@ -8,14 +8,14 @@
 //
 // [패킷을 조립하지 않는 것이 의도다]
 //   MOU::LoginReqBody 같은 프로토콜 구조체를 다루는 곳은 SocketLobbyBackend.cpp 와
-//   ChatClientRunnable.cpp 뿐이다. EOS 로 갈아끼우면 그 두 파일 대신 EOSLobbyBackend.cpp
+//   ServerClientRunnable.cpp 뿐이다. EOS 로 갈아끼우면 그 두 파일 대신 EOSLobbyBackend.cpp
 //   가 쓰이고, 이 파일과 그 위(위젯/게임 로직)는 손대지 않는다.
 //
 //   예외가 하나 있다: ValidateCredentials / IsValidRoomPassword 는 프로토콜 헤더의
 //   길이 상수를 읽는다. 그 숫자들은 전송 방식이 아니라 **서버와 맞춰야 하는 규칙**이고,
 //   여기서 다시 적으면 서버가 상한을 바꿨을 때 조용히 어긋난다.
 
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 
 #include "Server/Net/ChatFraming.h"   // 계정/방 비밀번호 길이 규칙 상수 (패킷 조립에는 쓰지 않는다)
 #include "Server/Lobby/LobbyBackend.h"
@@ -26,7 +26,7 @@
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 
-DEFINE_LOG_CATEGORY(LogMOUChat);
+DEFINE_LOG_CATEGORY(LogMOUServer);
 
 namespace
 {
@@ -53,7 +53,7 @@ namespace
 // 수명 관리
 // ---------------------------------------------------------------------------
 
-void UChatSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+void UServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
@@ -64,12 +64,12 @@ void UChatSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	// 게임 스레드 틱 등록. 워커가 쌓아둔 큐를 여기서 비운다.
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateUObject(this, &UChatSubsystem::Tick));
+		FTickerDelegate::CreateUObject(this, &UServerSubsystem::Tick));
 
-	UE_LOG(LogMOUChat, Log, TEXT("채팅 서브시스템 초기화 완료. 접속하려면 ConnectToChatServer 를 호출한다."));
+	UE_LOG(LogMOUServer, Log, TEXT("채팅 서브시스템 초기화 완료. 접속하려면 ConnectToChatServer 를 호출한다."));
 }
 
-void UChatSubsystem::Deinitialize()
+void UServerSubsystem::Deinitialize()
 {
 	// 순서가 중요하다.
 	// 틱을 먼저 끊어야 워커를 정리하는 도중에 Tick 이 죽은 큐를 읽는 일이 없다.
@@ -84,7 +84,7 @@ void UChatSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-void UChatSubsystem::ShutdownClient()
+void UServerSubsystem::ShutdownClient()
 {
 	if (Backend.IsValid())
 	{
@@ -106,7 +106,7 @@ void UChatSubsystem::ShutdownClient()
 	LoginResult = FChatLoginResult();
 }
 
-FString UChatSubsystem::GetBackendName() const
+FString UServerSubsystem::GetBackendName() const
 {
 	return Backend.IsValid() ? Backend->GetBackendName() : TEXT("(없음)");
 }
@@ -115,7 +115,7 @@ FString UChatSubsystem::GetBackendName() const
 // 블루프린트 API
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* UChatSubsystem::Get(const UObject* WorldContextObject)
+UServerSubsystem* UServerSubsystem::Get(const UObject* WorldContextObject)
 {
 	if (WorldContextObject == nullptr)
 	{
@@ -127,10 +127,10 @@ UChatSubsystem* UChatSubsystem::Get(const UObject* WorldContextObject)
 		: nullptr;
 
 	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
-	return GameInstance ? GameInstance->GetSubsystem<UChatSubsystem>() : nullptr;
+	return GameInstance ? GameInstance->GetSubsystem<UServerSubsystem>() : nullptr;
 }
 
-void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
+void UServerSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 {
 	// 인자가 비어 있으면 코드가 주소를 정하지 않는다. 설정(Config/DefaultGame.ini) 또는
 	// 실행 인자가 정한다. 이렇게 해야 "서버를 켠 PC 만 되는" 문제가 생기지 않는다.
@@ -146,14 +146,14 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 		if (Host.IsEmpty()) { Host = ResolvedHost; }
 		if (Port <= 0)      { Port = ResolvedPort; }
 
-		UE_LOG(LogMOUChat, Log, TEXT("접속 대상: %s:%d — 출처 %s"), *Host, Port, *Source);
+		UE_LOG(LogMOUServer, Log, TEXT("접속 대상: %s:%d — 출처 %s"), *Host, Port, *Source);
 	}
 
 	if (Backend.IsValid())
 	{
 		// 이미 백엔드가 돌고 있다. 소켓 백엔드는 자체 재연결 루프를 갖고 있으므로
 		// 끊긴 상태여도 새로 만들 필요가 없다.
-		UE_LOG(LogMOUChat, Log, TEXT("이미 %s 백엔드가 동작 중이다. 접속 요청을 무시한다."),
+		UE_LOG(LogMOUServer, Log, TEXT("이미 %s 백엔드가 동작 중이다. 접속 요청을 무시한다."),
 			*Backend->GetBackendName());
 		return;
 	}
@@ -165,15 +165,15 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	Backend = MOULobbyBackend::Create(BackendType);
 	if (!Backend.IsValid())
 	{
-		UE_LOG(LogMOUChat, Error, TEXT("로비 백엔드 생성 실패 (종류 %d)"), static_cast<int32>(BackendType));
+		UE_LOG(LogMOUServer, Error, TEXT("로비 백엔드 생성 실패 (종류 %d)"), static_cast<int32>(BackendType));
 		return;
 	}
 
-	UE_LOG(LogMOUChat, Log, TEXT("로비 백엔드: %s — 출처 %s"), *Backend->GetBackendName(), *BackendSource);
+	UE_LOG(LogMOUServer, Log, TEXT("로비 백엔드: %s — 출처 %s"), *Backend->GetBackendName(), *BackendSource);
 
 	if (!Backend->Start(Host, Port))
 	{
-		UE_LOG(LogMOUChat, Error, TEXT("%s 백엔드를 시작하지 못했다."), *Backend->GetBackendName());
+		UE_LOG(LogMOUServer, Error, TEXT("%s 백엔드를 시작하지 못했다."), *Backend->GetBackendName());
 		Backend.Reset();
 		return;
 	}
@@ -181,7 +181,7 @@ void UChatSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 	SetConnectionState(EChatConnectionState::Connecting, FString::Printf(TEXT("%s:%d"), *Host, Port));
 }
 
-FString UChatSubsystem::GetLoginResultText(EChatLoginResultBP Result)
+FString UServerSubsystem::GetLoginResultText(EChatLoginResultBP Result)
 {
 	switch (Result)
 	{
@@ -197,7 +197,7 @@ FString UChatSubsystem::GetLoginResultText(EChatLoginResultBP Result)
 	}
 }
 
-bool UChatSubsystem::ValidateCredentials(const FString& LoginId, const FString& Password, FString& OutReason)
+bool UServerSubsystem::ValidateCredentials(const FString& LoginId, const FString& Password, FString& OutReason)
 {
 	// 서버와 같은 규칙을 쓴다. 길이는 UTF-8 바이트 기준이라 한글 아이디면 글자 수보다 커진다.
 	const int32 IdBytes = MOUChat::GetUtf8Length(LoginId);
@@ -228,7 +228,7 @@ bool UChatSubsystem::ValidateCredentials(const FString& LoginId, const FString& 
 	return true;
 }
 
-void UChatSubsystem::Login(const FString& LoginId, const FString& Password, int32 TeamId)
+void UServerSubsystem::Login(const FString& LoginId, const FString& Password, int32 TeamId)
 {
 	// 요청은 항상 보관해둔다.
 	// 연결이 끊겼다가 자동 재접속했을 때 이 값으로 다시 로그인해야 하기 때문이다.
@@ -246,11 +246,11 @@ void UChatSubsystem::Login(const FString& LoginId, const FString& Password, int3
 	{
 		// 아직 TCP 가 안 붙었다. 붙는 순간 Tick 의 Connected 처리에서 자동으로 보낸다.
 		// 비밀번호는 절대 로그에 남기지 않는다.
-		UE_LOG(LogMOUChat, Log, TEXT("연결 전이라 로그인 요청을 보관한다: %s (팀 %d)"), *LoginId, TeamId);
+		UE_LOG(LogMOUServer, Log, TEXT("연결 전이라 로그인 요청을 보관한다: %s (팀 %d)"), *LoginId, TeamId);
 	}
 }
 
-void UChatSubsystem::RegisterAccount(const FString& LoginId, const FString& Password, const FString& Nickname)
+void UServerSubsystem::RegisterAccount(const FString& LoginId, const FString& Password, const FString& Nickname)
 {
 	// 연결 전에 불릴 수 있으므로 일단 보관한다.
 	// 지금 바로 EnqueuePacket 하면, 연결이 성사되는 순간 워커가 송신 큐를 비우면서
@@ -267,11 +267,11 @@ void UChatSubsystem::RegisterAccount(const FString& LoginId, const FString& Pass
 	}
 	else
 	{
-		UE_LOG(LogMOUChat, Log, TEXT("연결 전이라 가입 요청을 보관한다: %s"), *LoginId);
+		UE_LOG(LogMOUServer, Log, TEXT("연결 전이라 가입 요청을 보관한다: %s"), *LoginId);
 	}
 }
 
-void UChatSubsystem::SendPendingRegister()
+void UServerSubsystem::SendPendingRegister()
 {
 	if (!Backend.IsValid() || !bHasPendingRegister)
 	{
@@ -281,7 +281,7 @@ void UChatSubsystem::SendPendingRegister()
 	Backend->SendRegister(PendingRegisterId, PendingRegisterPassword, PendingRegisterNickname);
 }
 
-void UChatSubsystem::SendPendingLogin()
+void UServerSubsystem::SendPendingLogin()
 {
 	if (!Backend.IsValid() || !bHasPendingLogin)
 	{
@@ -291,11 +291,11 @@ void UChatSubsystem::SendPendingLogin()
 	Backend->SendLogin(PendingLoginId, PendingPassword, PendingTeamId);
 }
 
-void UChatSubsystem::SendChat(EChatChannelBP Channel, const FString& Text)
+void UServerSubsystem::SendChat(EChatChannelBP Channel, const FString& Text)
 {
 	if (!Backend.IsValid())
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("백엔드가 없다. ConnectToChatServer 를 먼저 호출한다."));
+		UE_LOG(LogMOUServer, Warning, TEXT("백엔드가 없다. ConnectToChatServer 를 먼저 호출한다."));
 		return;
 	}
 
@@ -303,14 +303,14 @@ void UChatSubsystem::SendChat(EChatChannelBP Channel, const FString& Text)
 	// 조용히 버리면 "메시지가 어디로 갔지" 가 되므로 사유를 남긴다.
 	if (!Backend->SupportsChat())
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("%s 백엔드는 채팅을 지원하지 않는다."), *Backend->GetBackendName());
+		UE_LOG(LogMOUServer, Warning, TEXT("%s 백엔드는 채팅을 지원하지 않는다."), *Backend->GetBackendName());
 		return;
 	}
 
 	// 서버는 로그인 전 채팅을 조용히 버린다(연결은 유지). 사용자가 원인을 알 수 없으므로 여기서 알린다.
 	if (ConnectionState != EChatConnectionState::LoggedIn)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("아직 로그인 전이라 채팅을 보낼 수 없다. (현재 상태 %d)"),
+		UE_LOG(LogMOUServer, Warning, TEXT("아직 로그인 전이라 채팅을 보낼 수 없다. (현재 상태 %d)"),
 			static_cast<int32>(ConnectionState));
 		return;
 	}
@@ -318,7 +318,7 @@ void UChatSubsystem::SendChat(EChatChannelBP Channel, const FString& Text)
 	// System 채널은 서버만 만든다. 보내봐야 서버가 버리므로 여기서 막는다.
 	if (Channel == EChatChannelBP::System)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("System 채널은 클라이언트가 보낼 수 없다."));
+		UE_LOG(LogMOUServer, Warning, TEXT("System 채널은 클라이언트가 보낼 수 없다."));
 		return;
 	}
 
@@ -326,11 +326,11 @@ void UChatSubsystem::SendChat(EChatChannelBP Channel, const FString& Text)
 	Backend->SendChat(Channel, Text);
 }
 
-void UChatSubsystem::SetDeadForTest(bool bDead)
+void UServerSubsystem::SetDeadForTest(bool bDead)
 {
 	if (!Backend.IsValid() || ConnectionState != EChatConnectionState::LoggedIn)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("로그인 후에만 생사 상태를 바꿀 수 있다."));
+		UE_LOG(LogMOUServer, Warning, TEXT("로그인 후에만 생사 상태를 바꿀 수 있다."));
 		return;
 	}
 
@@ -344,7 +344,7 @@ void UChatSubsystem::SetDeadForTest(bool bDead)
 // 실제 게임 트래픽은 참가자가 호스트의 리슨서버에 직접 붙어서 주고받는다.
 // ---------------------------------------------------------------------------
 
-bool UChatSubsystem::IsValidRoomPassword(const FString& RoomPassword)
+bool UServerSubsystem::IsValidRoomPassword(const FString& RoomPassword)
 {
 	if (RoomPassword.Len() != static_cast<int32>(MOU::kRoomPasswordLen))
 	{
@@ -360,7 +360,7 @@ bool UChatSubsystem::IsValidRoomPassword(const FString& RoomPassword)
 	return true;
 }
 
-FString UChatSubsystem::GetRoomResultText(EMOURoomResultBP Result)
+FString UServerSubsystem::GetRoomResultText(EMOURoomResultBP Result)
 {
 	switch (Result)
 	{
@@ -379,11 +379,11 @@ FString UChatSubsystem::GetRoomResultText(EMOURoomResultBP Result)
 	}
 }
 
-void UChatSubsystem::CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort)
+void UServerSubsystem::CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort)
 {
 	if (!Backend.IsValid() || ConnectionState != EChatConnectionState::LoggedIn)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("로그인 후에 방을 만들 수 있다."));
+		UE_LOG(LogMOUServer, Warning, TEXT("로그인 후에 방을 만들 수 있다."));
 		OnRoomCreated.Broadcast(false, 0, EMOURoomResultBP::NotAuthed);
 		return;
 	}
@@ -396,11 +396,11 @@ void UChatSubsystem::CreateRoom(const FString& Title, const FString& RoomPasswor
 	Backend->CreateRoom(Title, EffectivePassword, HostPort);
 }
 
-void UChatSubsystem::RequestRoomList()
+void UServerSubsystem::RequestRoomList()
 {
 	if (!Backend.IsValid() || ConnectionState != EChatConnectionState::LoggedIn)
 	{
-		UE_LOG(LogMOUChat, Warning, TEXT("로그인 후에 방 목록을 볼 수 있다."));
+		UE_LOG(LogMOUServer, Warning, TEXT("로그인 후에 방 목록을 볼 수 있다."));
 		OnRoomListReceived.Broadcast(TArray<FMOURoomInfo>());
 		return;
 	}
@@ -408,7 +408,7 @@ void UChatSubsystem::RequestRoomList()
 	Backend->RequestRoomList();
 }
 
-void UChatSubsystem::JoinRoom(int32 RoomId, const FString& RoomPassword)
+void UServerSubsystem::JoinRoom(int32 RoomId, const FString& RoomPassword)
 {
 	if (!Backend.IsValid() || ConnectionState != EChatConnectionState::LoggedIn)
 	{
@@ -424,7 +424,7 @@ void UChatSubsystem::JoinRoom(int32 RoomId, const FString& RoomPassword)
 	Backend->JoinRoom(RoomId, EffectivePassword);
 }
 
-void UChatSubsystem::LeaveRoom()
+void UServerSubsystem::LeaveRoom()
 {
 	if (!Backend.IsValid())
 	{
@@ -439,7 +439,7 @@ void UChatSubsystem::LeaveRoom()
 	ClearRoomState();
 }
 
-void UChatSubsystem::SetReady(bool bReady)
+void UServerSubsystem::SetReady(bool bReady)
 {
 	if (!Backend.IsValid() || CurrentRoomId == 0)
 	{
@@ -449,7 +449,7 @@ void UChatSubsystem::SetReady(bool bReady)
 	Backend->SetReady(bReady);
 }
 
-void UChatSubsystem::StartGame()
+void UServerSubsystem::StartGame()
 {
 	if (!Backend.IsValid() || CurrentRoomId == 0)
 	{
@@ -467,7 +467,7 @@ void UChatSubsystem::StartGame()
 // 낙관적으로 먼저 그려두면 서버가 거절했을 때 되돌려야 한다.
 // ---------------------------------------------------------------------------
 
-int32 UChatSubsystem::FindCachedFriendIndex(int64 UserId) const
+int32 UServerSubsystem::FindCachedFriendIndex(int64 UserId) const
 {
 	for (int32 i = 0; i < CachedFriends.Num(); ++i)
 	{
@@ -479,7 +479,7 @@ int32 UChatSubsystem::FindCachedFriendIndex(int64 UserId) const
 	return INDEX_NONE;
 }
 
-int32 UChatSubsystem::GetTotalUnreadCount() const
+int32 UServerSubsystem::GetTotalUnreadCount() const
 {
 	int32 Total = 0;
 	for (const FMOUFriend& Entry : CachedFriends)
@@ -489,7 +489,7 @@ int32 UChatSubsystem::GetTotalUnreadCount() const
 	return Total;
 }
 
-void UChatSubsystem::RequestFriendList()
+void UServerSubsystem::RequestFriendList()
 {
 	if (!Backend.IsValid() || !LoginResult.bSuccess)
 	{
@@ -499,7 +499,7 @@ void UChatSubsystem::RequestFriendList()
 	Backend->RequestFriendList();
 }
 
-void UChatSubsystem::AddFriend(const FString& Query)
+void UServerSubsystem::AddFriend(const FString& Query)
 {
 	if (!Backend.IsValid() || !LoginResult.bSuccess)
 	{
@@ -517,7 +517,7 @@ void UChatSubsystem::AddFriend(const FString& Query)
 	Backend->AddFriend(Trimmed);
 }
 
-void UChatSubsystem::AcceptFriendRequest(int64 FromUserId)
+void UServerSubsystem::AcceptFriendRequest(int64 FromUserId)
 {
 	if (Backend.IsValid() && LoginResult.bSuccess)
 	{
@@ -525,7 +525,7 @@ void UChatSubsystem::AcceptFriendRequest(int64 FromUserId)
 	}
 }
 
-void UChatSubsystem::DeclineFriendRequest(int64 FromUserId)
+void UServerSubsystem::DeclineFriendRequest(int64 FromUserId)
 {
 	if (Backend.IsValid() && LoginResult.bSuccess)
 	{
@@ -533,7 +533,7 @@ void UChatSubsystem::DeclineFriendRequest(int64 FromUserId)
 	}
 }
 
-void UChatSubsystem::RemoveFriend(int64 TargetUserId)
+void UServerSubsystem::RemoveFriend(int64 TargetUserId)
 {
 	if (Backend.IsValid() && LoginResult.bSuccess)
 	{
@@ -541,7 +541,7 @@ void UChatSubsystem::RemoveFriend(int64 TargetUserId)
 	}
 }
 
-void UChatSubsystem::SendDirectMessage(int64 TargetUserId, const FString& Text)
+void UServerSubsystem::SendDirectMessage(int64 TargetUserId, const FString& Text)
 {
 	if (!Backend.IsValid() || !LoginResult.bSuccess || TargetUserId == 0)
 	{
@@ -556,7 +556,7 @@ void UChatSubsystem::SendDirectMessage(int64 TargetUserId, const FString& Text)
 	Backend->SendDirectMessage(TargetUserId, Text);
 }
 
-void UChatSubsystem::OpenConversation(int64 PeerUserId)
+void UServerSubsystem::OpenConversation(int64 PeerUserId)
 {
 	if (!Backend.IsValid() || !LoginResult.bSuccess || PeerUserId == 0)
 	{
@@ -576,7 +576,7 @@ void UChatSubsystem::OpenConversation(int64 PeerUserId)
 	}
 }
 
-void UChatSubsystem::LoadOlderMessages(int64 PeerUserId, int64 OldestMessageId)
+void UServerSubsystem::LoadOlderMessages(int64 PeerUserId, int64 OldestMessageId)
 {
 	if (!Backend.IsValid() || !LoginResult.bSuccess || PeerUserId == 0)
 	{
@@ -587,7 +587,7 @@ void UChatSubsystem::LoadOlderMessages(int64 PeerUserId, int64 OldestMessageId)
 	//   위로 스크롤은 읽음과 무관해야 하므로 여기서 막는다.
 	if (OldestMessageId <= 0)
 	{
-		UE_LOG(LogMOUChat, Warning,
+		UE_LOG(LogMOUServer, Warning,
 			TEXT("LoadOlderMessages 에 0 이 들어왔다. 최신 페이지를 원하면 OpenConversation 을 쓸 것."));
 		return;
 	}
@@ -595,7 +595,7 @@ void UChatSubsystem::LoadOlderMessages(int64 PeerUserId, int64 OldestMessageId)
 	Backend->RequestDmHistory(PeerUserId, OldestMessageId);
 }
 
-bool UChatSubsystem::IsSelfReady() const
+bool UServerSubsystem::IsSelfReady() const
 {
 	const int64 SelfId = LoginResult.UserId;
 	for (const FMOURoomMember& Member : RoomMembers)
@@ -608,7 +608,7 @@ bool UChatSubsystem::IsSelfReady() const
 	return false;
 }
 
-void UChatSubsystem::ClearRoomState()
+void UServerSubsystem::ClearRoomState()
 {
 	MyRoomId      = 0;
 	CurrentRoomId = 0;
@@ -622,7 +622,7 @@ void UChatSubsystem::ClearRoomState()
 	ListenServerWaitSeconds = 0.f;
 }
 
-void UChatSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
+void UServerSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
 {
 	if (!Backend.IsValid() || RoomId == 0)
 	{
@@ -632,7 +632,7 @@ void UChatSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bI
 	Backend->UpdateRoomState(RoomId, CurrentPlayers, bInGame);
 }
 
-void UChatSubsystem::Disconnect()
+void UServerSubsystem::Disconnect()
 {
 	bHasPendingLogin = false;   // 사용자가 의도적으로 끊은 것이므로 자동 재로그인하지 않는다
 	PendingPassword.Empty();    // 비밀번호를 필요 이상으로 메모리에 두지 않는다
@@ -643,7 +643,7 @@ void UChatSubsystem::Disconnect()
 // 게임 스레드 틱 - 백엔드 -> UI 방향의 유일한 통로
 // ---------------------------------------------------------------------------
 
-bool UChatSubsystem::Tick(float DeltaTime)
+bool UServerSubsystem::Tick(float DeltaTime)
 {
 	if (!Backend.IsValid())
 	{
@@ -655,16 +655,16 @@ bool UChatSubsystem::Tick(float DeltaTime)
 	PollListenServer(DeltaTime);
 
 	// 1) 상태 변화 처리
-	FChatClientEvent Event;
+	FServerClientEvent Event;
 	while (Backend->DequeueEvent(Event))
 	{
 		switch (Event.Type)
 		{
-		case EChatClientEventType::Connecting:
+		case EServerClientEventType::Connecting:
 			SetConnectionState(EChatConnectionState::Connecting, Event.Detail);
 			break;
 
-		case EChatClientEventType::Connected:
+		case EServerClientEventType::Connected:
 			SetConnectionState(EChatConnectionState::Connected, Event.Detail);
 			// 가입을 먼저 보낸다. 같은 TCP 스트림이라 서버가 이 순서대로 처리하므로,
 			// "가입 후 곧바로 로그인" 이 한 번의 연결로 끝난다.
@@ -673,17 +673,17 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			SendPendingLogin();
 			break;
 
-		case EChatClientEventType::ConnectFailed:
+		case EServerClientEventType::ConnectFailed:
 			// 워커가 알아서 재시도하므로 여기서 할 일은 UI 에 알리는 것뿐이다.
 			SetConnectionState(EChatConnectionState::Disconnected, Event.Detail);
 			break;
 
-		case EChatClientEventType::LoginAck:
+		case EServerClientEventType::LoginAck:
 			LoginResult = Event.Login;
 			if (LoginResult.bSuccess)
 			{
 				SetConnectionState(EChatConnectionState::LoggedIn, LoginResult.Name);
-				UE_LOG(LogMOUChat, Log, TEXT("로그인 완료. UserId=%lld, 이름=%s, 팀=%d"),
+				UE_LOG(LogMOUServer, Log, TEXT("로그인 완료. UserId=%lld, 이름=%s, 팀=%d"),
 					LoginResult.UserId, *LoginResult.Name, LoginResult.TeamId);
 
 				// ★ 친구 목록을 자동으로 한 번 받아둔다 (v7).
@@ -702,16 +702,16 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			{
 				// 재시도해도 계속 실패한다.
 				// 우리 쪽 프로토콜 번호를 아는 것은 백엔드뿐이라, 두 버전을 나란히 찍는
-				// 상세 로그는 거기서 남긴다(FChatClientRunnable::HandlePacket).
-				UE_LOG(LogMOUChat, Error,
+				// 상세 로그는 거기서 남긴다(FServerClientRunnable::HandlePacket).
+				UE_LOG(LogMOUServer, Error,
 					TEXT("프로토콜 버전 불일치로 로그인이 거부됐다. 서버=%d. 자세한 내용은 위 로그 참고."),
 					LoginResult.ServerVersion);
 			}
 			else
 			{
 				// 아이디/비밀번호 실수는 흔한 일이라 사용자가 고칠 수 있게 사유를 그대로 남긴다.
-				UE_LOG(LogMOUChat, Warning, TEXT("서버가 로그인을 거부했다: %s"),
-					*UChatSubsystem::GetLoginResultText(LoginResult.Result));
+				UE_LOG(LogMOUServer, Warning, TEXT("서버가 로그인을 거부했다: %s"),
+					*UServerSubsystem::GetLoginResultText(LoginResult.Result));
 
 				// 인증 실패는 재시도해도 같은 결과다. 보관해둔 요청을 지워
 				// 재접속 때마다 틀린 비밀번호를 자동 재전송하는 것을 막는다.
@@ -726,7 +726,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			OnChatLoginCompleted.Broadcast(LoginResult);
 			break;
 
-		case EChatClientEventType::RegisterAck:
+		case EServerClientEventType::RegisterAck:
 			// 응답을 받았으므로 보관본을 지운다.
 			// 안 지우면 재접속할 때마다 가입을 다시 시도해 "이미 있는 아이디" 가 반복된다.
 			bHasPendingRegister = false;
@@ -734,77 +734,77 @@ bool UChatSubsystem::Tick(float DeltaTime)
 
 			if (Event.Login.bSuccess)
 			{
-				UE_LOG(LogMOUChat, Log, TEXT("계정 생성 완료. 이어서 로그인하면 된다."));
+				UE_LOG(LogMOUServer, Log, TEXT("계정 생성 완료. 이어서 로그인하면 된다."));
 			}
 			else
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("계정 생성 실패: %s"),
-					*UChatSubsystem::GetLoginResultText(Event.Login.Result));
+				UE_LOG(LogMOUServer, Warning, TEXT("계정 생성 실패: %s"),
+					*UServerSubsystem::GetLoginResultText(Event.Login.Result));
 			}
 			OnChatRegisterCompleted.Broadcast(Event.Login.bSuccess, Event.Login.Result);
 			break;
 
-		case EChatClientEventType::RoomCreateAck:
+		case EServerClientEventType::RoomCreateAck:
 			if (Event.bRoomSuccess)
 			{
 				MyRoomId      = Event.RoomId;
 				CurrentRoomId = Event.RoomId;   // 방장도 그 방의 멤버다
-				UE_LOG(LogMOUChat, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
+				UE_LOG(LogMOUServer, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
 			}
 			else
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("방 생성 실패: %s"),
-					*UChatSubsystem::GetRoomResultText(Event.RoomResult));
+				UE_LOG(LogMOUServer, Warning, TEXT("방 생성 실패: %s"),
+					*UServerSubsystem::GetRoomResultText(Event.RoomResult));
 			}
 			OnRoomCreated.Broadcast(Event.bRoomSuccess, Event.RoomId, Event.RoomResult);
 			break;
 
-		case EChatClientEventType::RoomListAck:
-			UE_LOG(LogMOUChat, Log, TEXT("방 목록 수신: %d개"), Event.Rooms.Num());
+		case EServerClientEventType::RoomListAck:
+			UE_LOG(LogMOUServer, Log, TEXT("방 목록 수신: %d개"), Event.Rooms.Num());
 			OnRoomListReceived.Broadcast(Event.Rooms);
 			break;
 
-		case EChatClientEventType::RoomJoinAck:
+		case EServerClientEventType::RoomJoinAck:
 			if (Event.Join.bSuccess)
 			{
 				CurrentRoomId = Event.Join.RoomId;   // 대기실 입장. 방장은 아니다
-				UE_LOG(LogMOUChat, Log, TEXT("방 #%d 입장. 호스트는 %s:%d"),
+				UE_LOG(LogMOUServer, Log, TEXT("방 #%d 입장. 호스트는 %s:%d"),
 					Event.Join.RoomId, *Event.Join.HostAddress, Event.Join.HostPort);
 			}
 			else
 			{
-				UE_LOG(LogMOUChat, Warning, TEXT("방 참여 실패: %s"),
-					*UChatSubsystem::GetRoomResultText(Event.Join.Result));
+				UE_LOG(LogMOUServer, Warning, TEXT("방 참여 실패: %s"),
+					*UServerSubsystem::GetRoomResultText(Event.Join.Result));
 			}
 			OnRoomJoinCompleted.Broadcast(Event.Join);
 			break;
 
-		case EChatClientEventType::RoomMemberList:
+		case EServerClientEventType::RoomMemberList:
 			// 늦게 도착한 이전 방의 명단이 현재 대기실을 덮어쓰지 않게 방 번호를 확인한다.
 			// 빠르게 나갔다 다른 방에 들어가면 실제로 이런 순서가 나온다.
 			if (Event.RoomId == CurrentRoomId)
 			{
 				RoomMembers      = Event.Members;
 				bAllMembersReady = Event.bAllReady;
-				UE_LOG(LogMOUChat, Verbose, TEXT("대기실 #%d 명단 %d명 (전원준비 %s)"),
+				UE_LOG(LogMOUServer, Verbose, TEXT("대기실 #%d 명단 %d명 (전원준비 %s)"),
 					Event.RoomId, RoomMembers.Num(), bAllMembersReady ? TEXT("O") : TEXT("X"));
 				OnRoomMembersChanged.Broadcast(Event.RoomId, RoomMembers, bAllMembersReady);
 			}
 			break;
 
-		case EChatClientEventType::RoomClosed:
-			UE_LOG(LogMOUChat, Log, TEXT("방 #%d 이(가) 닫혔다. 방장이 나갔다."), Event.RoomId);
+		case EServerClientEventType::RoomClosed:
+			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 이(가) 닫혔다. 방장이 나갔다."), Event.RoomId);
 			ClearRoomState();
 			OnRoomClosed.Broadcast(Event.RoomId, Event.CloseReason);
 			break;
 
-		case EChatClientEventType::RoomStart:
+		case EServerClientEventType::RoomStart:
 		{
 			// bIsHost 를 여기서 계산해 넘긴다. 받는 쪽은 호스트냐 참여자냐에 따라
 			// "리슨서버를 연다" 와 "기다린다" 로 갈리는데, 그 판단 근거가
 			// 이미 여기 있으므로 UI 가 다시 따지게 하지 않는다.
 			const bool bIsHost = (MyRoomId != 0 && MyRoomId == Event.RoomId);
-			UE_LOG(LogMOUChat, Log, TEXT("방 #%d 게임 시작. 호스트 %s:%d (나는 %s)"),
+			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 게임 시작. 호스트 %s:%d (나는 %s)"),
 				Event.RoomId, *Event.Join.HostAddress, Event.Join.HostPort,
 				bIsHost ? TEXT("방장") : TEXT("참여자"));
 
@@ -822,14 +822,14 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			break;
 		}
 
-		case EChatClientEventType::RoomHostReady:
+		case EServerClientEventType::RoomHostReady:
 			// 참여자에게만 온다. 이제 붙어도 된다.
-			UE_LOG(LogMOUChat, Log, TEXT("방 #%d 호스트 준비 완료. %s:%d 로 이동한다."),
+			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 호스트 준비 완료. %s:%d 로 이동한다."),
 				Event.RoomId, *Event.Join.HostAddress, Event.Join.HostPort);
 			OnRoomHostReady.Broadcast(Event.Join);
 			break;
 
-		case EChatClientEventType::Disconnected:
+		case EServerClientEventType::Disconnected:
 			LoginResult = FChatLoginResult();
 			// 연결이 끊기면 서버가 내 방을 지운다. 클라이언트 쪽 기억도 같이 비운다.
 			ClearRoomState();
@@ -843,25 +843,25 @@ bool UChatSubsystem::Tick(float DeltaTime)
 		// 친구 (v7)
 		// ------------------------------------------------------------------
 
-		case EChatClientEventType::FriendListAck:
+		case EServerClientEventType::FriendListAck:
 			CachedFriends = Event.Friends;
-			UE_LOG(LogMOUChat, Log, TEXT("친구 목록 %d명 수신"), CachedFriends.Num());
+			UE_LOG(LogMOUServer, Log, TEXT("친구 목록 %d명 수신"), CachedFriends.Num());
 			OnFriendListReceived.Broadcast(CachedFriends);
 			break;
 
-		case EChatClientEventType::FriendAddAck:
+		case EServerClientEventType::FriendAddAck:
 			if (!Event.bFriendSuccess)
 			{
 				// 사람이 읽을 문구는 위젯이 만든다(UMOUFriendText::GetFriendResultText).
 				// 여기서는 진단용으로 값만 남긴다 — 로그가 UI 문구를 정하면
 				// 문구를 바꿀 때 두 곳을 고쳐야 한다.
-				UE_LOG(LogMOUChat, Warning, TEXT("친구 신청 실패 (사유 코드 %d)"),
+				UE_LOG(LogMOUServer, Warning, TEXT("친구 신청 실패 (사유 코드 %d)"),
 					static_cast<int32>(Event.FriendResult));
 			}
 			OnFriendAddCompleted.Broadcast(Event.bFriendSuccess, Event.FriendResult);
 			break;
 
-		case EChatClientEventType::FriendRequestIncoming:
+		case EServerClientEventType::FriendRequestIncoming:
 		{
 			// 목록에도 바로 넣는다. 이게 없으면 알림만 뜨고 목록에는 안 보여서
 			// 수락 버튼을 누를 곳이 없다.
@@ -875,7 +875,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 				CachedFriends[Existing] = Event.Friend;
 			}
 
-			UE_LOG(LogMOUChat, Log, TEXT("친구 신청 도착: %s (id=%lld)"),
+			UE_LOG(LogMOUServer, Log, TEXT("친구 신청 도착: %s (id=%lld)"),
 				*Event.Friend.Nickname, Event.Friend.UserId);
 
 			OnFriendRequestReceived.Broadcast(Event.Friend.UserId, Event.Friend.Nickname);
@@ -883,7 +883,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			break;
 		}
 
-		case EChatClientEventType::FriendUpdate:
+		case EServerClientEventType::FriendUpdate:
 		{
 			const int32 Existing = FindCachedFriendIndex(Event.Friend.UserId);
 
@@ -911,7 +911,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			break;
 		}
 
-		case EChatClientEventType::FriendPresence:
+		case EServerClientEventType::FriendPresence:
 		{
 			// ★ 이 패킷에는 닉네임이 없다(9바이트). UserId 로 찾아 상태만 갈아끼운다.
 			//   못 찾으면 아직 목록이 안 온 것이라 버린다 — 곧 FriendListAck 가
@@ -931,7 +931,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 		// 메신저 (v7)
 		// ------------------------------------------------------------------
 
-		case EChatClientEventType::DirectMessage:
+		case EServerClientEventType::DirectMessage:
 		{
 			FMOUDirectMessage Msg = Event.DirectMessage;
 
@@ -956,7 +956,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 			break;
 		}
 
-		case EChatClientEventType::DmHistoryAck:
+		case EServerClientEventType::DmHistoryAck:
 		{
 			// 기록의 bIsMine 도 여기서 채운다(위와 같은 이유).
 			TArray<FMOUDirectMessage> History = Event.History;
@@ -978,7 +978,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 	while (Backend->DequeueMessage(Message))
 	{
 		// UI 가 붙기 전(5단계 이전)에도 동작을 확인할 수 있도록 로그를 남긴다.
-		UE_LOG(LogMOUChat, Log, TEXT("[%s] %s: %s"),
+		UE_LOG(LogMOUServer, Log, TEXT("[%s] %s: %s"),
 			ToChannelName(Message.Channel), *Message.SenderName, *Message.Text);
 
 		// 여기가 백엔드 -> 게임 스레드 경계의 끝이다.
@@ -1000,7 +1000,7 @@ bool UChatSubsystem::Tick(float DeltaTime)
 //   제대로 된 해법은 "다 열렸다" 를 실제로 관측해서 알리는 것이다. 그 관측이 여기다.
 // ---------------------------------------------------------------------------
 
-bool UChatSubsystem::IsListenServerUp() const
+bool UServerSubsystem::IsListenServerUp() const
 {
 	const UGameInstance* GI = GetGameInstance();
 	const UWorld* World = GI ? GI->GetWorld() : nullptr;
@@ -1019,7 +1019,7 @@ bool UChatSubsystem::IsListenServerUp() const
 	return World->GetNetDriver() != nullptr;
 }
 
-void UChatSubsystem::PollListenServer(float DeltaTime)
+void UServerSubsystem::PollListenServer(float DeltaTime)
 {
 	if (!bWaitingForListenServer)
 	{
@@ -1030,7 +1030,7 @@ void UChatSubsystem::PollListenServer(float DeltaTime)
 	{
 		bWaitingForListenServer = false;
 
-		UE_LOG(LogMOUChat, Log,
+		UE_LOG(LogMOUServer, Log,
 			TEXT("리슨서버가 열렸다(%.1f초 소요). 참여자에게 출발 신호를 보낸다."),
 			ListenServerWaitSeconds);
 
@@ -1051,7 +1051,7 @@ void UChatSubsystem::PollListenServer(float DeltaTime)
 		//   여기까지 왔다는 것은 리슨서버가 뜨지 않았다는 뜻이다. 그런 상태에서 신호를
 		//   보내면 참여자 전원이 죽은 주소로 달려가 각자 접속 실패를 본다.
 		//   대기실에 남아 있으면 적어도 방장이 방을 나갈 때 사유와 함께 정리된다.
-		UE_LOG(LogMOUChat, Error,
+		UE_LOG(LogMOUServer, Error,
 			TEXT("%.0f초 안에 리슨서버가 열리지 않았다. 참여자에게 출발 신호를 보내지 않는다. ")
 			TEXT("맵을 여는 코드(OpenLevel 의 listen 옵션)를 확인할 것. ")
 			TEXT("맵 로딩이 원래 오래 걸린다면 Project Settings -> Game -> MOU Server 의 ")
@@ -1060,7 +1060,7 @@ void UChatSubsystem::PollListenServer(float DeltaTime)
 	}
 }
 
-void UChatSubsystem::SetConnectionState(EChatConnectionState NewState, const FString& Detail)
+void UServerSubsystem::SetConnectionState(EChatConnectionState NewState, const FString& Detail)
 {
 	if (ConnectionState == NewState)
 	{
@@ -1093,19 +1093,19 @@ namespace
 	 * 콘솔 명령이 실행된 월드에서 채팅 서브시스템을 찾는다.
 	 * PIE 창이 여러 개면 "지금 콘솔을 연 창" 의 것이 잡힌다.
 	 */
-	UChatSubsystem* FindChatSubsystem(UWorld* World)
+	UServerSubsystem* FindServerSubsystem(UWorld* World)
 	{
 		UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
-		return GameInstance ? GameInstance->GetSubsystem<UChatSubsystem>() : nullptr;
+		return GameInstance ? GameInstance->GetSubsystem<UServerSubsystem>() : nullptr;
 	}
 
 	FAutoConsoleCommandWithWorldAndArgs GChatConnectCommand(
 		TEXT("MOU.Chat.Connect"),
-		TEXT("채팅 서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
+		TEXT("서버에 접속한다. 인자를 생략하면 설정된 서버로 붙는다. 사용법: MOU.Chat.Connect [호스트] [포트]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					// 인자를 생략하면 빈 값을 넘긴다 -> ConnectToChatServer 가 설정에서 읽는다.
 					// 예전처럼 127.0.0.1 을 기본값으로 두면 콘솔로 테스트할 때마다
@@ -1122,11 +1122,11 @@ namespace
 	 */
 	FAutoConsoleCommand GServerCommand(
 		TEXT("MOU.Chat.Server"),
-		TEXT("현재 설정된 채팅 서버 주소와 그 출처를 출력한다."),
+		TEXT("현재 설정된 서버 주소와 그 출처를 출력한다."),
 		FConsoleCommandDelegate::CreateLambda(
 			[]()
 			{
-				UE_LOG(LogMOUChat, Log, TEXT("채팅 서버: %s"), *UMOUServerSettings::GetResolvedEndpointText());
+				UE_LOG(LogMOUServer, Log, TEXT("서버: %s"), *UMOUServerSettings::GetResolvedEndpointText());
 			}));
 
 	/**
@@ -1135,7 +1135,7 @@ namespace
 	 */
 	FAutoConsoleCommandWithWorldAndArgs GChatSetServerCommand(
 		TEXT("MOU.Chat.SetServer"),
-		TEXT("이 PC 에만 채팅 서버 주소를 저장하고 다시 접속한다. 사용법: MOU.Chat.SetServer <호스트> [포트] (인자 없으면 초기화)"),
+		TEXT("이 PC 에만 서버 주소를 저장하고 다시 접속한다. 사용법: MOU.Chat.SetServer <호스트> [포트] (인자 없으면 초기화)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
@@ -1150,7 +1150,7 @@ namespace
 				}
 
 				// 이미 붙어 있던 연결은 옛 주소를 향하고 있으므로 끊고 새로 붙어야 한다.
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->Disconnect();
 					Chat->ConnectToChatServer();
@@ -1159,15 +1159,15 @@ namespace
 
 	FAutoConsoleCommandWithWorldAndArgs GChatLoginCommand(
 		TEXT("MOU.Chat.Login"),
-		TEXT("채팅 서버에 로그인한다. 사용법: MOU.Chat.Login <아이디> <비밀번호> [팀ID]"),
+		TEXT("서버에 로그인한다. 사용법: MOU.Chat.Login <아이디> <비밀번호> [팀ID]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					if (Args.Num() < 2)
 					{
-						UE_LOG(LogMOUChat, Warning,
+						UE_LOG(LogMOUServer, Warning,
 							TEXT("사용법: MOU.Chat.Login <아이디> <비밀번호> [팀ID]"));
 						return;
 					}
@@ -1182,11 +1182,11 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					if (Args.Num() < 2)
 					{
-						UE_LOG(LogMOUChat, Warning,
+						UE_LOG(LogMOUServer, Warning,
 							TEXT("사용법: MOU.Chat.Register <아이디> <비밀번호> [닉네임]"));
 						return;
 					}
@@ -1209,7 +1209,7 @@ namespace
 			{
 				if (Args.Num() < 2)
 				{
-					UE_LOG(LogMOUChat, Warning, TEXT("사용법: MOU.Exec.Delayed <초> <명령...>"));
+					UE_LOG(LogMOUServer, Warning, TEXT("사용법: MOU.Exec.Delayed <초> <명령...>"));
 					return;
 				}
 
@@ -1243,7 +1243,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					const FString Title = Args.IsValidIndex(0) ? Args[0] : TEXT("테스트방");
 					const FString Pw    = Args.IsValidIndex(1) ? Args[1] : FString();
@@ -1258,7 +1258,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>&, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->RequestRoomList();
 				}
@@ -1270,11 +1270,11 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					if (!Args.IsValidIndex(0))
 					{
-						UE_LOG(LogMOUChat, Warning, TEXT("사용법: MOU.Room.Join <방번호> [비번4자리]"));
+						UE_LOG(LogMOUServer, Warning, TEXT("사용법: MOU.Room.Join <방번호> [비번4자리]"));
 						return;
 					}
 					const FString Pw = Args.IsValidIndex(1) ? Args[1] : FString();
@@ -1288,7 +1288,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>&, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->LeaveRoom();
 				}
@@ -1300,7 +1300,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					const bool bReady = !Args.IsValidIndex(0) || Args[0] != TEXT("0");
 					Chat->SetReady(bReady);
@@ -1313,7 +1313,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>&, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->StartGame();
 				}
@@ -1330,8 +1330,8 @@ namespace
 
 				// 설정값과 실제로 돌고 있는 것을 나란히 찍는다.
 				// 접속 중에 설정을 바꾸면 둘이 달라지는데, 그때 "왜 안 바뀌지" 를 바로 알 수 있다.
-				const UChatSubsystem* Chat = FindChatSubsystem(World);
-				UE_LOG(LogMOUChat, Display, TEXT("설정: %s (출처 %s) / 실행 중: %s"),
+				const UServerSubsystem* Chat = FindServerSubsystem(World);
+				UE_LOG(LogMOUServer, Display, TEXT("설정: %s (출처 %s) / 실행 중: %s"),
 					*MOULobbyBackend::GetTypeName(Configured), *Source,
 					Chat ? *Chat->GetBackendName() : TEXT("(서브시스템 없음)"));
 			}));
@@ -1342,7 +1342,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				UChatSubsystem* Chat = FindChatSubsystem(World);
+				UServerSubsystem* Chat = FindServerSubsystem(World);
 				if (Chat == nullptr || Args.Num() < 2)
 				{
 					return;
@@ -1363,7 +1363,7 @@ namespace
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->SetDeadForTest(Args.IsValidIndex(0) ? (FCString::Atoi(*Args[0]) != 0) : true);
 				}
@@ -1371,11 +1371,11 @@ namespace
 
 	FAutoConsoleCommandWithWorldAndArgs GChatDisconnectCommand(
 		TEXT("MOU.Chat.Disconnect"),
-		TEXT("채팅 서버와의 연결을 끊는다."),
+		TEXT("서버와의 연결을 끊는다."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& /*Args*/, UWorld* World)
 			{
-				if (UChatSubsystem* Chat = FindChatSubsystem(World))
+				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					Chat->Disconnect();
 				}

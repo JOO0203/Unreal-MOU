@@ -71,7 +71,7 @@ public:
 	virtual void SendRegister(const FString& LoginId, const FString& Password, const FString& Nickname) override;
 
 	// --- 채팅 ---
-	// 구현하지 않는다. SupportsChat() 이 false 이므로 UChatSubsystem 이 먼저 막는다.
+	// 구현하지 않는다. SupportsChat() 이 false 이므로 UServerSubsystem 이 먼저 막는다.
 	virtual void SendChat(EChatChannelBP Channel, const FString& Text) override;
 	virtual void SendSetDead(int64 UserId, bool bDead) override;
 
@@ -109,7 +109,7 @@ public:
 	virtual void SendDirectMessage(int64 TargetUserId, const FString& Text) override;
 	virtual void RequestDmHistory(int64 PeerUserId, int64 BeforeMessageId) override;
 
-	virtual bool DequeueEvent(FChatClientEvent& Out) override;
+	virtual bool DequeueEvent(FServerClientEvent& Out) override;
 	virtual bool DequeueMessage(FChatMessage& Out) override;
 
 private:
@@ -130,7 +130,7 @@ private:
 	 * SPSC 가 아니라 Mpsc 인 이유: 소켓 백엔드는 생산자가 워커 스레드 하나뿐이지만,
 	 * SDK 콜백은 어느 스레드에서 올지 우리가 통제하지 못한다.
 	 */
-	TQueue<FChatClientEvent, EQueueMode::Mpsc> InboundEvents;
+	TQueue<FServerClientEvent, EQueueMode::Mpsc> InboundEvents;
 
 	bool bStarted = false;
 };

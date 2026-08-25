@@ -1306,7 +1306,7 @@ class FVoiceCaptureWindows : public IVoiceCapture, public FTSTickerObjectBase
 
 **엔진의 캡처 객체는 게임 스레드 티커로 자기 내부 버퍼를 채우고, 그 버퍼에
 뮤텍스가 없다.** 워커 스레드에서 `GetVoiceData()` 를 폴링한 애초의 설계(6절 옛 표,
-11절 옛 표) 자체가 **데이터 레이스**였다. 기존 채팅(`FChatClientRunnable`)의 패턴을
+11절 옛 표) 자체가 **데이터 레이스**였다. 기존 채팅(`FServerClientRunnable`)의 패턴을
 그대로 따라간 게 여기서는 틀렸다 — 채팅은 우리가 소켓을 직접 다루니 워커가 맞지만,
 음성 캡처는 엔진이 이미 게임 스레드에 묶어놓은 리소스다.
 

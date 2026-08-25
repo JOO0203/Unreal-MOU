@@ -62,7 +62,7 @@ protected:
 	 * PIE/게임 시작 시 채팅 로그인 화면을 자동으로 띄울지.
 	 *
 	 * 이미 로그인되어 있으면(예: 방장이 방을 만들고 리슨서버로 여행해온 경우)
-	 * 다시 묻지 않는다 — ShowLoginWidgetIfNeeded() 가 UChatSubsystem 의 연결 상태로 판단한다.
+	 * 다시 묻지 않는다 — ShowLoginWidgetIfNeeded() 가 UServerSubsystem 의 연결 상태로 판단한다.
 	 */
 	UPROPERTY(EditAnywhere, Category = "MOU|Chat")
 	bool bAutoShowLoginWidget = true;

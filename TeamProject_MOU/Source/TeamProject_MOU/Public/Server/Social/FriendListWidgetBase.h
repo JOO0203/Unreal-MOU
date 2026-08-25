@@ -11,7 +11,7 @@
 //     오프라인   ○ NormalOne    [메시지] [삭제]
 //
 // [★ 목록을 다시 요청하지 않는다 — 델타로만 갱신한다]
-//   UChatSubsystem 이 주는 신호는 세 가지고, 각자 역할이 다르다:
+//   UServerSubsystem 이 주는 신호는 세 가지고, 각자 역할이 다르다:
 //
 //     OnFriendListReceived    로그인 직후 한 번. 통째로 다시 그린다
 //     OnFriendUpdated         한 줄 추가/수정/삭제
@@ -23,7 +23,7 @@
 // [★ 위젯이 늦게 만들어졌을 때]
 //   OnFriendListReceived 는 로그인 직후 한 번만 온다. 로비를 닫았다 다시 열면
 //   이 위젯은 새로 만들어지므로 그 신호를 놓친다. 그래서 NativeConstruct 에서
-//   UChatSubsystem::GetFriends() 로 **캐시를 먼저 읽어** 채운다.
+//   UServerSubsystem::GetFriends() 로 **캐시를 먼저 읽어** 채운다.
 //   이게 없으면 로비를 다시 열 때마다 목록이 빈 채로 시작한다.
 //
 // [정렬]
@@ -51,7 +51,7 @@
 #include "FriendListWidgetBase.generated.h"
 
 class UButton;
-class UChatSubsystem;
+class UServerSubsystem;
 class UEditableTextBox;
 class UFriendEntryWidget;
 class UScrollBox;
@@ -235,7 +235,7 @@ private:
 	void RebuildList();
 
 	/** 이 위젯이 쓰는 서브시스템. 없으면 nullptr(단독 실행/테스트). */
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	/**
 	 * 상태 문구를 띄운다. StatusClearSeconds 뒤에 저절로 사라진다.

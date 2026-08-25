@@ -65,7 +65,7 @@
 
 ```
 Chat/  (구)
-  ChatSubsystem  ChatClientRunnable  ChatFraming  ChatTypes  ChatWidgetBase   ← 채팅
+  ServerSubsystem  ServerClientRunnable  ChatFraming  ChatTypes  ChatWidgetBase   ← 채팅
   LoginWidgetBase                                                             ← 계정
   LobbyBackend  SocketLobbyBackend  EOSLobbyBackend  LobbyTypes               ← 로비
   LobbyWidgetBase  RoomCreateWidgetBase  RoomListWidgetBase                   ← 방/대기실
@@ -80,10 +80,10 @@ Chat/  (구)
 ```
 Public/Server/                    (Private/ 도 같은 구조)
   ServerSettings.h                서버 주소 / 백엔드 종류        [공용]
-  ChatSubsystem.h                 진입점. UI 는 이것만 안다      [공용]
+  ServerSubsystem.h                 진입점. UI 는 이것만 안다      [공용]
   Net/                            ★ 바이트를 다루는 층
     ChatFraming.h                   길이 프레이밍 + UTF-8 변환
-    ChatClientRunnable.h            FRunnable 워커. 소켓 송수신
+    ServerClientRunnable.h            FRunnable 워커. 소켓 송수신
   Lobby/                          ★ 로그인 · 방 · 대기실
     LobbyBackend.h                  ILobbyBackend 인터페이스 + 팩토리
     SocketLobbyBackend.h            자체 서버 구현 (패킷 조립은 여기서만)
@@ -111,12 +111,12 @@ Public/Server/                    (Private/ 도 같은 구조)
 >     하나라 별도 창이 필요 없고, `UFriendListWidgetBase` 상단에 붙였다.
 >     롤도 같은 자리에 있다.
 
-**`ChatSubsystem` 과 `ServerSettings` 만 `Server/` 바로 아래 둔 이유**: 이 둘은
-어느 하위 폴더에도 속하지 않는다. `ChatSubsystem` 은 Net·Lobby·Chat·Social 을
+**`ServerSubsystem` 과 `ServerSettings` 만 `Server/` 바로 아래 둔 이유**: 이 둘은
+어느 하위 폴더에도 속하지 않는다. `ServerSubsystem` 은 Net·Lobby·Chat·Social 을
 전부 다루는 진입점이고, `ServerSettings` 는 넷이 공통으로 읽는다. 하위로 내리면
 "왜 저기 있지" 를 매번 되짚어야 한다.
 
-> **`ChatSubsystem` 이라는 이름은 그대로 둔다.** 내용상 `ServerSubsystem` 이
+> **`ServerSubsystem` 이라는 이름은 그대로 둔다.** 내용상 `ServerSubsystem` 이
 > 맞지만, 지금 이름을 바꾸면 블루프린트에서 이 노드를 참조하는 자산이 전부
 > 끊어진다(BP 는 클래스 이름으로 참조한다). **재편의 목적은 정리이지 사고가
 > 아니다.** 이름 변경은 BP 참조를 한 번에 훑을 수 있을 때 따로 한다.
@@ -154,7 +154,7 @@ enum class EChatChannel : uint8_t { All, Team, Dead, Whisper, System };
 SetDead = 8,   // 지금은 테스트 클라가 보내지만, 나중에는 리슨서버만 보낸다
 ```
 
-`ChatSubsystem.h` 주석에도 남아 있다:
+`ServerSubsystem.h` 주석에도 남아 있다:
 
 > *"현재 미해결(8단계 예정): TeamId 와 생사 여부의 권위자는 게임(리슨서버)인데
 > 채팅 서버는 그 정보를 모른다. (…) 리슨서버가 채팅 서버에 미러링하도록 바꿔야 한다."*
@@ -186,7 +186,7 @@ SetDead = 8,   // 지금은 테스트 클라가 보내지만, 나중에는 리�
 > 지웠다가 다시 만드는 것보다 남겨두는 편이 싸다.
 >
 > **★ 인게임용으로 바꿀 때 아래쪽 절반은 버려야 한다.** 지금은
-> `UChatSubsystem` 을 구독해 TCP 로 보내는데, 죽은사람 채팅은 리슨서버 RPC 다.
+> `UServerSubsystem` 을 구독해 TCP 로 보내는데, 죽은사람 채팅은 리슨서버 RPC 다.
 > 자세한 것은 그 헤더 상단 주석과 11절.
 
 ---
@@ -661,7 +661,7 @@ DB 에는 온라인으로 남은" 유령이 생긴다.
 ### 9-2. 클라이언트
 
 ```
-UChatSubsystem  (기존, Server/)
+UServerSubsystem  (기존, Server/)
    │  친구/DM API 를 여기에 추가한다. UI 는 여전히 이것만 안다.
    │
    ├─ ILobbyBackend (기존, Server/Lobby/)
@@ -809,8 +809,8 @@ Public/Server/Chat/InGame/
 > PIE 다중 창 대응이 전부 들어 있다. **화면은 그대로 쓰고 전송 경로만 갈면 된다.**
 >
 > 갈아야 하는 부분은 명확하다:
->   · `UChatSubsystem::OnChatMessageReceived` 구독  →  `UDeadChatComponent` 의 델리게이트
->   · `UChatSubsystem::SendChat()` 호출            →  `ServerSendDeadChat()` RPC
+>   · `UServerSubsystem::OnChatMessageReceived` 구독  →  `UDeadChatComponent` 의 델리게이트
+>   · `UServerSubsystem::SendChat()` 호출            →  `ServerSendDeadChat()` RPC
 
 > **`Server/` 아래인데 `Server.exe` 를 안 쓴다 — 헷갈리지 않게 주의.**
 > `Chat/` 안에 두는 것은 **"채팅" 이라는 기능으로 묶기 위해서**다. 나중에 채팅
@@ -829,6 +829,23 @@ Public/Server/Chat/InGame/
 
 **이 함수를 그대로 쓴다.** 새로 만들면 두 판정이 갈라질 수 있다.
 
+### 11-5. ★ 신원 위조 방지는 이 구현의 책임이다
+
+`SERVER_INTEGRATION.md` 에 있던 "팀 ID / 생사 위조 가능" 한계를 여기로 옮겼다.
+`Server.exe` 쪽 `SetDeadForTest()`/`TeamId` 자유 입력은 로비 메신저와는 무관한
+문제였고(메신저는 `Friends`/`DirectMessages` 로 `bDead`/`TeamId` 를 아예 안 쓴다),
+`Dead` 채널이 리슨서버 RPC 로 이관되면서 그 위조 경로 자체가 없어진다 — **단,
+그건 이 구현이 11-2절대로 서버 RPC 에서 생사를 직접 판정할 때만 유효하다.**
+
+구현할 때 지킬 것:
+
+- `ServerSendDeadChat()` 은 **클라이언트가 보낸 "나 죽었음" 주장을 절대 믿지 않는다.**
+  11-4절의 `UVoiceComponent::IsPlayerVoiceDead(PC)` 로 서버가 직접 재확인한다.
+- 수신자 필터링(죽은 사람 전원)도 **서버가** 계산한다. 클라이언트가 채널을 골라
+  보내는 방식이 아니다.
+- 이 규칙이 깨지면 `Server.exe` 시절과 같은 문제(산 사람이 사망 채팅을 엿보거나
+  위조)가 그대로 재현된다 — 서버만 바뀌었을 뿐 검증 없는 자기 신고는 여전히 취약하다.
+
 ---
 
 ## 12. 구현 순서
@@ -844,7 +861,7 @@ Public/Server/Chat/InGame/
 | M4 | `Presence` (35) | 한쪽을 끄면 다른 쪽 목록이 오프라인으로 바뀐다 | **✅ 완료** (2026-08-24). 4단계 전이 검증 |
 | M5 | DM 송수신 (36~37) + 오프라인 보관 | 껐다 켠 쪽이 밀린 메시지를 받는다 | **✅ 완료** (2026-08-24) |
 | M6 | DM 기록 조회 (38~39) + 읽음 처리 | 커서로 이전 페이지를 이어 받는다 | **✅ 완료** (2026-08-24) |
-| M7 | `UChatSubsystem` API + 델리게이트 | BP 에서 노드가 보이고 로그가 찍힌다 | **✅ 완료** (2026-08-24). 빌드 통과 |
+| M7 | `UServerSubsystem` API + 델리게이트 | BP 에서 노드가 보이고 로그가 찍힌다 | **✅ 완료** (2026-08-24). 빌드 통과 |
 | M8 | `UFriendListWidgetBase` + 친구 추가 창 | PIE 2창으로 신청→수락이 화면에서 된다 | **✅ 완료** (2026-08-24). 빌드 통과 |
 | M9 | `UDmWindowWidget` + 메신저 통합 | 대화가 오가고 다시 열면 남아 있다 | **✅ 완료** (2026-08-24). 빌드 통과 |
 | M10 | `ChatWidgetBase`(구 전체채팅) 제거 판단 | 메신저가 대체했는지 확인 후 | **✅ 완료** (2026-08-24). **지우지 않고 인게임용으로 이관** |
@@ -891,10 +908,10 @@ Public/Server/Chat/InGame/
 
    | 옛 경로 | 새 경로 |
    |---|---|
-   | `Chat/ChatFraming.h` · `Chat/ChatClientRunnable.h` | `Server/Net/...` |
+   | `Chat/ChatFraming.h` · `Chat/ServerClientRunnable.h` | `Server/Net/...` |
    | `Chat/Lobby*.h` · `Chat/*LobbyBackend.h` · `Chat/Login*.h` · `Chat/Room*.h` | `Server/Lobby/...` |
    | `Chat/ChatTypes.h` · `Chat/ChatWidgetBase.h` | `Server/Chat/...` |
-   | `Chat/ChatSubsystem.h` · `Chat/ServerSettings.h` | `Server/...` |
+   | `Chat/ServerSubsystem.h` · `Chat/ServerSettings.h` | `Server/...` |
 
    저장소 전체에 `"Chat/` 문자열이 남아 있지 않은 것은 확인했다.
 4. **`.generated.h` 는 손대지 않았다.** UHT 가 클래스 이름으로 찾으므로 폴더가
@@ -997,7 +1014,7 @@ Server.exe 7777 chat_log.db
 | **친구 초대로 방 참여** | 방 시스템과 엮이는 지점이 많다. 메신저가 돌아간 뒤에 본다 |
 | **읽음 표시(상대가 읽었는지)** | `read_at` 은 이미 있다. 상대에게 알리는 옵코드만 추가하면 되므로 언제든 붙일 수 있다 |
 | **메시지 삭제 / 신고** | 외부 서비스가 아니라 필요 없다 |
-| **`ChatSubsystem` → `ServerSubsystem` 개명** | 2절. BP 참조가 끊긴다. 한 번에 훑을 수 있을 때 |
+| **`ServerSubsystem` → `ServerSubsystem` 개명** | 2절. BP 참조가 끊긴다. 한 번에 훑을 수 있을 때 |
 | **알림음 / 토스트** | 배지부터 되고 나서 |
 
 ---
@@ -1038,10 +1055,10 @@ Server.exe 7777 chat_log.db
 
 ✅ M7  클라이언트 API — 빌드 통과 확인됨 (2026-08-24, UE 5.8 실제 컴파일)
        Social/FriendTypes.h (FMOUFriend, FMOUDirectMessage, enum 3종)
-       EChatClientEventType +7, FChatClientEvent 필드 확장
+       EServerClientEventType +7, FServerClientEvent 필드 확장
        ILobbyBackend +6 메서드 / Socket 구현 / EOS 스텁
-       ChatClientRunnable 파싱 7종 (가변 길이 DmEntry 순회 포함)
-       UChatSubsystem 델리게이트 7개 + API 8개 + CachedFriends
+       ServerClientRunnable 파싱 7종 (가변 길이 DmEntry 순회 포함)
+       UServerSubsystem 델리게이트 7개 + API 8개 + CachedFriends
        ★ 컴파일 중 실제로 걸린 것: UFUNCTION 참조 반환 금지 → GetFriends(값)/
          GetFriendsRef(참조) 로 분리. UHT 리플렉션(enum 3·struct 2) 전부 통과 확인
 

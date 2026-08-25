@@ -4,16 +4,16 @@
 //   콘솔 명령 MOU.Room.List / MOU.Room.Join 으로 하던 일을 화면에서 한다.
 //     1. 대기 중인 방 목록을 요청하고 한 줄씩 그린다
 //     2. 비밀번호 방을 고르면 숫자 4자리를 입력받는다
-//     3. UChatSubsystem::JoinRoom() 을 호출하고 결과를 표시한다
+//     3. UServerSubsystem::JoinRoom() 을 호출하고 결과를 표시한다
 //
 // [시스템에서의 위치]
 //     ULobbyWidgetBase (메인메뉴)
 //       ├─ URoomCreateWidgetBase      방을 "만드는" 쪽
 //       └─ URoomListWidgetBase     ← 이 파일. 방에 "들어가는" 쪽
 //            └─ URoomListEntryWidget   목록의 한 줄
-//   서버와 직접 대화하지 않는다. UChatSubsystem 하고만 대화한다.
-//     보낼 때: UChatSubsystem::RequestRoomList() / JoinRoom()
-//     받을 때: UChatSubsystem::OnRoomListReceived / OnRoomJoinCompleted
+//   서버와 직접 대화하지 않는다. UServerSubsystem 하고만 대화한다.
+//     보낼 때: UServerSubsystem::RequestRoomList() / JoinRoom()
+//     받을 때: UServerSubsystem::OnRoomListReceived / OnRoomJoinCompleted
 //   대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 RoomListReq/RoomJoinReq 핸들러,
 //                       MOU_Server/Server/Rooms.cpp 의 Rooms::ListWaiting() / Rooms::Join()
 //
@@ -51,7 +51,7 @@ class UPanelWidget;
 class UScrollBox;
 class UTextBlock;
 class UVerticalBox;
-class UChatSubsystem;
+class UServerSubsystem;
 
 /** 목록의 한 줄에서 "참여" 를 눌렀을 때. 목록 위젯이 받는다. */
 DECLARE_DELEGATE_OneParam(FOnRoomEntryJoinClicked, int32 /*RoomId*/);
@@ -295,7 +295,7 @@ private:
 	/** 응답을 기다리는 동안 버튼을 잠근다. */
 	void SetBusy(bool bBusy);
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	/** 지금 화면에 떠 있는 줄들. 목록을 다시 받을 때 통째로 지우고 새로 만든다. */
 	UPROPERTY()

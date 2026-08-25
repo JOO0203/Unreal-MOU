@@ -46,7 +46,7 @@
 #include "MessengerWidgetBase.generated.h"
 
 class UButton;
-class UChatSubsystem;
+class UServerSubsystem;
 class UDmWindowWidget;
 class UEditableTextBox;
 class UFriendListWidgetBase;
@@ -127,7 +127,7 @@ private:
 	/** 말풍선 한 줄을 만들어 넣는다. bPrepend 면 맨 위에. */
 	void InsertBubble(const FMOUDirectMessage& Message, bool bPrepend);
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	UFUNCTION()
 	void HandleSendClicked();
@@ -148,7 +148,7 @@ private:
 	 * 지금 화면에 있는 가장 오래된 메시지의 번호. 위로 스크롤할 때 커서로 쓴다.
 	 *
 	 * ★ 0 이면 안 된다. 0 을 서버에 보내면 "최신 페이지" 로 해석되어
-	 *   읽음 처리까지 일어난다(UChatSubsystem::LoadOlderMessages 가 막아준다).
+	 *   읽음 처리까지 일어난다(UServerSubsystem::LoadOlderMessages 가 막아준다).
 	 */
 	int64 OldestMessageId = 0;
 
@@ -219,7 +219,7 @@ protected:
 private:
 	void BuildDefaultLayout();
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	/** 친구 목록에서 "메시지" 를 눌렀을 때. */
 	void HandleConversationRequested(int64 PeerUserId);

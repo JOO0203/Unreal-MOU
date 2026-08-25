@@ -20,10 +20,10 @@
 //   **다음 사람이 여기서부터 시작하도록** 보관 중이다.
 //
 // [★ 인게임 채팅으로 바꿀 때 무엇이 달라지는가 — 반드시 읽을 것]
-//   경로가 통째로 바뀐다. 이 위젯의 아래쪽 절반(UChatSubsystem 구독/전송)은
+//   경로가 통째로 바뀐다. 이 위젯의 아래쪽 절반(UServerSubsystem 구독/전송)은
 //   **버려야 한다.**
 //
-//     지금:  이 위젯 → UChatSubsystem → TCP → Server.exe
+//     지금:  이 위젯 → UServerSubsystem → TCP → Server.exe
 //     나중:  이 위젯 → UDeadChatComponent → Server RPC → 방장의 리슨서버
 //
 //   죽은사람 채팅은 외부 서버를 타지 않는다. 이유는 CHAT_DESIGN.md 3절과 11절에
@@ -35,7 +35,7 @@
 //   새로 만들면 음성과 채팅이 서로 다른 근거로 판정해 어긋난다(11-4절).
 //
 // [아래 주석은 전부 "전체 채팅" 시절 기준이다]
-//   구조 설명은 여전히 유효하지만, UChatSubsystem 을 가리키는 부분은 위의
+//   구조 설명은 여전히 유효하지만, UServerSubsystem 을 가리키는 부분은 위의
 //   경로 변경을 염두에 두고 읽을 것.
 //
 // ---------------------------------------------------------------------------
@@ -44,15 +44,15 @@
 //
 //   Server.exe
 //        ↕ TCP
-//   FChatClientRunnable  (워커 스레드)
+//   FServerClientRunnable  (워커 스레드)
 //        ↕ TQueue
-//   UChatSubsystem       (게임 스레드) ── OnChatMessageReceived ──┐
+//   UServerSubsystem       (게임 스레드) ── OnChatMessageReceived ──┐
 //                                     ── OnChatStateChanged ─────┤
 //                                     ── OnChatLoginCompleted ───┤
 //   UChatWidgetBase  <- 여기 ◀────────────────────────────────────┘
 //        ↕ SendChat()
 //
-//   이 위젯은 소켓이나 패킷을 전혀 모른다. UChatSubsystem 의 델리게이트를 구독해서
+//   이 위젯은 소켓이나 패킷을 전혀 모른다. UServerSubsystem 의 델리게이트를 구독해서
 //   받은 FChatMessage 를 한 줄씩 화면에 붙이고, 사용자가 입력한 문자열을
 //   SendChat() 으로 넘길 뿐이다.
 //
@@ -86,13 +86,13 @@ class UEditableTextBox;
 class UScrollBox;
 class UTextBlock;
 class UVerticalBox;
-class UChatSubsystem;
+class UServerSubsystem;
 
 /**
  * 채팅 로그 + 입력창.
  *
  * 사용 흐름:
- *   1. 어딘가에서 UChatSubsystem::ConnectToChatServer() / Login() 을 호출해 접속한다
+ *   1. 어딘가에서 UServerSubsystem::ConnectToChatServer() / Login() 을 호출해 접속한다
  *   2. 이 위젯을 CreateWidget 해서 AddToViewport() 한다
  *   3. Enter 로 입력창을 열고, 다시 Enter 로 전송한다
  *
@@ -241,7 +241,7 @@ private:
 	void RefreshStatusText();
 	void RefreshChannelText();
 
-	UChatSubsystem* GetChatSubsystem() const;
+	UServerSubsystem* GetServerSubsystem() const;
 
 	static FLinearColor GetChannelColor(EChatChannelBP Channel);
 	static const TCHAR* GetChannelName(EChatChannelBP Channel);

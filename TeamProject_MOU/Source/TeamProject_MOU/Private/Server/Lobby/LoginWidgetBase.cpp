@@ -2,7 +2,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Server/ServerSettings.h"
-#include "Server/ChatSubsystem.h"
+#include "Server/ServerSubsystem.h"
 #include "Server/Chat/InGame/ChatWidgetBase.h"
 #include "Server/Lobby/LobbyWidgetBase.h"
 #include "Components/Border.h"
@@ -130,7 +130,7 @@ void ULoginWidgetBase::NativeConstruct()
 	// NativeConstruct 는 뷰포트에 다시 붙을 때마다 불릴 수 있어 중복 구독을 막는다.
 	if (!bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnChatLoginCompleted.AddDynamic(this, &ULoginWidgetBase::HandleLoginCompleted);
 			Chat->OnChatRegisterCompleted.AddDynamic(this, &ULoginWidgetBase::HandleRegisterCompleted);
@@ -149,7 +149,7 @@ void ULoginWidgetBase::NativeDestruct()
 	// 구독 해제를 여기서 반드시 해야 파괴된 위젯으로 델리게이트가 날아오지 않는다.
 	if (bSubscribed)
 	{
-		if (UChatSubsystem* Chat = GetChatSubsystem())
+		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnChatLoginCompleted.RemoveDynamic(this, &ULoginWidgetBase::HandleLoginCompleted);
 			Chat->OnChatRegisterCompleted.RemoveDynamic(this, &ULoginWidgetBase::HandleRegisterCompleted);
@@ -165,18 +165,18 @@ void ULoginWidgetBase::NativeDestruct()
 // 동작
 // ---------------------------------------------------------------------------
 
-UChatSubsystem* ULoginWidgetBase::GetChatSubsystem() const
+UServerSubsystem* ULoginWidgetBase::GetServerSubsystem() const
 {
 	if (const UGameInstance* GameInstance = GetGameInstance())
 	{
-		return GameInstance->GetSubsystem<UChatSubsystem>();
+		return GameInstance->GetSubsystem<UServerSubsystem>();
 	}
 	return nullptr;
 }
 
 void ULoginWidgetBase::EnsureConnected()
 {
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetMessage(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -194,7 +194,7 @@ void ULoginWidgetBase::EnsureConnected()
 		const FString Target = (ServerHost.IsEmpty() || ServerPort <= 0)
 			? UMOUServerSettings::GetResolvedEndpointText()
 			: FString::Printf(TEXT("%s:%d"), *ServerHost, ServerPort);
-		UE_LOG(LogMOUChat, Log, TEXT("로그인 화면이 접속을 시작한다: %s"), *Target);
+		UE_LOG(LogMOUServer, Log, TEXT("로그인 화면이 접속을 시작한다: %s"), *Target);
 	}
 }
 
@@ -208,7 +208,7 @@ bool ULoginWidgetBase::ReadAndValidateInput(FString& OutId, FString& OutPassword
 	OutId.TrimStartAndEndInline();
 
 	FString Reason;
-	if (!UChatSubsystem::ValidateCredentials(OutId, OutPassword, Reason))
+	if (!UServerSubsystem::ValidateCredentials(OutId, OutPassword, Reason))
 	{
 		SetMessage(Reason, true);
 		return false;
@@ -229,7 +229,7 @@ void ULoginWidgetBase::TryLogin()
 		return;
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetMessage(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -257,7 +257,7 @@ void ULoginWidgetBase::TryRegister()
 		return;
 	}
 
-	UChatSubsystem* Chat = GetChatSubsystem();
+	UServerSubsystem* Chat = GetServerSubsystem();
 	if (Chat == nullptr)
 	{
 		SetMessage(TEXT("채팅 시스템을 찾을 수 없습니다."), true);
@@ -285,7 +285,7 @@ void ULoginWidgetBase::HandleRegisterCompleted(bool bSuccess, EChatLoginResultBP
 	{
 		bAutoLoginAfterRegister = false;
 		SetBusy(false);
-		SetMessage(UChatSubsystem::GetLoginResultText(Result), true);
+		SetMessage(UServerSubsystem::GetLoginResultText(Result), true);
 		return;
 	}
 
@@ -297,7 +297,7 @@ void ULoginWidgetBase::HandleRegisterCompleted(bool bSuccess, EChatLoginResultBP
 		FString Id, Password;
 		if (ReadAndValidateInput(Id, Password))
 		{
-			if (UChatSubsystem* Chat = GetChatSubsystem())
+			if (UServerSubsystem* Chat = GetServerSubsystem())
 			{
 				Chat->Login(Id, Password, TeamId);
 				return;   // bBusy 는 로그인 응답까지 유지한다
@@ -315,7 +315,7 @@ void ULoginWidgetBase::HandleLoginCompleted(const FChatLoginResult& Result)
 
 	if (!Result.bSuccess)
 	{
-		SetMessage(UChatSubsystem::GetLoginResultText(Result.Result), true);
+		SetMessage(UServerSubsystem::GetLoginResultText(Result.Result), true);
 		// 비밀번호는 화면에 남겨두지 않는다. 아이디는 고칠 일이 적으니 남긴다.
 		if (PasswordBox != nullptr)
 		{
@@ -360,7 +360,7 @@ void ULoginWidgetBase::HandleStateChanged(EChatConnectionState NewState, const F
 		// "엉뚱한 주소를 보고 있다" 가 훨씬 흔한 원인이라 주소가 화면에 있어야 한다.
 		const FString Target = UMOUServerSettings::GetResolvedEndpointText();
 		SetMessage(Detail.IsEmpty()
-			? FString::Printf(TEXT("채팅 서버(%s)에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요."), *Target)
+			? FString::Printf(TEXT("서버(%s)에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요."), *Target)
 			: FString::Printf(TEXT("연결 끊김: %s (대상 %s)"), *Detail, *Target), true);
 	}
 }
