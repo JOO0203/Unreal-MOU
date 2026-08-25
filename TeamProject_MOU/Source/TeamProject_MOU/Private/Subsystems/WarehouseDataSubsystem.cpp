@@ -1,7 +1,59 @@
 #include "Subsystems/WarehouseDataSubsystem.h"
 
+#include "Base/ItemBase.h"
+#include "Base/PackageBase.h"
 #include "Base/ProjectGameInstanceBase.h"
 #include "Components/WarehouseComponent.h"
+#include "Item/PackageItemSaveData.h"
+#include "Item/WarehouseInitialDataAsset.h"
+
+void UWarehouseDataSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	InitializeWarehouseFromDataAsset();
+}
+
+void UWarehouseDataSubsystem::InitializeWarehouseFromDataAsset()
+{
+	UProjectGameInstanceBase* GameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance());
+	if (!GameInstance || GameInstance->bWarehouseInitialized || !GameInstance->InitialWarehouseData) return;
+
+	TArray<FStoredItemData> InitialItems;
+	TArray<FStoredItemInstanceData> InitialInstances;
+	for (const FStoredItemData& ConfiguredItem : GameInstance->InitialWarehouseData->InitialItems)
+	{
+		if (!ConfiguredItem.ItemClass || ConfiguredItem.Quantity <= 0) continue;
+		InitialItems.Add(ConfiguredItem);
+
+		const AItemBase* ItemDefaults = ConfiguredItem.ItemClass->GetDefaultObject<AItemBase>();
+		for (int32 Count = 0; Count < ConfiguredItem.Quantity; ++Count)
+		{
+			FStoredItemInstanceData Instance;
+			Instance.ItemClass = ConfiguredItem.ItemClass;
+			if (ItemDefaults)
+			{
+				Instance.CurrentUseCount = ItemDefaults->MaxUseCount;
+				Instance.CurrentDurability = ItemDefaults->MaxDurability;
+				if (const APackageBase* PackageDefaults = Cast<APackageBase>(ItemDefaults))
+				{
+					FPackageItemSaveData PackageData;
+					PackageData.BaseValue = PackageDefaults->BaseValue;
+					PackageData.PackageType = PackageDefaults->PackageType;
+					PackageData.MaxSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.CurrentSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.bIsBroken = false;
+					Instance.ExtraSaveData.Add(FInstancedStruct::Make(PackageData));
+				}
+			}
+			InitialInstances.Add(MoveTemp(Instance));
+		}
+	}
+
+	GameInstance->SaveStoredItems(InitialItems);
+	GameInstance->SaveStoredItemInstances(InitialInstances);
+	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Initial data asset applied. Classes=%d Instances=%d"),
+		InitialItems.Num(), InitialInstances.Num());
+}
 
 void UWarehouseDataSubsystem::SaveStoredItems(const TArray<FStoredItemData>& InStoredItems)
 {
@@ -44,8 +96,140 @@ bool UWarehouseDataSubsystem::SaveFromWarehouseComponent(const UWarehouseCompone
 		return false;
 	}
 
+	const TArray<FStoredItemInstanceData> LiveInstances = WarehouseComponent->BuildStoredItemInstanceData();
+	const TArray<FStoredItemInstanceData> PreviousInstances = GetStoredItemInstancesInternal();
+	TArray<FStoredItemInstanceData> MergedInstances;
+	TSet<int32> UsedLiveIndices;
+	TSet<int32> UsedPreviousIndices;
+
+	// 현재 요약 수량이 최종 기준입니다. 실제 액터 데이터가 있으면 최신 상태를 쓰고,
+	// 로비 재진입 시 아직 액터로 복원되지 않은 물품은 이전 개별 저장 상태를 유지합니다.
+	for (const FStoredItemData& StoredItem : WarehouseComponent->StoredItems)
+	{
+		if (!StoredItem.ItemClass || StoredItem.Quantity <= 0) continue;
+
+		int32 SavedCount = 0;
+		for (int32 Index = 0; Index < LiveInstances.Num() && SavedCount < StoredItem.Quantity; ++Index)
+		{
+			if (!UsedLiveIndices.Contains(Index) && LiveInstances[Index].ItemClass == StoredItem.ItemClass)
+			{
+				MergedInstances.Add(LiveInstances[Index]);
+				UsedLiveIndices.Add(Index);
+				++SavedCount;
+			}
+		}
+
+		for (int32 Index = 0; Index < PreviousInstances.Num() && SavedCount < StoredItem.Quantity; ++Index)
+		{
+			if (!UsedPreviousIndices.Contains(Index) && PreviousInstances[Index].ItemClass == StoredItem.ItemClass)
+			{
+				MergedInstances.Add(PreviousInstances[Index]);
+				UsedPreviousIndices.Add(Index);
+				++SavedCount;
+			}
+		}
+
+		// 요약 데이터만 존재하는 이전 저장도 다음 로비에서 다시 스폰될 수 있게 기본 상태를 보충합니다.
+		while (SavedCount < StoredItem.Quantity)
+		{
+			FStoredItemInstanceData FallbackInstance;
+			FallbackInstance.ItemClass = StoredItem.ItemClass;
+			if (const AItemBase* ItemDefaults = StoredItem.ItemClass->GetDefaultObject<AItemBase>())
+			{
+				FallbackInstance.CurrentUseCount = ItemDefaults->MaxUseCount;
+				FallbackInstance.CurrentDurability = ItemDefaults->MaxDurability;
+				if (const APackageBase* PackageDefaults = Cast<APackageBase>(ItemDefaults))
+				{
+					FPackageItemSaveData PackageData;
+					PackageData.BaseValue = PackageDefaults->BaseValue;
+					PackageData.PackageType = PackageDefaults->PackageType;
+					PackageData.MaxSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.CurrentSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.bIsBroken = false;
+					FallbackInstance.ExtraSaveData.Add(FInstancedStruct::Make(PackageData));
+				}
+			}
+			MergedInstances.Add(MoveTemp(FallbackInstance));
+			++SavedCount;
+		}
+	}
+
 	SaveStoredItems(WarehouseComponent->StoredItems);
-	SaveStoredItemInstances(WarehouseComponent->BuildStoredItemInstanceData());
+	SaveStoredItemInstances(MergedInstances);
+	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Saved component. SummaryClasses=%d LiveInstances=%d PreviousInstances=%d MergedInstances=%d"),
+		WarehouseComponent->StoredItems.Num(), LiveInstances.Num(), PreviousInstances.Num(), MergedInstances.Num());
+	return true;
+}
+
+bool UWarehouseDataSubsystem::MergeFromWarehouseComponent(const UWarehouseComponent* WarehouseComponent)
+{
+	if (!WarehouseComponent)
+	{
+		return false;
+	}
+
+	TArray<FStoredItemData> MergedItems = GetStoredItemsInternal();
+	TArray<FStoredItemInstanceData> MergedInstances = GetStoredItemInstancesInternal();
+	const TArray<FStoredItemInstanceData> IncomingInstances = WarehouseComponent->BuildStoredItemInstanceData();
+	TSet<int32> UsedIncomingIndices;
+
+	for (const FStoredItemData& IncomingItem : WarehouseComponent->StoredItems)
+	{
+		if (!IncomingItem.ItemClass || IncomingItem.Quantity <= 0) continue;
+
+		const int32 ExistingIndex = MergedItems.IndexOfByPredicate(
+			[&IncomingItem](const FStoredItemData& StoredItem)
+			{
+				return StoredItem.ItemClass == IncomingItem.ItemClass;
+			});
+		if (ExistingIndex != INDEX_NONE)
+		{
+			MergedItems[ExistingIndex].Quantity += IncomingItem.Quantity;
+		}
+		else
+		{
+			MergedItems.Add(IncomingItem);
+		}
+
+		int32 AddedInstanceCount = 0;
+		for (int32 Index = 0; Index < IncomingInstances.Num() && AddedInstanceCount < IncomingItem.Quantity; ++Index)
+		{
+			if (!UsedIncomingIndices.Contains(Index) && IncomingInstances[Index].ItemClass == IncomingItem.ItemClass)
+			{
+				MergedInstances.Add(IncomingInstances[Index]);
+				UsedIncomingIndices.Add(Index);
+				++AddedInstanceCount;
+			}
+		}
+
+		while (AddedInstanceCount < IncomingItem.Quantity)
+		{
+			FStoredItemInstanceData FallbackInstance;
+			FallbackInstance.ItemClass = IncomingItem.ItemClass;
+			if (const AItemBase* ItemDefaults = IncomingItem.ItemClass->GetDefaultObject<AItemBase>())
+			{
+				FallbackInstance.CurrentUseCount = ItemDefaults->MaxUseCount;
+				FallbackInstance.CurrentDurability = ItemDefaults->MaxDurability;
+				if (const APackageBase* PackageDefaults = Cast<APackageBase>(ItemDefaults))
+				{
+					FPackageItemSaveData PackageData;
+					PackageData.BaseValue = PackageDefaults->BaseValue;
+					PackageData.PackageType = PackageDefaults->PackageType;
+					PackageData.MaxSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.CurrentSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.bIsBroken = false;
+					FallbackInstance.ExtraSaveData.Add(FInstancedStruct::Make(PackageData));
+				}
+			}
+			MergedInstances.Add(MoveTemp(FallbackInstance));
+			++AddedInstanceCount;
+		}
+	}
+
+	SaveStoredItems(MergedItems);
+	SaveStoredItemInstances(MergedInstances);
+	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Merged map warehouse. IncomingClasses=%d IncomingInstances=%d TotalInstances=%d"),
+		WarehouseComponent->StoredItems.Num(), IncomingInstances.Num(), MergedInstances.Num());
 	return true;
 }
 
@@ -200,6 +384,25 @@ bool UWarehouseDataSubsystem::BuildValidatedDeliveryData(const TArray<FStoredIte
 		{
 			FStoredItemInstanceData FallbackItemInstance;
 			FallbackItemInstance.ItemClass = RequestedItem.ItemClass;
+
+			// 개별 저장 이력이 없는 구형/요약 데이터는 클래스 기본 상태로 생성합니다.
+			// 구조체의 기본 내구도(0)를 그대로 사용하면 정상 Package도 보상 0원이 됩니다.
+			if (const AItemBase* ItemDefaults = RequestedItem.ItemClass->GetDefaultObject<AItemBase>())
+			{
+				FallbackItemInstance.CurrentUseCount = ItemDefaults->MaxUseCount;
+				FallbackItemInstance.CurrentDurability = ItemDefaults->MaxDurability;
+
+				if (const APackageBase* PackageDefaults = Cast<APackageBase>(ItemDefaults))
+				{
+					FPackageItemSaveData PackageData;
+					PackageData.BaseValue = PackageDefaults->BaseValue;
+					PackageData.PackageType = PackageDefaults->PackageType;
+					PackageData.MaxSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.CurrentSpoilTime = PackageDefaults->MaxSpoilTime;
+					PackageData.bIsBroken = false;
+					FallbackItemInstance.ExtraSaveData.Add(FInstancedStruct::Make(PackageData));
+				}
+			}
 			OutDeliveryData.SelectedItemInstances.Add(FallbackItemInstance);
 			++AddedInstanceCount;
 		}

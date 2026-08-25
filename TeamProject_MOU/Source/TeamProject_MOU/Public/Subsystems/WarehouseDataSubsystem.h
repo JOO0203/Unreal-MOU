@@ -14,6 +14,9 @@ class TEAMPROJECT_MOU_API UWarehouseDataSubsystem : public UGameInstanceSubsyste
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	void InitializeWarehouseFromDataAsset();
+
 	// 창고 요약 데이터를 GameInstance에 저장
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	void SaveStoredItems(const TArray<FStoredItemData>& InStoredItems);
@@ -36,6 +39,10 @@ public:
 	// 창고 컴포넌트의 현재 데이터를 그대로 저장
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	bool SaveFromWarehouseComponent(const UWarehouseComponent* WarehouseComponent);
+
+	// 배달/약탈 맵 창고의 물품을 기존 로비 창고 저장 데이터에 추가합니다.
+	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
+	bool MergeFromWarehouseComponent(const UWarehouseComponent* WarehouseComponent);
 
 	// 저장된 창고 데이터를 컴포넌트로 복원
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
