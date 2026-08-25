@@ -29,6 +29,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Storage|Save")
 	bool bWarehouseInitialized = false;
 
+	// 레벨 이동 후 같은 플레이어의 같은 슬롯에 복원할 인벤토리 상태입니다.
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|Save")
+	TArray<FPlayerInventorySaveData> SavedPlayerInventories;
+
 	// 배달 맵으로 가져갈 아이템
 	UPROPERTY(BlueprintReadOnly, Category = "Delivery|Save")
 	FDeliveryData PendingDeliveryData;

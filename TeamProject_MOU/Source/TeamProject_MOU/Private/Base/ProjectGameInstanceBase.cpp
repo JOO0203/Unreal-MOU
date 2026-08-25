@@ -98,6 +98,7 @@ void UProjectGameInstanceBase::ResetRunData()
 	ClearStoredItems();
 	bWarehouseInitialized = false;
 	ClearPendingDeliveryData();
+	SavedPlayerInventories.Reset();
 	if (UWarehouseDataSubsystem* WarehouseSubsystem = GetSubsystem<UWarehouseDataSubsystem>())
 	{
 		WarehouseSubsystem->InitializeWarehouseFromDataAsset();
