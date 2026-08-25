@@ -29,60 +29,60 @@ AProjectGameStateBase::AProjectGameStateBase()
 
 void AProjectGameStateBase::AddGold(int32 Amount)
 {
-	// Ŭ���̾�Ʈ�� ���Ƿ� ��带 �������� ���ϵ��� ��.
-	// GameState�� ���� Gold ���� ������ ����
+	// 클라이언트가 임의로 골드를 변경하지 못하도록 서버에서만 처리합니다.
+	// GameState가 골드 상태의 권한을 가집니다.
 	if (!HasAuthority())
 	{
 		return;
 	}
 
-	// 0 �Ǵ� ���� ���� AddGold�� ���� ����.
-    // ��� ���Ҵ� SpendGold�� ����ϵ��� ������ �и�.
+	// 0 이하 금액은 AddGold에서 처리하지 않습니다.
+	// 골드 차감은 SpendGold를 사용하도록 책임을 분리합니다.
 	if (Amount <= 0)
 	{
 		return;
 	}
 
-	// ���� �� ��� ����
+	// 현재 골드에 금액 추가
 	Gold += Amount;
 
 
-	// ���� �������� Gold ���� ����� Blueprint�� �˷���.
-	// HUD ���� UI ���ſ� ����� �� ����.
+	// 서버에서 변경된 골드 값을 Blueprint에 알립니다.
+	// HUD 등의 UI 갱신에 사용할 수 있습니다.
 	OnGoldUpdated(Gold);
 }
 
 bool AProjectGameStateBase::SpendGold(int32 Amount)
 {
-	// ���������� ���� ��� ���� ���
+	// 서버에서만 골드 차감 처리
 	if (!HasAuthority())
 	{
 		return false;
 	}
 
-	// 0�̳� ���� �ݾ� ��� ����
+	// 0 이하 금액은 사용하지 않음
 	if (Amount <= 0)
 	{
 		return false;
 	}
 
-	// ���� ��尡 Amount���� ������ ����/���� ����
+	// 현재 골드가 Amount보다 적으면 사용 실패
 	if (!CanAfford(Amount))
 	{
 		return false;
 	}
 
-	// ���� ��� ����
+	// 골드 차감 처리
 	Gold -= Amount;
 
-	// UI � ����� Gold ����
+	// UI 등에 변경된 골드 전달
 	OnGoldUpdated(Gold);
 
 
 	return true;
 }
 
-// ���� �����ʰ� ��� �ִ��� �˻��ϴ� �Լ�
+// 지정 금액을 지불할 수 있는지 확인하는 함수
 bool AProjectGameStateBase::CanAfford(int32 Amount) const
 {
 	return Amount > 0 && Gold >= Amount;
@@ -132,7 +132,7 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 // Debt
 // ==============================================
 
-//������ = BaseDebtIncrease �� (1 + ((DebtCycle - 1)�� / DebtGrowthDivisor))
+// 증가량 = BaseDebtIncrease × (1 + ((DebtCycle - 1)² / DebtGrowthDivisor))
 int32 AProjectGameStateBase::CalculateDebtIncrease() const
 {
 	const float CycleValue = static_cast<float>(FMath::Max(0, DebtCycle - 1));
@@ -146,7 +146,7 @@ int32 AProjectGameStateBase::CalculateDebtIncrease() const
 	return FMath::RoundToInt(Increase);
 }
 
-// ���� �� + �̹� ������
+// 현재 빚 + 이번 증가량
 int32 AProjectGameStateBase::CalculateNextDebt() const
 {
 	return CurrentDebt + CalculateDebtIncrease();
@@ -159,20 +159,20 @@ bool AProjectGameStateBase::PayDebt()
 		return false;
 	}
 
-	// ���� ���� ���� ��尡 �����ϸ� ��ȯ ����
+	// 현재 빚만큼 골드가 부족하면 상환 실패
 	if (!SpendGold(CurrentDebt))
 	{
 		return false;
 	}
 
-	// ���� DebtCycle �������� ���� ���� ���� ���
+	// 현재 DebtCycle 기준으로 다음 빚 금액 계산
 	const int32 NextDebt = CalculateNextDebt();
 
-	// ��ȯ ���� �� ���� ȸ���� ����
+	// 상환 성공 후 다음 회차로 이동
 	DebtCycle++;
 	OnDebtCycleUpdated(DebtCycle);
 
-	// ���� ���� �� ����
+	// 다음 회차 빚 설정
 	CurrentDebt = NextDebt;
 	OnDebtUpdated(CurrentDebt);
 
@@ -212,7 +212,7 @@ EDebtProcessResult AProjectGameStateBase::ProcessDebtDeadline()
 // Economy Time
 // ==============================================
 
-// ���� �ð� 1 HalfDay ����
+// 경제 시간 1 HalfDay 증가
 void AProjectGameStateBase::AdvanceEconomyHalfDay()
 {
 	if (!HasAuthority())
@@ -225,13 +225,13 @@ void AProjectGameStateBase::AdvanceEconomyHalfDay()
 	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
 }
 
-// ���� ���� HalfDay ��ȯ
+// 현재 경제 HalfDay 반환
 int32 AProjectGameStateBase::GetEconomyCurrentHalfDay() const
 {
 	return EconomyCurrentHalfDay;
 }
 
-// ���� ������ ������
+// 경제 시간을 직접 설정
 void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
 {
 	if (!HasAuthority())
@@ -244,19 +244,19 @@ void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
 	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
 }
 
-// ���� �� ��ȯ HalfDay ��ȯ
+// 다음 빚 상환 HalfDay 반환
 int32 AProjectGameStateBase::GetNextDebtDueHalfDay() const
 {
 	return DebtCycle * DebtPeriodHalfDay;
 }
 
-// ���� �� ��ȯ ���ѿ� �����ߴ��� Ȯ��
+// 다음 빚 상환 기한에 도달했는지 확인
 bool AProjectGameStateBase::IsDebtDue() const
 {
 	return EconomyCurrentHalfDay >= GetNextDebtDueHalfDay();
 }
 
-// �� ��ȯ���� ���� HalfDay
+// 빚 상환까지 남은 HalfDay
 int32 AProjectGameStateBase::GetRemainingDebtHalfDay() const
 {
 	return FMath::Max(0,GetNextDebtDueHalfDay() - EconomyCurrentHalfDay);
