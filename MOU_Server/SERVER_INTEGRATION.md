@@ -195,8 +195,21 @@ VS 2022 는 2026 의 툴셋(`v145`, `ToolsVersion 18.0`)을 모르기 때문이�
 
 ### 3-1. 서버 (`Server.exe`)
 
-엔진과 무관한 순수 C++ 콘솔 프로그램이다. **CMake 로만 빌드한다** (SQLite 앰알가메이션이
-C 파일이라 `project()` 에 `C` 언어가 켜져 있어야 한다).
+엔진과 무관한 순수 C++ 콘솔 프로그램이다.
+
+**가장 간단한 방법** — VS 설치 경로를 알아서 찾아 `Server_Build\Server.exe` 를 만든다:
+
+```bash
+MOU_Server\build_server.bat
+```
+
+> 이 스크립트는 예전에 VS 경로를 `2022\Community` 로 하드코딩하고 있었다. VS 2026 만
+> 깔린 PC 에서는 `cl` 을 못 찾고 **조용히** 실패해서, 옛 `Server.exe` 가 그대로 남아
+> "NAT 코드를 넣었는데 왜 안 되지" 를 하루 헤매게 만들었다. 지금은 설치 경로를 후보
+> 목록에서 찾고, 빌드가 실패하면 `[ERROR]` 를 찍고 `exit /b 1` 로 멈춘다.
+
+**CMake 로 빌드해도 된다** (SQLite 앰알가메이션이 C 파일이라 `project()` 에 `C` 언어가
+켜져 있어야 한다). `TestClient.exe` 까지 필요하면 이쪽을 쓴다.
 
 ```bash
 cmake -S MOU_Server -B MOU_Server/out/build/x64-Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -236,17 +249,38 @@ C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtens
 **1) 서버를 먼저 켠다** (별도 콘솔 창)
 
 ```bash
-Server.exe 9000
+MOU_Server\run_server.bat
 ```
 
-DB 경로를 지정하고 싶으면 두 번째 인자로: `Server.exe 9000 chat_log.db`
+이걸 쓰는 것을 권한다. 그냥 `Server.exe 9000` 으로도 뜨지만, `run_server.bat` 은 켜기 전에
+**남이 못 붙는 흔한 원인 세 가지**를 먼저 확인해준다:
+
+- `Server.exe` 가 NAT 기능이 있는 최신 빌드인가 (옛 빌드면 멈추고 알려준다)
+- 이 PC 의 LAN IP / 게이트웨이 / **공인 IP**
+- `DefaultGame.ini` 의 `ServerHost` 가 실제 공인 IP 와 **일치하는가** (다르면 `[WARN]`)
+
+직접 띄우려면:
+
+```bash
+Server_Build\Server.exe 9000 Server_Build\chat_log.db
+```
+
 (계정과 채팅 로그가 같은 파일에 테이블만 나눠서 들어간다.)
 
-**다른 네트워크(각자 집)에서 접속시키려면** `--upnp` 를 붙인다: `Server.exe 9000 --upnp`
-(2026-08-25). 공유기가 UPnP 를 지원하면 시작 시 콘솔에 공인 IP:포트가 찍히고, 그 주소를
-친구의 클라이언트에 `MOU.Chat.SetServer <공인IP> 9000` 으로 알려주면 된다. 실패해도(UPnP
-미지원/CGNAT) 서버는 그대로 뜬다 — 같은 네트워크 접속만 가능한 상태로 남을 뿐이다.
-같은 공유기 안에서만 테스트할 거면 이 옵션은 필요 없다.
+**다른 네트워크(각자 집)에서 접속시키려면** 두 가지가 다 되어 있어야 한다 —
+**서버 쪽 공유기의 포트포워딩**과, **클라이언트가 공인 IP 를 보게 하는 것**이다.
+UPnP 는 앞의 하나만 자동화해줄 뿐, 뒤의 하나는 대신 해주지 않는다.
+
+- 공유기가 UPnP 를 지원하면 `--upnp` 로 자동화된다: `run_server.bat --upnp` (2026-08-25).
+  시작 시 콘솔에 `[NAT] 외부에서는 <공인IP>:<포트> 로 접속하면 된다` 가 찍힌다.
+- `[NAT] 포트를 열지 못했다: ...` 가 뜨면 공유기 관리 페이지에서 **수동 포트포워딩**을 넣는다:
+  `외부 TCP 9000 -> 서버 PC 의 LAN IP:9000`
+- 어느 쪽이든 `Config/DefaultGame.ini` 의 `ServerHost` 를 **공인 IP** 로 맞춰 커밋해야
+  팀원 클라이언트가 그리로 붙는다.
+
+실패해도(UPnP 미지원/CGNAT) 서버는 그대로 뜬다 — 같은 네트워크 접속만 가능한 상태로 남을 뿐이다.
+같은 공유기 안에서만 테스트할 거면 `--upnp` 도 포트포워딩도 필요 없다.
+안 될 때의 판별 순서는 [13절](#다른-네트워크의-팀원이-로그인을-못-한다) 에 정리해뒀다.
 
 **2) 에디터에서 PIE 실행 → `` ` `` 키로 콘솔을 열고, 로그인 UI 를 띄운다**
 
@@ -1426,6 +1460,90 @@ UI 쪽에 `/w <이름> <메시지>` 파싱을 추가한다 (`UChatWidgetBase::Su
 ## 13. 문제 해결
 
 실제로 겪은 것들이다.
+
+### 다른 네트워크의 팀원이 로그인을 못 한다
+
+2026-08-26 에 실제로 겪은 것이다. 원인이 **세 겹**이라 하나씩 벗겨야 한다.
+`run_server.bat` 이 이 세 가지를 켜기 전에 먼저 확인해준다.
+
+**1) `Server.exe` 가 NAT 이전 빌드다 — `[NAT]` 로그가 아예 안 뜬다**
+
+`--upnp` 를 줬는데 콘솔에 `[NAT]` 로 시작하는 줄이 **하나도** 없으면 이것이다.
+새 코드는 성공하든 실패하든 무조건 `[NAT]` 를 출력하므로, 아무것도 없다는 건
+그 코드가 바이너리에 없다는 뜻이다.
+
+옛 `main()` 은 인자 검사가 `argc < 2 || argc > 3` 이라서 `Server.exe 9000 --upnp` 가
+**에러 없이 통과한다.** 대신 `--upnp` 를 **DB 경로로 해석**해서 `--upnp` 라는 이름의
+빈 SQLite 파일을 만든다. 그래서 계정이 전부 사라진 것처럼도 보인다.
+
+> `build_server.bat` 이 VS 경로를 `2022\Community` 로 하드코딩하고 있어서, VS 2026 만
+> 깔린 PC 에서는 `cl` 을 못 찾고 **조용히** 빌드가 실패해 옛 exe 가 그대로 남았다.
+> 지금은 설치 경로를 후보 목록에서 자동으로 찾고, 실패하면 `[ERROR]` 를 찍고 멈춘다.
+
+**2) 클라이언트가 아직 사설 IP 를 보고 있다**
+
+`DefaultGame.ini` 의 `ServerHost` 가 `192.168.x.x` 면 **그 공유기 안에서만** 통한다.
+UPnP 는 클라이언트가 어디로 붙을지를 바꿔주지 않는다 — 공유기에 구멍만 뚫을 뿐,
+그 구멍의 **바깥쪽 주소(공인 IP)** 는 클라이언트가 직접 알고 찍어야 한다.
+
+**3) 공유기에 포트가 안 열려 있다**
+
+UPnP 가 `NoGatewayFound`(SSDP 무응답) 면 공유기가 UPnP 를 끄고 있거나 지원하지 않는다.
+이때는 공유기 관리 페이지에서 **수동 포트포워딩**을 넣는다:
+
+```
+외부 TCP 9000  ->  서버 PC 의 LAN IP : 9000
+```
+
+`CarrierGradeNat` 이면 수동 포워딩으로도 안 된다 — 회선 자체가 공인 IP 를 안 준다.
+14-5 절대로 릴레이(EOS/Steam P2P)가 필요하다.
+
+#### CGNAT 인지 판별하기
+
+```bash
+tracert -d -h 5 8.8.8.8
+```
+
+홉 1 은 공유기다. **홉 2 가 공인 IP** 면(우리 공인 IP 와 같은 대역이면 더 확실하다)
+단일 NAT 이므로 포트포워딩으로 해결된다. 홉 2 가 `100.64.x.x` 나 `10.x.x.x` 같은
+사설/CGNAT 대역이면 이중 NAT 이라 포트포워딩이 무의미하다.
+
+#### 확인 순서
+
+```bash
+MOU_Server\run_server.bat
+```
+
+`LAN IP` / `Gateway` / `Public IP` 와, `DefaultGame.ini` 의 `ServerHost` 일치 여부가
+먼저 찍힌다. `[WARN]` 이 뜨면 공인 IP 가 바뀐 것이니 ini 를 고쳐 커밋한다.
+
+서버를 켠 뒤 세 주소로 각각 붙여보면 어디까지 되는지 바로 갈린다:
+
+```bash
+powershell -Command "Test-NetConnection 127.0.0.1 -Port 9000; Test-NetConnection <LAN IP> -Port 9000; Test-NetConnection <공인 IP> -Port 9000"
+```
+
+- 127.0.0.1 실패 → 서버가 안 떠 있다
+- LAN 실패 → 방화벽. `Server.exe` 인바운드 허용을 확인한다
+- 공인 IP 만 실패 → **포트포워딩이 없다.** 팀원도 못 붙는다
+
+#### 서버를 켠 PC 본인이 못 붙는 경우
+
+공유기가 NAT 헤어핀(자기 공인 IP 로 나갔다 자기한테 돌아오는 접속)을 지원하지 않으면
+서버 PC 에서만 접속이 실패한다. 공유 설정을 고치지 말고 그 PC 에서만:
+
+```
+MOU.Chat.SetServer 127.0.0.1 9000
+```
+
+`Saved/Config/` 에만 저장돼 git 에 안 올라간다. 되돌리려면 인자 없이 `MOU.Chat.SetServer`.
+
+#### 왜 배치 파일에 한글이 없나
+
+`cmd` 는 `.bat` 을 **콘솔 코드페이지**로 파싱한다. 이 값이 PC 마다 다르다(949 / 65001).
+UTF-8 로 저장한 한글 주석이 949 콘솔에서는 명령어로 오해돼서 **스크립트 자체가 깨진다**
+(`'d' is not recognized...`). 그래서 `build_server.bat` / `run_server.bat` 은 ASCII 만 쓰고,
+설명은 이 문서에 둔다.
 
 ### "이 프로젝트는 현재 버전의 Visual Studio와 호환되지 않습니다"
 
