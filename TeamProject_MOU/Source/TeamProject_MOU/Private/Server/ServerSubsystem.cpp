@@ -25,6 +25,9 @@
 #include "Engine/NetDriver.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
+#include "Misc/PackageName.h"
+#include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 
 DEFINE_LOG_CATEGORY(LogMOUServer);
 
@@ -80,6 +83,10 @@ void UServerSubsystem::Deinitialize()
 	}
 
 	ShutdownClient();
+
+	// 미리 올려둔 맵이 남아 있으면 놓아준다. GameInstance 가 사라지는 시점이라
+	// 어차피 정리되지만, 참조를 명시적으로 끊어두는 편이 추적하기 쉽다.
+	ReleasePreloadedMap();
 
 	Super::Deinitialize();
 }
@@ -1060,6 +1067,73 @@ void UServerSubsystem::PollListenServer(float DeltaTime)
 	}
 }
 
+
+// ---------------------------------------------------------------------------
+// 맵 미리 올리기 (2026-08-26)
+//
+// 두 박자 구조에서 참여자는 "방장이 맵을 다 연 뒤에" 자기 맵을 로드했다.
+// 두 로딩이 앞뒤로 붙어 있어 실제 대기 시간이 둘의 합이었다.
+// 1박자 동안 참여자는 놀고 있으므로, 그 시간에 미리 올려 둘을 겹친다.
+// ---------------------------------------------------------------------------
+
+void UServerSubsystem::BeginPreloadMap(const FString& MapName)
+{
+	if (MapName.IsEmpty() || PreloadedMapName == MapName)
+	{
+		return;   // 이미 이 맵을 올리는 중이거나 올려뒀다
+	}
+
+	// 다른 맵을 새로 올리는 것이므로 이전 것은 놓아준다.
+	ReleasePreloadedMap();
+
+	// 짧은 이름("L_Game")으로 적어둔 경우가 흔하다. LoadPackageAsync 는 패키지
+	// **경로**를 받으므로 실제 경로를 먼저 찾는다. 못 찾으면 조용히 포기한다 —
+	// 여기서 실패해도 여행은 정상으로 진행되므로 오류가 아니다.
+	FString PackagePath = MapName;
+	if (!PackagePath.StartsWith(TEXT("/")))
+	{
+		if (!FPackageName::SearchForPackageOnDisk(MapName + FPackageName::GetMapPackageExtension(), &PackagePath))
+		{
+			UE_LOG(LogMOUServer, Verbose,
+				TEXT("맵 미리 올리기 건너뜀: '%s' 의 패키지 경로를 찾지 못했다."), *MapName);
+			return;
+		}
+	}
+
+	PreloadedMapName = MapName;
+
+	UE_LOG(LogMOUServer, Log,
+		TEXT("방장이 맵을 여는 동안 '%s' 를 미리 올린다."), *PackagePath);
+
+	TWeakObjectPtr<UServerSubsystem> WeakThis(this);
+	LoadPackageAsync(PackagePath,
+		FLoadPackageAsyncDelegate::CreateLambda(
+			[WeakThis](const FName& /*PackageName*/, UPackage* LoadedPackage, EAsyncLoadingResult::Type Result)
+			{
+				if (!WeakThis.IsValid())
+				{
+					return;
+				}
+
+				if (Result == EAsyncLoadingResult::Succeeded && LoadedPackage != nullptr)
+				{
+					WeakThis->PreloadedMapPackage = LoadedPackage;
+					UE_LOG(LogMOUServer, Log, TEXT("맵 미리 올리기 완료. 여행이 즉시 끝난다."));
+				}
+				else
+				{
+					// 실패를 표시로 남기지 않는다. 다음에 다시 시도할 수 있어야 한다.
+					WeakThis->PreloadedMapName.Reset();
+					UE_LOG(LogMOUServer, Verbose, TEXT("맵 미리 올리기 실패. 여행은 그대로 진행한다."));
+				}
+			}));
+}
+
+void UServerSubsystem::ReleasePreloadedMap()
+{
+	PreloadedMapPackage = nullptr;
+	PreloadedMapName.Reset();
+}
 void UServerSubsystem::SetConnectionState(EChatConnectionState NewState, const FString& Detail)
 {
 	if (ConnectionState == NewState)

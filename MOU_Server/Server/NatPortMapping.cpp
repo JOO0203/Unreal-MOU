@@ -356,6 +356,12 @@ namespace
 			"upnp:rootdevice",
 		};
 
+		// ★ 세 개를 먼저 전부 쏘고, 그 다음에 한 번만 기다린다. (2026-08-26)
+		//   예전에는 대상마다 3초씩 따로 기다려서, UPnP 를 끈 공유기에서는
+		//   9초를 꼬박 쓴 뒤에야 실패가 났다. 서버는 그동안 accept 루프에도
+		//   들어가지 못한다. SSDP 응답은 어차피 이 소켓 하나로 비동기로
+		//   돌아오므로 요청을 직렬화할 이유가 없다.
+		//   (언리얼 쪽 NatPortMapping.cpp 에도 같은 수정이 들어가 있다)
 		for (const char* SearchTarget : SearchTargets)
 		{
 			char Request[512];
@@ -363,46 +369,46 @@ namespace
 				"M-SEARCH * HTTP/1.1\r\n"
 				"HOST: %s:%u\r\n"
 				"MAN: \"ssdp:discover\"\r\n"
-				"MX: 2\r\n"
+				"MX: 1\r\n"
 				"ST: %s\r\n"
 				"\r\n",
 				kSsdpIp, static_cast<unsigned>(kSsdpPort), SearchTarget);
 
 			::sendto(Guard.Sock, Request, Length, 0,
 			         reinterpret_cast<sockaddr*>(&Destination), sizeof(Destination));
+		}
 
-			// MX 가 2 라 규격상 2초 안에 답한다. 넉넉히 3초 본다.
-			const int64_t Deadline = NowMs() + 3000;
-			while (NowMs() < Deadline)
+		// 세 요청 중 어느 것에든 먼저 답한 공유기를 쓴다.
+		const int64_t Deadline = NowMs() + 3000;
+		while (NowMs() < Deadline)
+		{
+			char        Buffer[4096];
+			sockaddr_in From{};
+			socklen_t   FromLen = sizeof(From);
+
+			const int Read = ::recvfrom(Guard.Sock, Buffer, sizeof(Buffer) - 1, 0,
+			                            reinterpret_cast<sockaddr*>(&From), &FromLen);
+			if (Read <= 0)
 			{
-				char        Buffer[4096];
-				sockaddr_in From{};
-				socklen_t   FromLen = sizeof(From);
+				continue;   // 타임아웃. Deadline 까지 계속 기다린다
+			}
+			Buffer[Read] = '\0';
 
-				const int Read = ::recvfrom(Guard.Sock, Buffer, sizeof(Buffer) - 1, 0,
-				                            reinterpret_cast<sockaddr*>(&From), &FromLen);
-				if (Read <= 0)
-				{
-					continue;   // 타임아웃. Deadline 까지 계속 기다린다
-				}
-				Buffer[Read] = '\0';
+			const std::string Response(Buffer, static_cast<size_t>(Read));
+			const size_t      LocationPos = FindNoCase(Response, "location:");
+			if (LocationPos == std::string::npos)
+			{
+				continue;
+			}
 
-				const std::string Response(Buffer, static_cast<size_t>(Read));
-				const size_t      LocationPos = FindNoCase(Response, "location:");
-				if (LocationPos == std::string::npos)
-				{
-					continue;
-				}
+			const size_t ValueStart = LocationPos + 9;
+			const size_t LineEnd    = Response.find("\r\n", ValueStart);
+			OutLocationUrl = Trim(Response.substr(ValueStart,
+				(LineEnd == std::string::npos) ? std::string::npos : LineEnd - ValueStart));
 
-				const size_t ValueStart = LocationPos + 9;
-				const size_t LineEnd    = Response.find("\r\n", ValueStart);
-				OutLocationUrl = Trim(Response.substr(ValueStart,
-					(LineEnd == std::string::npos) ? std::string::npos : LineEnd - ValueStart));
-
-				if (!OutLocationUrl.empty())
-				{
-					return EResult::Success;
-				}
+			if (!OutLocationUrl.empty())
+			{
+				return EResult::Success;
 			}
 		}
 

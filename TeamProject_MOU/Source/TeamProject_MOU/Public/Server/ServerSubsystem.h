@@ -276,6 +276,32 @@ public:
 	bool IsWaitingForListenServer() const { return bWaitingForListenServer; }
 
 	/**
+	 * 참여자가 방장을 기다리는 동안 목적지 맵을 미리 메모리에 올린다. (2026-08-26)
+	 *
+	 * [왜 위젯이 아니라 여기 있나]
+	 *   미리 올린 패키지를 **누가 붙잡고 있느냐**가 이 최적화의 전부다.
+	 *   로비 위젯이 들고 있으면, 정작 ClientTravel 이 시작될 때 월드가 헐리면서
+	 *   위젯이 먼저 파괴되고 참조가 끊긴다. 그러면 GC 가 패키지를 도로 가져가
+	 *   미리 올린 의미가 사라진다.
+	 *
+	 *   UServerSubsystem 은 GameInstance 수명이라 레벨 이동을 그대로 넘어간다.
+	 *   그래서 여기가 유일하게 맞는 자리다.
+	 *
+	 * 같은 맵을 두 번 요청하면 두 번째는 아무 일도 하지 않는다.
+	 * 실패는 오류가 아니다 — 여행은 그대로 되고 다만 느릴 뿐이다.
+	 */
+	void BeginPreloadMap(const FString& MapName);
+
+	/**
+	 * 미리 올려둔 패키지를 놓아준다.
+	 *
+	 * 여행이 끝나면 그 맵은 이제 현재 월드가 소유하므로 우리가 더 붙잡고 있을
+	 * 이유가 없다. 안 놓아주면 다음 판에서 다른 맵을 골랐을 때 옛 맵이 메모리에
+	 * 그대로 남는다.
+	 */
+	void ReleasePreloadedMap();
+
+	/**
 	 * 지금 쓰고 있는 백엔드 이름. "자체 서버(TCP)" / "EOS".
 	 * 디버그 화면에 띄워두면 "어디에 붙어 있는지" 를 묻지 않아도 된다.
 	 */
@@ -567,6 +593,16 @@ private:
 
 	/** 기다린 시간. UMOUServerSettings::HostReadyTimeoutSeconds 를 넘으면 포기한다. */
 	float ListenServerWaitSeconds = 0.f;
+
+	/**
+	 * 미리 올린 맵 패키지. UPROPERTY 참조가 GC 를 막는다.
+	 * AddToRoot 를 쓰지 않는 이유는 해제를 빠뜨렸을 때 맵이 영원히 남기 때문이다.
+	 */
+	UPROPERTY()
+	TObjectPtr<UPackage> PreloadedMapPackage;
+
+	/** 지금 미리 올리는 중이거나 이미 올려둔 맵. 중복 요청을 막는다. */
+	FString PreloadedMapName;
 
 	FTSTicker::FDelegateHandle TickHandle;
 

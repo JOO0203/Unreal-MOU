@@ -596,6 +596,13 @@ void ULobbyWidgetBase::HandleGameStarted(const FMOURoomJoinResult& Host, bool bI
 
 	OnGameStarted(Host, bIsHost, RoomPassword);
 
+	// 참여자는 여기서부터 2박자까지 놀고 있다. 그 시간에 맵을 미리 올려두면
+	// 두 번의 로딩이 겹쳐져서 실제 대기 시간이 크게 준다.
+	if (!bIsHost)
+	{
+		BeginPreloadHostMap();
+	}
+
 	if (bIsHost)
 	{
 		// 참여자에게 갈 출발 신호는 이 위젯이 보내지 않는다.
@@ -796,6 +803,22 @@ void ULobbyWidgetBase::TravelAsClient(const FMOURoomJoinResult& Host, const FStr
 
 	// MakeTravelURL 이 "IP:포트?RoomPassword=1234" 를 만들어준다.
 	PC->ClientTravel(Host.MakeTravelURL(RoomPassword), ETravelType::TRAVEL_Absolute);
+}
+
+void ULobbyWidgetBase::BeginPreloadHostMap()
+{
+	if (!bPreloadMapWhileWaiting || HostMapName.IsEmpty())
+	{
+		return;
+	}
+
+	// 실제 로딩과 참조 보관은 서브시스템이 한다. 이 위젯은 ClientTravel 이
+	// 시작되면 월드와 함께 파괴되므로, 위젯이 패키지를 들고 있으면 정작
+	// 로드가 시작되는 순간 참조가 끊겨 미리 올린 것이 헛수고가 된다.
+	if (UServerSubsystem* Server = GetServerSubsystem())
+	{
+		Server->BeginPreloadMap(HostMapName);
+	}
 }
 
 // ---------------------------------------------------------------------------

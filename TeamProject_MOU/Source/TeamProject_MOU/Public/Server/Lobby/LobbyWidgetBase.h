@@ -144,6 +144,34 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
 	bool bAutoTravelOnGameStart = true;
 
+	/**
+	 * 참여자가 대기하는 동안 목적지 맵을 미리 메모리에 올려둘지. (2026-08-26)
+	 *
+	 * [왜 필요한가 — 두 번의 로딩이 직렬이었다]
+	 *   두 박자 구조상 참여자는 이렇게 기다린다:
+	 *
+	 *     1박자 ─── 방장이 맵 로드 ───▶ 리슨서버 뜸
+	 *                                      │
+	 *                          2박자 ──────┴──▶ 참여자가 맵 로드 ───▶ 입장
+	 *
+	 *   두 로딩이 겹치지 않고 앞뒤로 붙어 있어서, 참여자가 실제로 기다리는 시간은
+	 *   **두 로딩 시간의 합**이었다. 큰 맵에서 이 합이 그대로 체감된다.
+	 *
+	 *   그런데 1박자 동안 참여자는 아무것도 하지 않고 놀고 있다. 그 시간에 맵을
+	 *   미리 올려두면 2박자의 ClientTravel 이 거의 즉시 끝난다 — 직렬이 병렬이 된다.
+	 *
+	 * [왜 참여자가 맵 이름을 알 수 있나]
+	 *   HostMapName 은 WBP 에 박히는 값이라 방장과 참여자가 같은 값을 갖는다.
+	 *   서버가 맵 이름을 내려주지 않아도 되는 이유다. (맵을 방마다 다르게 고르게
+	 *   되면 그때는 프로토콜에 맵 이름을 실어야 하고, 이 최적화도 그 값을 써야 한다.)
+	 *
+	 * [실패해도 안전하다]
+	 *   미리 올리기가 실패하거나 늦어도 여행은 그대로 진행된다. 이 기능은 순수하게
+	 *   "빨라지면 좋고 아니면 말고" 다. 그래서 실패를 오류로 취급하지 않는다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
+	bool bPreloadMapWhileWaiting = true;
+
 	/** 방 만들기 / 참여하기 창이 열려 있는 동안 이 화면을 숨길지. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
 	bool bHideWhileChildOpen = true;
@@ -338,6 +366,12 @@ private:
 
 	/** 게임 시작 시 참여자가 호스트에게 붙는다. */
 	void TravelAsClient(const FMOURoomJoinResult& Host, const FString& RoomPassword);
+
+	/**
+	 * 참여자가 기다리는 동안 HostMapName 을 비동기로 미리 올린다.
+	 * 이미 시작했으면 아무 일도 하지 않는다. 실패는 조용히 넘어간다.
+	 */
+	void BeginPreloadHostMap();
 
 	UServerSubsystem* GetServerSubsystem() const;
 

@@ -73,6 +73,10 @@ echo.
 echo   [REQUIRED] Port forward on the router at !GWIP! :
 echo                external TCP %PORT%  -^>  !LANIP!:%PORT%
 echo.
+echo   [ALSO] If YOU host a game room from this PC, the listen server port
+echo          must be forwarded too, or remote players hang on "traveling to":
+echo                external UDP 7777  -^>  !LANIP!:7777
+echo.
 echo   [NOTE] If PIE on THIS PC cannot reach the public IP (no NAT hairpin),
 echo          run in the Unreal console:  MOU.Chat.SetServer 127.0.0.1 %PORT%
 echo ===================================================================
@@ -81,7 +85,18 @@ echo.
 REM Extra args pass through, e.g.  run_server.bat --upnp
 REM Use --upnp only if the router supports it; this router answered
 REM NoGatewayFound, so a manual port forward is required here.
-"%EXE%" %PORT% Server_Build\chat_log.db %*
+REM
+REM --public-ip makes the server record the PUBLIC address for rooms hosted
+REM from inside this LAN. Without it the room stores a private address (or the
+REM gateway IP when the host hairpins in), and remote players hang forever on
+REM "traveling to <private ip>:7777".
+if defined PUBIP (
+  "%EXE%" %PORT% Server_Build\chat_log.db --public-ip %PUBIP% %*
+) else (
+  echo [WARN] Public IP lookup failed; starting without --public-ip.
+  echo        Rooms hosted from this LAN will advertise a private address.
+  "%EXE%" %PORT% Server_Build\chat_log.db %*
+)
 
 echo.
 echo [STOPPED] Server exited.

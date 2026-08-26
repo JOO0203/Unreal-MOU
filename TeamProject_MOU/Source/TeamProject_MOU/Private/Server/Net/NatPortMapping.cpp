@@ -380,8 +380,7 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 	{
 		return ENatMapResult::NetworkError;
 	}
-
-	// 찾는 대상. IGD:1 이 안 잡히는 공유기가 있어 IGD:2 와 rootdevice 까지 순서대로 던진다.
+	// 찾는 대상. IGD:1 이 안 잡히는 공유기가 있어 IGD:2 와 rootdevice 까지 던진다.
 	const TCHAR* const SearchTargets[] =
 	{
 		TEXT("urn:schemas-upnp-org:device:InternetGatewayDevice:1"),
@@ -389,6 +388,16 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 		TEXT("upnp:rootdevice"),
 	};
 
+	// ★ 세 개를 먼저 전부 쏘고, 그 다음에 한 번만 기다린다. (2026-08-26)
+	//
+	//   예전에는 "쏘고 → TimeoutSeconds 기다리고 → 다음 것 쏘고" 를 반복했다.
+	//   그래서 UPnP 를 끈 공유기에서는 3 x 3초 = 9초를 꼬박 기다린 뒤에야
+	//   실패가 났다. 방 만들기 창이 그동안 "포트를 여는 중" 으로 멈춰 있었다.
+	//
+	//   SSDP 응답은 어차피 비동기로 이 소켓 하나에 돌아온다. 요청을 직렬화할
+	//   이유가 없다 — 규격도 여러 M-SEARCH 를 연달아 보내는 것을 막지 않는다.
+	//   이렇게 바꾸면 최악이 9초에서 3초가 되고, 답하는 공유기는 첫 응답이
+	//   오는 즉시(보통 100ms 안쪽) 반환하므로 체감이 특히 크게 준다.
 	for (const TCHAR* SearchTarget : SearchTargets)
 	{
 		// MX 는 "이 초 안에 아무 때나 답하라" 는 뜻이다. 규격상 1~5.
@@ -396,7 +405,7 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 			TEXT("M-SEARCH * HTTP/1.1\r\n")
 			TEXT("HOST: %s:%d\r\n")
 			TEXT("MAN: \"ssdp:discover\"\r\n")
-			TEXT("MX: 2\r\n")
+			TEXT("MX: 1\r\n")
 			TEXT("ST: %s\r\n")
 			TEXT("\r\n"),
 			SsdpMulticastIp, SsdpMulticastPort, SearchTarget);
@@ -405,39 +414,39 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 		int32 Sent = 0;
 		Guard.Socket->SendTo(reinterpret_cast<const uint8*>(RequestUtf8.Get()),
 		                     RequestUtf8.Length(), Sent, *Destination);
+	}
 
-		// 이 ST 에 대한 응답을 잠깐 기다린다. 공유기가 여러 대면 먼저 답한 것을 쓴다.
-		TArray<uint8> Buffer;
-		Buffer.SetNumUninitialized(4096);
+	// 세 요청 중 **어느 것에든** 먼저 답한 공유기를 쓴다.
+	TArray<uint8> Buffer;
+	Buffer.SetNumUninitialized(4096);
 
-		const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
-		while (FPlatformTime::Seconds() < Deadline)
+	const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
+	while (FPlatformTime::Seconds() < Deadline)
+	{
+		if (!Guard.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(100)))
 		{
-			if (!Guard.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(200)))
-			{
-				continue;
-			}
+			continue;
+		}
 
-			int32 Read = 0;
-			TSharedRef<FInternetAddr> From = Subsystem->CreateInternetAddr();
-			if (!Guard.Socket->RecvFrom(Buffer.GetData(), Buffer.Num(), Read, *From) || Read <= 0)
-			{
-				continue;
-			}
+		int32 Read = 0;
+		TSharedRef<FInternetAddr> From = Subsystem->CreateInternetAddr();
+		if (!Guard.Socket->RecvFrom(Buffer.GetData(), Buffer.Num(), Read, *From) || Read <= 0)
+		{
+			continue;
+		}
 
-			const FString Response = Utf8ToString(Buffer.GetData(), Read);
+		const FString Response = Utf8ToString(Buffer.GetData(), Read);
 
-			TArray<FString> Lines;
-			Response.ParseIntoArrayLines(Lines);
-			for (const FString& Line : Lines)
+		TArray<FString> Lines;
+		Response.ParseIntoArrayLines(Lines);
+		for (const FString& Line : Lines)
+		{
+			if (Line.StartsWith(TEXT("LOCATION:"), ESearchCase::IgnoreCase))
 			{
-				if (Line.StartsWith(TEXT("LOCATION:"), ESearchCase::IgnoreCase))
+				OutLocationUrl = Line.Mid(9).TrimStartAndEnd();
+				if (!OutLocationUrl.IsEmpty())
 				{
-					OutLocationUrl = Line.Mid(9).TrimStartAndEnd();
-					if (!OutLocationUrl.IsEmpty())
-					{
-						return ENatMapResult::Success;
-					}
+					return ENatMapResult::Success;
 				}
 			}
 		}

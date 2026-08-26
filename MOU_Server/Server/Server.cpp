@@ -3,7 +3,7 @@
 // 리슨서버와 별개의 프로세스로 상시 가동된다.
 // 호스트가 게임을 종료해도 이 프로세스는 살아있으므로 채팅 로그가 유지된다.
 //
-// 사용법: Server <port> [db경로]
+// 사용법: Server <port> [db경로] [--upnp] [--public-ip <주소>]
 
 #include "Accounts.h"
 #include "ChatLog.h"
@@ -31,6 +31,68 @@ namespace
 {
 	SessionManager GSessions;
 	std::atomic<bool> GRunning{ true };
+
+	// 이 서버가 외부에 노출된 주소. --public-ip 인자나 UPnP 결과로 채워진다.
+	// 비어 있으면 치환을 하지 않는다(예전과 똑같이 동작한다).
+	std::string GPublicIp;
+
+	/**
+	 * 사설/루프백 대역인가.
+	 *
+	 * [왜 필요한가]
+	 *   방의 호스트 주소는 accept() 에서 읽은 상대 IP 를 쓴다. 호스트가 서버와
+	 *   **다른** 공유기 뒤에 있으면 그 값이 곧 호스트의 공인 IP 라 정확하다.
+	 *
+	 *   그런데 호스트가 서버와 **같은** 공유기 안에 있으면(특히 서버 PC 본인이
+	 *   방장일 때) 그 값이 사설 IP 가 된다. 게다가 호스트가 공인 IP 로 접속해
+	 *   헤어핀을 타면 공유기가 출발지를 자기 주소로 바꿔서 게이트웨이 IP
+	 *   (예: 192.168.35.1) 가 찍힌다. 그 주소를 받은 외부 참가자는 자기 네트워크의
+	 *   엉뚱한 기기로 가거나 아무 데도 못 가서 무한 로딩에 걸린다.
+	 *
+	 *   그래서 "사설이면 서버 자신의 공인 IP 로 바꾼다" 는 판정이 필요하다.
+	 */
+	bool IsPrivateAddress(const std::string& Address)
+	{
+		unsigned A = 0, B = 0, C = 0, D = 0;
+		if (std::sscanf(Address.c_str(), "%u.%u.%u.%u", &A, &B, &C, &D) != 4)
+		{
+			return false;   // 파싱 실패. 함부로 바꾸지 않는다
+		}
+
+		if (A == 10)  return true;                        // 10.0.0.0/8
+		if (A == 127) return true;                        // 루프백
+		if (A == 172 && B >= 16 && B <= 31) return true;  // 172.16.0.0/12
+		if (A == 192 && B == 168) return true;            // 192.168.0.0/16
+		if (A == 169 && B == 254) return true;            // 링크로컬
+		if (A == 100 && B >= 64 && B <= 127) return true; // CGNAT 100.64.0.0/10
+		return false;
+	}
+
+	/**
+	 * 방에 기록할 호스트 주소를 정한다.
+	 *
+	 * 클라이언트가 보내온 값은 절대 쓰지 않는다 — 남의 주소를 적어 엉뚱한 곳으로
+	 * 접속을 몰아주는 장난을 막기 위해서다. 서버가 아는 두 값 중에서만 고른다:
+	 *   1) accept() 에서 읽은 상대 IP (공인이면 그대로 쓴다)
+	 *   2) 서버 자신의 공인 IP (상대가 사설이면 = 같은 공유기 안에 있다는 뜻)
+	 *
+	 * [한계] 호스트와 참가자가 **둘 다** 서버와 같은 공유기 안에 있으면, 참가자는
+	 *   공인 IP 로 나갔다 돌아오는 헤어핀 접속을 하게 된다. 공유기가 헤어핀을
+	 *   지원하지 않으면 그 조합만 실패한다. 전원이 LAN 안에 있는 상황이라면
+	 *   애초에 --public-ip 를 주지 않는 편이 낫다.
+	 */
+	std::string ResolveHostAddress(const std::string& PeerAddress)
+	{
+		if (GPublicIp.empty() || !IsPrivateAddress(PeerAddress))
+		{
+			return PeerAddress;
+		}
+
+		std::printf("[방 주소] 호스트가 서버와 같은 네트워크에 있다(%s). "
+		            "외부 참가자를 위해 %s 로 바꿔 기록한다.\n",
+		            PeerAddress.c_str(), GPublicIp.c_str());
+		return GPublicIp;
+	}
 
 	// Ctrl+C 로 서버를 내릴 때 큐에 남은 채팅 로그를 마저 쓰고 나간다.
 	// 이게 없으면 accept() 에서 블록된 채 프로세스가 즉사해서
@@ -683,9 +745,13 @@ namespace
 		// 비밀번호는 널 종료가 없는 고정 4바이트다. 길이를 지정해 그대로 읽는다.
 		const std::string Password(Req.Password, kRoomPasswordLen);
 
+		// PeerAddress 를 그대로 쓰지 않고 한 번 거른다. 호스트가 서버와 같은
+		// 공유기 안이면 사설 IP 라서, 외부 참가자가 그 주소로는 못 온다.
+		const std::string HostAddress = ResolveHostAddress(Session->PeerAddress);
+
 		uint32_t NewRoomId = 0;
 		const ERoomResult R = Rooms::Create(
-			Session->UserId, Session->Name, Session->PeerAddress, Req.HostPort,
+			Session->UserId, Session->Name, HostAddress, Req.HostPort,
 			Title, Req.bHasPassword != 0, Password, Req.MaxPlayers, NewRoomId);
 
 		if (R == ERoomResult::Success)
@@ -693,7 +759,7 @@ namespace
 			std::printf("[방 생성] #%u \"%s\" 방장=%s(%llu) 주소=%s:%u %s\n",
 			            NewRoomId, Title.c_str(), Session->Name.c_str(),
 			            static_cast<unsigned long long>(Session->UserId),
-			            Session->PeerAddress.c_str(), Req.HostPort,
+			            HostAddress.c_str(), Req.HostPort,
 			            Req.bHasPassword ? "[비번]" : "");
 		}
 		else
@@ -1561,7 +1627,8 @@ int main(int argc, char** argv)
 	// MSVC 는 _IOLBF(줄 버퍼링)를 _IOFBF 와 동일하게 처리하므로 무버퍼로 둔다.
 	::setvbuf(stdout, nullptr, _IONBF, 0);
 
-	// 인자 파싱. --upnp 는 어디에 와도 되고, 나머지는 순서대로 <port> [db경로] 다.
+	// 인자 파싱. --upnp / --public-ip 는 어디에 와도 되고,
+	// 나머지는 순서대로 <port> [db경로] 다.
 	bool        bUseUpnp = false;
 	const char* PortArg  = nullptr;
 	const char* DbArg    = nullptr;
@@ -1571,6 +1638,22 @@ int main(int argc, char** argv)
 		if (std::strcmp(argv[Index], "--upnp") == 0)
 		{
 			bUseUpnp = true;
+		}
+		// --public-ip=1.2.3.4 와 --public-ip 1.2.3.4 를 둘 다 받는다.
+		// 붙여 쓰는 쪽만 지원하면 공백을 넣었을 때 그 값이 db경로로 먹혀
+		// 엉뚱한 파일에 계정이 생기는 사고가 난다 (--upnp 때 겪은 그것과 같다).
+		else if (std::strncmp(argv[Index], "--public-ip=", 12) == 0)
+		{
+			GPublicIp = argv[Index] + 12;
+		}
+		else if (std::strcmp(argv[Index], "--public-ip") == 0)
+		{
+			if (Index + 1 >= argc)
+			{
+				std::printf("[오류] --public-ip 뒤에 주소가 없다.\n");
+				return 1;
+			}
+			GPublicIp = argv[++Index];
 		}
 		else if (PortArg == nullptr)
 		{
@@ -1587,13 +1670,25 @@ int main(int argc, char** argv)
 		}
 	}
 
+	// 사설 주소를 공인 IP 라고 우기면 치환이 오히려 상황을 악화시킨다.
+	// 조용히 무시하지 말고 여기서 멈춰서 알려준다.
+	if (!GPublicIp.empty() && IsPrivateAddress(GPublicIp))
+	{
+		std::printf("[오류] --public-ip 에 사설 주소(%s)를 줬다. 공인 IP 를 줘야 한다.\n",
+		            GPublicIp.c_str());
+		return 1;
+	}
+
 	if (PortArg == nullptr)
 	{
-		std::printf("사용법: %s <port> [db경로] [--upnp]\n", argv[0]);
+		std::printf("사용법: %s <port> [db경로] [--upnp] [--public-ip <주소>]\n", argv[0]);
 		std::printf("  db경로를 생략하면 현재 디렉터리의 chat_log.db 를 쓴다.\n");
 		std::printf("  --upnp : 공유기(UPnP)에 이 포트를 자동으로 열어달라고 요청한다.\n");
 		std::printf("           다른 네트워크에서 접속시킬 때만 필요하다. 같은 공유기\n");
 		std::printf("           안에서만 쓸 거라면 켤 이유가 없다.\n");
+		std::printf("  --public-ip : 이 서버의 공인 IP. 방장이 서버와 같은 공유기 안에\n");
+		std::printf("           있을 때, 방의 호스트 주소로 사설 IP 대신 이 값을 기록한다.\n");
+		std::printf("           안 주면 --upnp 성공 시 알아낸 값을 자동으로 쓴다.\n");
 		return 1;
 	}
 
@@ -1678,12 +1773,38 @@ int main(int argc, char** argv)
 				std::printf("        외부 포트(%u)로 설정해야 한다.\n",
 					static_cast<unsigned>(Nat::MappedExternalPort()));
 			}
+
+			// UPnP 가 알아낸 외부 IP 를 방 호스트 주소 치환에도 쓴다.
+			// 명시적으로 --public-ip 를 준 쪽이 이긴다 — 사람이 준 값이
+			// 더 정확한 상황(공유기가 외부 IP 를 잘못 보고하는 경우)이 있다.
+			if (GPublicIp.empty() && !Nat::ExternalIp().empty()
+			    && !IsPrivateAddress(Nat::ExternalIp()))
+			{
+				GPublicIp = Nat::ExternalIp();
+				std::printf("[NAT] 공인 IP %s 를 방 호스트 주소 치환에 쓴다.\n",
+					GPublicIp.c_str());
+			}
 		}
 		else
 		{
 			std::printf("[NAT] 포트를 열지 못했다: %s\n", Nat::ResultText(Result));
 			std::printf("[NAT] 같은 네트워크에서만 접속할 수 있다. 서버는 그대로 계속한다.\n");
 		}
+	}
+
+	// 방장이 서버와 같은 공유기 안에 있을 때 무엇으로 바꿔 기록할지.
+	// 이게 비어 있으면 예전 동작 그대로이고, 그 조합에서만 외부 참가자가
+	// 사설 주소를 받아 무한 로딩에 걸린다. 켤 때 분명히 보이게 찍어둔다.
+	if (!GPublicIp.empty())
+	{
+		std::printf("[방 주소] 방장이 이 서버와 같은 네트워크에 있으면 호스트 주소를 %s 로 기록한다.\n",
+			GPublicIp.c_str());
+		std::printf("[방 주소] 그 방장의 리슨서버 포트(보통 7777/UDP)도 공유기에 열려 있어야 한다.\n");
+	}
+	else
+	{
+		std::printf("[방 주소] --public-ip 가 없다. 방장이 이 서버와 같은 공유기 안이면\n");
+		std::printf("          외부 참가자에게 사설 주소가 전달되어 접속하지 못한다.\n");
 	}
 
 	std::printf("=== MOU 서버 시작 (port %s) ===\n", PortArg);
