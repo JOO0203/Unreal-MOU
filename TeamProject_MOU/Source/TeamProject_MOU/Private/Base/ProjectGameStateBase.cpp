@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Base/ProjectGameStateBase.h"
@@ -7,7 +7,7 @@
 
 AProjectGameStateBase::AProjectGameStateBase()
 {
-	Gold = 0;
+	Gold = 100;
 	Reputation = 0;
 
 	CurrentDebt = 200;
@@ -21,60 +21,60 @@ AProjectGameStateBase::AProjectGameStateBase()
 
 void AProjectGameStateBase::AddGold(int32 Amount)
 {
-	// Å¬¶óÀÌ¾ğÆ®°¡ ÀÓÀÇ·Î °ñµå¸¦ ¼öÁ¤ÇÏÁö ¸øÇÏµµ·Ï ÇÔ.
-	// GameStateÀÇ ½ÇÁ¦ Gold °ªÀº ¼­¹ö°¡ °ü¸®
+	// í´ë¼ì´ì–¸íŠ¸ê°€ ì„ì˜ë¡œ ê³¨ë“œë¥¼ ìˆ˜ì •í•˜ì§€ ëª»í•˜ë„ë¡ í•¨.
+	// GameStateì˜ ì‹¤ì œ Gold ê°’ì€ ì„œë²„ê°€ ê´€ë¦¬
 	if (!HasAuthority())
 	{
 		return;
 	}
 
-	// 0 ¶Ç´Â À½¼ö °ñµå´Â AddGold·Î ³ÖÁö ¾ÊÀ½.
-    // °ñµå °¨¼Ò´Â SpendGold¸¦ »ç¿ëÇÏµµ·Ï ¿ªÇÒÀ» ºĞ¸®.
+	// 0 ë˜ëŠ” ìŒìˆ˜ ê³¨ë“œëŠ” AddGoldë¡œ ë„£ì§€ ì•ŠìŒ.
+    // ê³¨ë“œ ê°ì†ŒëŠ” SpendGoldë¥¼ ì‚¬ìš©í•˜ë„ë¡ ì—­í• ì„ ë¶„ë¦¬.
 	if (Amount <= 0)
 	{
 		return;
 	}
 
-	// ½ÇÁ¦ ÆÀ °ñµå Áõ°¡
+	// ì‹¤ì œ íŒ€ ê³¨ë“œ ì¦ê°€
 	Gold += Amount;
 
 
-	// ¼­¹ö Ãø¿¡¼­µµ Gold º¯°æ »ç½ÇÀ» Blueprint¿¡ ¾Ë·ÁÁÜ.
-	// HUD µîÀÇ UI °»½Å¿¡ »ç¿ëÇÒ ¼ö ÀÖÀ½.
+	// ì„œë²„ ì¸¡ì—ì„œë„ Gold ë³€ê²½ ì‚¬ì‹¤ì„ Blueprintì— ì•Œë ¤ì¤Œ.
+	// HUD ë“±ì˜ UI ê°±ì‹ ì— ì‚¬ìš©í•  ìˆ˜ ìˆìŒ.
 	OnGoldUpdated(Gold);
 }
 
 bool AProjectGameStateBase::SpendGold(int32 Amount)
 {
-	// ¼­¹ö¿¡¼­¸¸ ½ÇÁ¦ °ñµå Â÷°¨ Çã¿ë
+	// ì„œë²„ì—ì„œë§Œ ì‹¤ì œ ê³¨ë“œ ì°¨ê° í—ˆìš©
 	if (!HasAuthority())
 	{
 		return false;
 	}
 
-	// 0ÀÌ³ª À½¼ö ±İ¾× »ç¿ë ¹æÁö
+	// 0ì´ë‚˜ ìŒìˆ˜ ê¸ˆì•¡ ì‚¬ìš© ë°©ì§€
 	if (Amount <= 0)
 	{
 		return false;
 	}
 
-	// ÇöÀç °ñµå°¡ Amountº¸´Ù ÀûÀ¸¸é ±¸¸Å/ÁöºÒ ½ÇÆĞ
+	// í˜„ì¬ ê³¨ë“œê°€ Amountë³´ë‹¤ ì ìœ¼ë©´ êµ¬ë§¤/ì§€ë¶ˆ ì‹¤íŒ¨
 	if (!CanAfford(Amount))
 	{
 		return false;
 	}
 
-	// ½ÇÁ¦ °ñµå Â÷°¨
+	// ì‹¤ì œ ê³¨ë“œ ì°¨ê°
 	Gold -= Amount;
 
-	// UI µî¿¡ º¯°æµÈ Gold Àü´Ş
+	// UI ë“±ì— ë³€ê²½ëœ Gold ì „ë‹¬
 	OnGoldUpdated(Gold);
 
 
 	return true;
 }
 
-// µ·À» ¾²Áö¾Ê°í »ì¼ö ÀÖ´ÂÁö °Ë»çÇÏ´Â ÇÔ¼ö
+// ëˆì„ ì“°ì§€ì•Šê³  ì‚´ìˆ˜ ìˆëŠ”ì§€ ê²€ì‚¬í•˜ëŠ” í•¨ìˆ˜
 bool AProjectGameStateBase::CanAfford(int32 Amount) const
 {
 	return Amount > 0 && Gold >= Amount;
@@ -131,13 +131,13 @@ bool AProjectGameStateBase::PayDebt()
 		return false;
 	}
 
-	// ºúÀ» ³¾ µ·ÀÌ ºÎÁ·ÇÔ
+	// ë¹šì„ ë‚¼ ëˆì´ ë¶€ì¡±í•¨
 	if (!SpendGold(CurrentDebt))
 	{
 		return  false;
 	}
 
-	// »óÈ¯ ¼º°ø
+	// ìƒí™˜ ì„±ê³µ
 	DebtCycle++;
 	OnDebtCycleUpdated(DebtCycle);
 

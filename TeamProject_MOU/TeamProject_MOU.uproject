@@ -66,6 +66,10 @@
 		{
 			"Name": "Text3D",
 			"Enabled": true
+		},
+		{
+			"Name": "StaticMeshEditorModeling",
+			"Enabled": true
 		}
 	]
 }

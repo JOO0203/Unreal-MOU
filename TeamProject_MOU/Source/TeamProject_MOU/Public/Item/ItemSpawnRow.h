@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
@@ -15,9 +15,9 @@ class UTexture2D;
 UENUM(BlueprintType)
 enum class EItemCategory : uint8
 {
-	Weapon	UMETA(DisplayName = "무기"),
-	Potion	UMETA(DisplayName = "포션"),
-	Etc		UMETA(DisplayName = "기타")
+	WEAPON	UMETA(DisplayName = "Weapon"),
+	POTION	UMETA(DisplayName = "Potion"),
+	ETC		UMETA(DisplayName = "ETC")
 };
 
 /**
@@ -37,7 +37,7 @@ struct FItemSpawnRow : public FTableRowBase
 
 	// 상점 분류 카테고리 (무기/포션/기타). 상점 UI에서 탭/필터로 사용. 기본값 Etc.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
-	EItemCategory Category = EItemCategory::Etc;
+	EItemCategory Category = EItemCategory::ETC;
 
 	// 표시 이름 (ItemBase.ItemName에 주입)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
