@@ -1,11 +1,13 @@
-#include "Item/GrabGun.h"
+﻿#include "Item/GrabGun.h"
 #include "Base/CharacterBase.h"
 #include "Components/GrabFollowComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SphereComponent.h"
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Net/UnrealNetwork.h"
@@ -60,7 +62,8 @@ AGrabGun::AGrabGun()
 	MaxDurability = 100.0f;
 	CurrentDurability = MaxDurability;
 
-	// 루트(MeshComponent, ItemBase 소유) = body_shell 총몸
+	// 루트(MeshComponent) = body_shell 총몸. ItemBase의 물리/줍기/충돌이 이 메시 기준이라 여기 둔다.
+	// 링크·집게가 전부 이 자식이라, 루트를 돌리면 총 전체가 같이 돌아간다.
 	if (MeshComponent)
 	{
 		if (UStaticMesh* Body = LoadPartMesh(TEXT("body_shell")))
@@ -77,30 +80,33 @@ AGrabGun::AGrabGun()
 	MuzzlePoint = CreateDefaultSubobject<USceneComponent>(TEXT("MuzzlePoint"));
 	MuzzlePoint->SetupAttachment(MeshComponent);
 
-	// 팬터그래프 부품 계층 조립
+	// 고정 부품(집게·트리거·콜라이더)만 생성자에서 조립. 반복 셀은 RebuildCells가 담당.
 	BuildLinkageComponents();
-
-	// 생성자에서 바로 접힘 포즈(alpha=0)를 적용해 편집 뷰포트에서도 접혀 보이게 한다.
-	CurrentExtendAlpha = 0.0f;
-	TargetExtendAlpha = 0.0f;
-	UpdateLinkagePose(0.0f);
 }
 
-// BP에서 Linkage 설정값(각도/길이 등)을 바꿀 때마다 편집 뷰포트에 접힘 포즈를 다시 그린다.
+// BP에서 Linkage 설정값(CellCount/각도 등)을 바꿀 때마다 셀을 재생성하고 포즈를 다시 그린다.
 void AGrabGun::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
-	UpdateLinkagePose(CurrentExtendAlpha);
+	RebuildCells();                       // CellCount 반영 (바뀐 경우에만 재생성)
+	UpdateLinkagePose(CurrentExtendAlpha); // 접힘 포즈 적용
 }
 
 void AGrabGun::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 시작은 완전히 접힌 포즈
+	// 셀 보장 (CellCount만큼) + 시작은 완전히 접힌 포즈
+	RebuildCells();
 	CurrentExtendAlpha = 0.0f;
 	TargetExtendAlpha = 0.0f;
 	UpdateLinkagePose(0.0f);
+
+	// 집게 콜라이더 오버랩 콜백 바인딩
+	if (JawGrabCollider)
+	{
+		JawGrabCollider->OnComponentBeginOverlap.AddDynamic(this, &AGrabGun::OnJawOverlap);
+	}
 }
 
 void AGrabGun::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -180,51 +186,24 @@ void AGrabGun::BuildLinkageComponents()
 		return Comp;
 	};
 
-	CellPivots.Reset();
-	PivotUp.Reset();
-	PivotDn.Reset();
-	PinTop.Reset();
-	PinBottom.Reset();
-	PinCenter.Reset();
+	// 반복 셀(cell/bar/pin)은 여기서 만들지 않고 RebuildCells()가 CellCount만큼 런타임 생성한다.
+	// (BuildLinkageComponents는 생성자에서 한 번만 불려 고정 부품만 만든다)
 
-	// cell 체인: cell_00은 linkage_root 직속, cell_01..은 앞 셀의 자식.
-	// (초기 위치는 어차피 UpdateLinkagePose가 alpha로 덮어쓰므로 identity로 둔다)
-	USceneComponent* PrevCell = LinkageRoot;
-	for (int32 i = 0; i < CellCount; ++i)
-	{
-		USceneComponent* Cell = MakeScene(*FString::Printf(TEXT("cell_%02d"), i), PrevCell, FVector::ZeroVector, FRotator::ZeroRotator);
-		CellPivots.Add(Cell);
-
-		// pivot_up_i / pivot_dn_i (빈 피벗). 위치/회전은 Update에서 hh, a로 갱신.
-		USceneComponent* PUp = MakeScene(*FString::Printf(TEXT("pivot_up_%d"), i), Cell,
-			FVector::ZeroVector, FRotator::ZeroRotator);
-		USceneComponent* PDn = MakeScene(*FString::Printf(TEXT("pivot_dn_%d"), i), Cell,
-			FVector::ZeroVector, FRotator::ZeroRotator);
-		PivotUp.Add(PUp);
-		PivotDn.Add(PDn);
-
-		// bar 메시 (피벗 자식). GLB 실측: (R, 0, ±BarZOffset). X=R이 회전 반지름.
-		MakeMesh(*FString::Printf(TEXT("bar_up_%d"), i), FString::Printf(TEXT("bar_up_%d"), i), PUp,
-			MakeLocal(LinkHalfLength, 0.0f, +BarZOffset), FRotator::ZeroRotator);
-		MakeMesh(*FString::Printf(TEXT("bar_dn_%d"), i), FString::Printf(TEXT("bar_dn_%d"), i), PDn,
-			MakeLocal(LinkHalfLength, 0.0f, -BarZOffset), FRotator::ZeroRotator);
-
-		// 핀 3개 (cell 직속). top/bottom은 hh, center는 dx/2로 Update에서 갱신.
-		PinTop.Add(MakeMesh(*FString::Printf(TEXT("pin_top_%d"), i), FString::Printf(TEXT("pin_top_%d"), i), Cell,
-			FVector::ZeroVector, FRotator::ZeroRotator));
-		PinBottom.Add(MakeMesh(*FString::Printf(TEXT("pin_bottom_%d"), i), FString::Printf(TEXT("pin_bottom_%d"), i), Cell,
-			FVector::ZeroVector, FRotator::ZeroRotator));
-		PinCenter.Add(MakeMesh(*FString::Printf(TEXT("pin_center_%d"), i), FString::Printf(TEXT("pin_center_%d"), i), Cell,
-			FVector::ZeroVector, FRotator::ZeroRotator));
-
-		PrevCell = Cell;
-	}
-
-	// end_yoke (마지막 셀 자식). 위치는 Update에서 dx로 갱신.
+	// end_yoke: 셀 개수가 바뀌어도 부모가 안 바뀌게 LinkageRoot 직속으로 둔다.
+	// 위치는 UpdateLinkagePose에서 (CellCount * dx)로 마지막 셀 끝에 맞춘다.
 	// GLB 계층: end_yoke > yoke_spine_holder(identity) > yoke_spine(mesh)
-	EndYoke = MakeScene(TEXT("end_yoke"), PrevCell, FVector::ZeroVector, FRotator::ZeroRotator);
+	EndYoke = MakeScene(TEXT("end_yoke"), LinkageRoot, FVector::ZeroVector, FRotator::ZeroRotator);
 	USceneComponent* YokeHolder = MakeScene(TEXT("yoke_spine_holder"), EndYoke, FVector::ZeroVector, FRotator::ZeroRotator);
-	MakeMesh(TEXT("yoke_spine"), TEXT("yoke_spine"), YokeHolder, FVector::ZeroVector, FRotator::ZeroRotator);
+	YokeSpine = MakeMesh(TEXT("yoke_spine"), TEXT("yoke_spine"), YokeHolder, FVector::ZeroVector, FRotator::ZeroRotator);
+
+	// 집게 끝 접촉 판정 콜라이더 (end_yoke 자식). 평소 꺼두고 펴질 때만 켠다.
+	JawGrabCollider = CreateDefaultSubobject<USphereComponent>(TEXT("JawGrabCollider"));
+	JawGrabCollider->SetupAttachment(EndYoke);
+	JawGrabCollider->SetRelativeLocation(JawColliderOffset);
+	JawGrabCollider->SetSphereRadius(JawColliderRadius);
+	JawGrabCollider->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	JawGrabCollider->SetGenerateOverlapEvents(false);
+	JawGrabCollider->SetCollisionResponseToAllChannels(ECR_Overlap);
 
 	// 집게턱 (GLB 실측 계층 그대로):
 	//   jaw_pivot_* (0.6, ±2.62, 회전 ±10.03°)  ← 벌림 회전은 여기(Update에서 갱신)
@@ -251,9 +230,104 @@ void AGrabGun::BuildLinkageComponents()
 		MakeMesh(TEXT("jaw_pin_bottom"),   TEXT("jaw_pin_bottom"),   JawPivotBottom, FVector::ZeroVector, FRotator::ZeroRotator);
 	}
 
-	// 트리거 피벗 (body_shell 직속). GLB 실측 trigger_pivot (-0.2, -0.8, 0), trigger (0.013, -2.468, 0).
+	// 트리거 피벗 (body_shell=MeshComponent 직속). GLB 실측 trigger_pivot (-0.2, -0.8, 0).
+	// trigger 메시 위치/회전은 Details(TriggerMeshOffset/Rot)로 조정. (Update에서 갱신)
 	TriggerPivot = MakeScene(TEXT("trigger_pivot"), MeshComponent, MakeLocal(-0.2f, -0.8f, 0.0f), FRotator::ZeroRotator);
-	MakeMesh(TEXT("trigger"), TEXT("trigger"), TriggerPivot, MakeLocal(0.013f, -2.468f, 0.0f), FRotator::ZeroRotator);
+	TriggerMesh = MakeMesh(TEXT("trigger"), TEXT("trigger"), TriggerPivot, FVector::ZeroVector, FRotator::ZeroRotator);
+}
+
+// =============================================================================
+// [GRAB-012B] 셀(cell/bar/pin) 런타임 재생성 - CellCount만큼
+// =============================================================================
+
+void AGrabGun::RebuildCells()
+{
+	if (!LinkageRoot)
+	{
+		return;
+	}
+	// 이미 같은 개수면 스킵 (매 OnConstruction마다 재생성 낭비 방지)
+	if (BuiltCellCount == CellCount)
+	{
+		return;
+	}
+
+	// 기존 셀 컴포넌트 전부 제거
+	auto DestroyArray = [](auto& Arr)
+	{
+		for (auto& C : Arr)
+		{
+			if (C) { C->DestroyComponent(); }
+		}
+		Arr.Reset();
+	};
+	DestroyArray(CellPivots);
+	DestroyArray(PivotUp);
+	DestroyArray(PivotDn);
+	DestroyArray(PinTop);
+	DestroyArray(PinBottom);
+	DestroyArray(PinCenter);
+
+	// 런타임 SceneComponent 생성 헬퍼 (NewObject + RegisterComponent)
+	auto NewScene = [this](const FName& Name, USceneComponent* Parent) -> USceneComponent*
+	{
+		USceneComponent* Comp = NewObject<USceneComponent>(this, USceneComponent::StaticClass(), Name);
+		Comp->SetupAttachment(Parent);
+		Comp->RegisterComponent();
+		return Comp;
+	};
+	// 런타임 StaticMesh 생성 헬퍼
+	auto NewMesh = [this](const FName& Name, const FString& PartName, USceneComponent* Parent, const FVector& Loc) -> UStaticMeshComponent*
+	{
+		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this, UStaticMeshComponent::StaticClass(), Name);
+		Comp->SetupAttachment(Parent);
+		Comp->RegisterComponent();
+		Comp->SetRelativeLocation(Loc);
+		if (UStaticMesh* M = LoadPartMesh(PartName))
+		{
+			Comp->SetStaticMesh(M);
+		}
+		Comp->SetSimulatePhysics(false);
+		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		return Comp;
+	};
+
+	// 임포트된 메시는 0~8(9칸)뿐 → CellCount가 9를 넘으면 메시를 순환 재사용(m = i % 9).
+	const int32 MeshCells = 9;
+	// 셀은 앞 셀의 자식으로 중첩(cell_i = cell_{i-1}의 자식). 9칸일 때 정상이던 구조 유지.
+	// UpdateLinkagePose가 cell_1..은 상대 dx, cell_0은 0으로 배치 → X자가 연속으로 이어진다.
+	USceneComponent* PrevParent = LinkageRoot;
+	for (int32 i = 0; i < CellCount; ++i)
+	{
+		const int32 m = i % MeshCells;
+
+		USceneComponent* Cell = NewScene(*FString::Printf(TEXT("cell_%02d"), i), PrevParent);
+		CellPivots.Add(Cell);
+
+		USceneComponent* PUp = NewScene(*FString::Printf(TEXT("pivot_up_%d"), i), Cell);
+		USceneComponent* PDn = NewScene(*FString::Printf(TEXT("pivot_dn_%d"), i), Cell);
+		PivotUp.Add(PUp);
+		PivotDn.Add(PDn);
+
+		NewMesh(*FString::Printf(TEXT("bar_up_%d"), i), FString::Printf(TEXT("bar_up_%d"), m), PUp,
+			MakeLocal(LinkHalfLength, 0.0f, +BarZOffset));
+		NewMesh(*FString::Printf(TEXT("bar_dn_%d"), i), FString::Printf(TEXT("bar_dn_%d"), m), PDn,
+			MakeLocal(LinkHalfLength, 0.0f, -BarZOffset));
+
+		PinTop.Add(NewMesh(*FString::Printf(TEXT("pin_top_%d"), i), FString::Printf(TEXT("pin_top_%d"), m), Cell, FVector::ZeroVector));
+		PinBottom.Add(NewMesh(*FString::Printf(TEXT("pin_bottom_%d"), i), FString::Printf(TEXT("pin_bottom_%d"), m), Cell, FVector::ZeroVector));
+		PinCenter.Add(NewMesh(*FString::Printf(TEXT("pin_center_%d"), i), FString::Printf(TEXT("pin_center_%d"), m), Cell, FVector::ZeroVector));
+
+		PrevParent = Cell; // 다음 셀은 이 셀의 자식 (중첩)
+	}
+
+	// end_yoke를 마지막 셀의 자식으로 다시 붙인다 (셀 개수가 바뀌었으니 부모 갱신).
+	if (EndYoke && CellPivots.Num() > 0 && CellPivots.Last())
+	{
+		EndYoke->AttachToComponent(CellPivots.Last(), FAttachmentTransformRules::KeepRelativeTransform);
+	}
+
+	BuiltCellCount = CellCount;
 }
 
 // =============================================================================
@@ -272,7 +346,8 @@ void AGrabGun::UpdateLinkagePose(float Alpha)
 	const float dx = 2.0f * R * FMath::Cos(aRad);   // cm, 셀 간 X 간격
 	const float hh = R * FMath::Sin(aRad);          // cm, 핀 상하 반높이
 
-	// cell_01..N : X = dx (cell_00은 0 고정). end_yoke도 dx.
+	// 셀은 앞 셀의 자식(중첩)이므로 각 셀에 상대 dx를 준다 (누적되어 i*dx가 됨).
+	//   cell_0은 0, cell_1..은 각각 dx. end_yoke도 마지막 셀 기준 상대 dx.
 	for (int32 i = 1; i < CellPivots.Num(); ++i)
 	{
 		if (CellPivots[i])
@@ -323,26 +398,39 @@ void AGrabGun::UpdateLinkagePose(float Alpha)
 		JawPivotBottom->SetRelativeRotation(MakeYawRot(-JawDeg));
 	}
 
-	// 집게 blade/pad 메시 위치·회전 (Details에서 조정 가능). top=+Y/+Yaw, bottom=-Y/-Yaw 대칭.
+	// 집게 blade/pad 메시 위치·회전 (Details에서 조정 가능).
+	// top=+Y, bottom=-Y. 회전은 top=그대로, bottom=Yaw만 반전(좌우 대칭).
+	auto MirrorYaw = [](const FRotator& R) { return FRotator(R.Pitch, -R.Yaw, R.Roll); };
 	if (JawBladeTop)
 	{
 		JawBladeTop->SetRelativeLocation(MakeLocal(JawBladeOffset.X, +JawBladeOffset.Y, JawBladeOffset.Z));
-		JawBladeTop->SetRelativeRotation(MakeYawRot(+JawBladeYaw));
+		JawBladeTop->SetRelativeRotation(JawBladeRot);
 	}
 	if (JawBladeBottom)
 	{
 		JawBladeBottom->SetRelativeLocation(MakeLocal(JawBladeOffset.X, -JawBladeOffset.Y, JawBladeOffset.Z));
-		JawBladeBottom->SetRelativeRotation(MakeYawRot(-JawBladeYaw));
+		JawBladeBottom->SetRelativeRotation(MirrorYaw(JawBladeRot));
 	}
 	if (JawPadTop)
 	{
 		JawPadTop->SetRelativeLocation(MakeLocal(JawPadOffset.X, +JawPadOffset.Y, JawPadOffset.Z));
-		JawPadTop->SetRelativeRotation(MakeYawRot(+JawPadYaw));
+		JawPadTop->SetRelativeRotation(JawPadRot);
 	}
 	if (JawPadBottom)
 	{
 		JawPadBottom->SetRelativeLocation(MakeLocal(JawPadOffset.X, -JawPadOffset.Y, JawPadOffset.Z));
-		JawPadBottom->SetRelativeRotation(MakeYawRot(-JawPadYaw));
+		JawPadBottom->SetRelativeRotation(MirrorYaw(JawPadRot));
+	}
+	// yoke_spine(집게 연결부 세로 바): 세로로 서 있으면 눕힌다.
+	if (YokeSpine)
+	{
+		YokeSpine->SetRelativeRotation(YokeSpineRot);
+	}
+	// trigger(방아쇠) 메시 위치·회전 (Details에서 조정).
+	if (TriggerMesh)
+	{
+		TriggerMesh->SetRelativeLocation(TriggerMeshOffset);
+		TriggerMesh->SetRelativeRotation(TriggerMeshRot);
 	}
 	// 트리거 당김: t=alpha
 	if (TriggerPivot)
@@ -354,6 +442,13 @@ void AGrabGun::UpdateLinkagePose(float Alpha)
 void AGrabGun::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// 총 방향 보정: 손에 쥐면(물리 off) 소켓 스냅이 루트 회전을 덮으므로 매 Tick 다시 적용.
+	// 바닥에 떨어진 상태(물리 on)에서는 건드리지 않는다(물리 회전과 충돌 방지).
+	if (MeshComponent && !MeshOrientationFix.IsNearlyZero() && !MeshComponent->IsSimulatingPhysics())
+	{
+		MeshComponent->SetRelativeRotation(MeshOrientationFix);
+	}
 
 	// 목표치로 부드럽게 보간 (시각 표현이라 서버/클라 각자 로컬 계산)
 	if (!FMath::IsNearlyEqual(CurrentExtendAlpha, TargetExtendAlpha, 0.001f))
@@ -370,64 +465,76 @@ void AGrabGun::Tick(float DeltaTime)
 void AGrabGun::Fire()
 {
 	// Fire는 서버 권한에서 호출됨 (WeaponItemBase::TryFireOnServer 경로)
-	// 이미 잡고 있으면 → 놓기
-	if (GrabbedTarget)
+	// 토글: 이미 펴져 있으면(잡았든 뻗은 중이든) → 접기.
+	if (GrabbedTarget || TargetExtendAlpha > 0.5f)
 	{
 		ReleaseTarget();
 		return;
 	}
 
-	// 아니면 → 카메라 조준 트레이스로 대상 찾기 (테이저와 동일 방식)
-	FVector ViewLocation = GetActorLocation();
-	FRotator ViewRotation = GetActorRotation();
+	// 펴기: 링크가 쫙 펴지고, 집게 콜라이더를 켜서 뻗는 동안 대상과 닿으면 잡는다.
+	TargetExtendAlpha = 1.0f;
+	bGrabArmed = true;
+	SetJawColliderActive(true);
 
-	APawn* OwnerPawn = Cast<APawn>(LastOwner);
-	if (OwnerPawn && OwnerPawn->GetController())
+	// VFX: 총구 → 집게 끝 (연출)
+	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : GetActorLocation();
+	const FVector FxEnd = JawGrabCollider ? JawGrabCollider->GetComponentLocation() : FxStart;
+	MulticastPlayFireEffect(FxStart, FxEnd, false);
+}
+
+// [GRAB-002B] 집게 콜라이더 오버랩: 펴짐 중(bGrabArmed) player/enemy 닿으면 잡기
+void AGrabGun::OnJawOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	// 서버 권한 + 아직 안 잡았고 + 펴는 중일 때만
+	if (!HasAuthority() || GrabbedTarget || !bGrabArmed)
 	{
-		OwnerPawn->GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		return;
 	}
-	else if (LastOwner)
+	// 든 사람 자신은 무시
+	if (OtherActor == LastOwner || OtherActor == this)
 	{
-		LastOwner->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+		return;
 	}
-
-	const FVector TraceStart = ViewLocation;
-	const FVector TraceEnd = TraceStart + ViewRotation.Vector() * GrabRange;
-
-	// 피아식별 트레이스는 부모(WeaponItemBase)에 위임. 맞으면 ApplyWeaponHit(=집기) 내부 호출.
-	FHitResult Hit;
-	const bool bHit = FireHitscan(TraceStart, TraceEnd, Hit);
-
-	// [DEBUG-GRAB] 트레이스 시각화 - 확인 후 제거
-	DrawDebugLine(GetWorld(), TraceStart, TraceEnd, bHit ? FColor::Green : FColor::Red, false, 2.0f, 0, 1.5f);
-	if (bHit)
+	// 피아식별: WeaponItemBase의 IsValidTarget(TargetTeam) 사용
+	if (!IsValidTarget(OtherActor))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Hit: %s"), *GetNameSafe(Hit.GetActor()));
+		return;
+	}
+	ACharacterBase* Target = Cast<ACharacterBase>(OtherActor);
+	if (Target)
+	{
+		GrabTarget(Target);
+	}
+}
+
+// [GRAB-003] 무기 공통 히트 처리 override: (콜라이더 방식이라 트레이스 히트는 안 쓴다. 호환용으로 남김)
+void AGrabGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit)
+{
+	// 집게 콜라이더 오버랩(OnJawOverlap)에서 처리하므로 여기서는 아무것도 하지 않는다.
+}
+
+// 집게 콜라이더 on/off
+void AGrabGun::SetJawColliderActive(bool bActive)
+{
+	if (!JawGrabCollider)
+	{
+		return;
+	}
+	if (bActive)
+	{
+		JawGrabCollider->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		JawGrabCollider->SetGenerateOverlapEvents(true);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Miss"));
+		JawGrabCollider->SetGenerateOverlapEvents(false);
+		JawGrabCollider->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
-
-	// VFX: 총구 → 명중지점(또는 최대거리)
-	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : TraceStart;
-	const FVector FxEnd = bHit ? Hit.ImpactPoint : TraceEnd;
-	MulticastPlayFireEffect(FxStart, FxEnd, bHit);
 }
 
-// [GRAB-003] 히트 처리: 맞은 캐릭터를 GrabFollowComponent로 집기
-void AGrabGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit)
-{
-	ACharacterBase* Target = Cast<ACharacterBase>(HitActor);
-	if (!Target)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Hit but NOT ACharacterBase: %s"), *GetNameSafe(HitActor));
-		return;
-	}
-	GrabTarget(Target);
-}
-
-// [GRAB-010] 대상을 집는다 (서버)
+// [GRAB-010] 대상을 집는다 (서버): 집게 컴포넌트에 직접 attach + 이동정지
 void AGrabGun::GrabTarget(ACharacterBase* Target)
 {
 	if (!HasAuthority() || !Target)
@@ -435,22 +542,28 @@ void AGrabGun::GrabTarget(ACharacterBase* Target)
 		return;
 	}
 
-	// 잡히는 대상 몸에 붙어있는 GrabFollowComponent를 찾아 시작시킴
-	UGrabFollowComponent* Follow = Target->FindComponentByClass<UGrabFollowComponent>();
-	if (!Follow)
+	// 더 이상 새 대상을 찾지 않는다 (콜라이더 끔)
+	bGrabArmed = false;
+	SetJawColliderActive(false);
+
+	// 대상을 집게 끝(EndYoke)에 attach → 집게 위치에 붙는다.
+	// 위치는 집게에 스냅하되, 회전은 대상 자신의 것을 유지한다(총 방향 90도 회전에 안 딸려가게).
+	USceneComponent* AttachTo = EndYoke ? (USceneComponent*)EndYoke : (USceneComponent*)MeshComponent;
+	const FAttachmentTransformRules GrabAttachRules(
+		EAttachmentRule::SnapToTarget,   // Location: 집게에 스냅
+		EAttachmentRule::KeepWorld,      // Rotation: 대상의 월드 회전 유지
+		EAttachmentRule::KeepWorld,      // Scale: 유지
+		true);
+	Target->AttachToComponent(AttachTo, GrabAttachRules);
+
+	// 잡힌 대상 이동 정지 (서버가 위치를 attach로 강제하므로 클라 예측 이동 끔)
+	if (UCharacterMovementComponent* Move = Target->GetCharacterMovement())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Target has NO GrabFollowComponent: %s"), *GetNameSafe(Target));
-		return;
+		GrabbedPrevMovementMode = static_cast<uint8>(Move->MovementMode);
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
 	}
 
-	ACharacter* Carrier = Cast<ACharacter>(LastOwner); // 이 그래버를 든 플레이어
-	if (!Carrier)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Owner is not a Character, cannot grab"));
-		return;
-	}
-
-	Follow->StartGrabFollow(Carrier, GrabSocketName, GrabRelativeOffset, true);
 	GrabbedTarget = Target;
 
 	// 잡기 성공 시에만 내구도 1 소모 (ShouldConsumeUseOnFire=false라 여기서 수동 차감)
@@ -459,13 +572,10 @@ void AGrabGun::GrabTarget(ACharacterBase* Target)
 		CurrentDurability -= 1.0f;
 	}
 
-	// 링크 뻗음 (모든 클라 복제)
-	TargetExtendAlpha = 1.0f;
-
 	UE_LOG(LogTemp, Warning, TEXT("[GRAB] Grabbed %s"), *GetNameSafe(Target));
 }
 
-// [GRAB-011] 잡고 있던 대상을 놓는다 (서버)
+// [GRAB-011] 잡고 있던 대상을 놓는다 (서버): detach + 이동복원 + 링크 접힘
 void AGrabGun::ReleaseTarget()
 {
 	if (!HasAuthority())
@@ -473,11 +583,18 @@ void AGrabGun::ReleaseTarget()
 		return;
 	}
 
+	bGrabArmed = false;
+	SetJawColliderActive(false);
+
 	if (GrabbedTarget)
 	{
-		if (UGrabFollowComponent* Follow = GrabbedTarget->FindComponentByClass<UGrabFollowComponent>())
+		// 집게에서 떼어내 월드에 남긴다
+		GrabbedTarget->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+		// 이동 복원
+		if (UCharacterMovementComponent* Move = GrabbedTarget->GetCharacterMovement())
 		{
-			Follow->StopGrabFollow();
+			Move->SetMovementMode(static_cast<EMovementMode>(GrabbedPrevMovementMode));
 		}
 		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Released %s"), *GetNameSafe(GrabbedTarget));
 	}

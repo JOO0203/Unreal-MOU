@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Item/WeaponItemBase.h"
@@ -6,6 +6,8 @@
 
 class USceneComponent;
 class UStaticMeshComponent;
+class USphereComponent;
+class UPrimitiveComponent;
 class ACharacterBase;
 class UGrabFollowComponent;
 
@@ -39,13 +41,29 @@ protected:
 
 #pragma region [GRAB] 컴포넌트
 	// 팬터그래프 링크가 매달리는 루트. body_shell(=MeshComponent) 앞쪽에 붙는다.
-	// BP에서 위치를 총구 앞으로 옮겨두면 링크가 그 지점에서 뻗어나간다.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GrabGun")
 	TObjectPtr<USceneComponent> LinkageRoot;
 
 	// 총구/집게 끝 지점. VFX 시작 위치 및 트레이스 기준 폴백에 사용.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GrabGun")
 	TObjectPtr<USceneComponent> MuzzlePoint;
+
+	// 집게 끝 접촉 판정 콜라이더 (end_yoke 자식). 펴지는 동안 켜서 대상과 닿으면 잡는다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GrabGun")
+	TObjectPtr<USphereComponent> JawGrabCollider;
+
+	// 집게 콜라이더 반경 (cm). BP에서 조정.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun")
+	float JawColliderRadius = 8.0f;
+
+	// 집게 콜라이더 로컬 위치 (end_yoke 기준, cm). 집게 물리는 지점으로 옮긴다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun")
+	FVector JawColliderOffset = FVector(6.0f, 0.0f, 0.0f);
+
+	// 총 방향 보정 (deg). Details에서 이 값을 넣으면 루트(body_shell+링크 전부)가 그만큼 돌아간다.
+	// 손에 쥐면 소켓 스냅이 루트 회전을 덮으므로, 매 Tick 루트에 다시 적용해 방향을 유지한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun")
+	FRotator MeshOrientationFix = FRotator::ZeroRotator;
 #pragma endregion
 
 #pragma region [GRAB] 설정값
@@ -65,7 +83,7 @@ protected:
 #pragma region [GRAB] 팬터그래프 연출 설정 (GLB matrix 실측 기반)
 	// 셀(가위 링크) 개수. 임포트된 bar_up_0..8 / pin_*_0..8 기준 9칸.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Linkage")
-	int32 CellCount = 9;
+	int32 CellCount = 12;
 
 	// 링크 반팔 길이 R (cm). GLB 실측: bar가 pivot 자식으로 (R,0,±0.35)에 놓임 = 3.1.
 	//   셀 간격 dx = 2*R*cos(a), 핀 반높이 hh = R*sin(a).
@@ -96,30 +114,43 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Linkage")
 	FVector JawPivotOffset = FVector(0.6f, 2.62f, 0.0f);
 
-	// 집게턱 기본(펼침) 회전 (deg). GLB 실측 top=+10.03, bottom=-10.03.
+	// 집게턱 기본(펼침) 회전 (deg). 뷰포트 조정 확정값.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Linkage")
-	float JawBaseAngleDeg = 10.03f;
+	float JawBaseAngleDeg = 2.597f;
 
 	// 집게턱 추가 벌림 각 (deg). alpha에 비례해 기본각(10.03°)에서 더 벌어진다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Linkage")
 	float JawOpenAngle = 8.0f;
 
 	// --- 집게 메시 방향 미세조정 (뷰포트 보며 Details에서 돌린다) ---
-	// blade 메시의 pivot 로컬 위치/회전. GLB 실측 위치 (2.766, ∓0.965), 회전 0.
+	// blade 메시의 pivot 로컬 위치. 뷰포트 조정 확정값.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Jaw")
-	FVector JawBladeOffset = FVector(2.766f, 0.965f, 0.0f);
+	FVector JawBladeOffset = FVector(2.766f, 0.828f, 0.0f);
 
-	// blade 메시 회전 (deg). 방향이 틀어지면 여기를 돌린다.
+	// blade 메시 회전 (Pitch/Yaw/Roll). 뷰포트 조정 확정값. (Pitch≈87.5로 세워진 메시를 눕힘)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Jaw")
-	float JawBladeYaw = 0.0f;
+	FRotator JawBladeRot = FRotator(87.477f, -0.739f, 0.564f);
 
-	// pad 메시의 pivot 로컬 위치. GLB 실측 (4.6, ∓2.15).
+	// pad 메시의 pivot 로컬 위치. 뷰포트 조정 확정값.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Jaw")
-	FVector JawPadOffset = FVector(4.6f, 2.15f, 0.0f);
+	FVector JawPadOffset = FVector(4.993f, 2.682f, 0.0f);
 
-	// pad 메시 회전 (deg). GLB 실측 ±35.52. 방향이 틀어지면 여기를 돌린다.
+	// pad 메시 회전 (Pitch/Yaw/Roll). 뷰포트 조정 확정값.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Jaw")
-	float JawPadYaw = 35.52f;
+	FRotator JawPadRot = FRotator(90.0f, 0.0f, -4.219f);
+
+	// yoke_spine(집게 연결부 세로 바) 메시 회전. 세로로 서 있으면 여기서 눕힌다. 뷰포트에서 맞춘다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Jaw")
+	FRotator YokeSpineRot = FRotator::ZeroRotator;
+
+	// --- 방아쇠(trigger) 위치/회전 미세조정 (뷰포트 보며 Details에서 맞춘다) ---
+	// trigger 메시의 trigger_pivot 로컬 위치. GLB 실측 (0.013, -2.468, 0).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Trigger")
+	FVector TriggerMeshOffset = FVector(0.013f, -2.468f, 0.0f);
+
+	// trigger 메시 회전 (Pitch/Yaw/Roll). 방향이 틀어지면 여기서 돌린다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Trigger")
+	FRotator TriggerMeshRot = FRotator::ZeroRotator;
 
 	// 트리거 피벗 위치 (body_shell 자식). GLB 실측 (-0.2, -0.8, 0).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GrabGun|Linkage")
@@ -166,11 +197,25 @@ private:
 	UPROPERTY(Replicated)
 	TObjectPtr<ACharacterBase> GrabbedTarget;
 
-	// [GRAB-010] 대상을 집는다 (서버). 성공 시 내구도 1 소모.
+	// 발사(펴짐) 중이라 집게 콜라이더로 대상을 찾고 있는 상태. true인 동안 오버랩하면 잡는다.
+	bool bGrabArmed = false;
+
+	// [GRAB-002B] 집게 콜라이더 오버랩 콜백 - 펴짐 중(bGrabArmed) player/enemy 닿으면 잡기
+	UFUNCTION()
+	void OnJawOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	// [GRAB-010] 대상을 집는다 (서버). 집게 컴포넌트에 attach + 이동정지. 성공 시 내구도 1 소모.
 	void GrabTarget(ACharacterBase* Target);
 
-	// [GRAB-011] 잡고 있던 대상을 놓는다 (서버).
+	// [GRAB-011] 잡고 있던 대상을 놓는다 (서버). detach + 이동복원.
 	void ReleaseTarget();
+
+	// 집게 콜라이더 on/off (펴짐 시작/접힘에서 호출)
+	void SetJawColliderActive(bool bActive);
+
+	// 잡힌 대상의 이동 모드 복원용 저장값
+	uint8 GrabbedPrevMovementMode = 0;
 #pragma endregion
 
 #pragma region [GRAB] 팬터그래프 부품/구동
@@ -214,9 +259,21 @@ private:
 	TObjectPtr<UStaticMeshComponent> JawPadTop;
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> JawPadBottom;
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> YokeSpine;
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> TriggerMesh;
 
-	// [GRAB-012] 생성자에서 부품 메시를 계층으로 스폰 (AddComponent 루프)
+	// [GRAB-012] 생성자에서 고정 부품(집게·트리거·콜라이더)을 스폰
 	void BuildLinkageComponents();
+
+	// [GRAB-012B] CellCount만큼 셀(cell/bar/pin)을 런타임 재생성.
+	//   CreateDefaultSubobject(생성자 전용) 대신 NewObject+RegisterComponent를 써서
+	//   OnConstruction/BeginPlay에서 CellCount가 바뀌면 다시 만든다.
+	void RebuildCells();
+
+	// 마지막으로 셀을 지은 개수 (같으면 재생성 스킵)
+	int32 BuiltCellCount = -1;
 
 	// [GRAB-013] CurrentExtendAlpha에 맞춰 링크/집게/트리거 트랜스폼 갱신 (Tick에서 호출)
 	void UpdateLinkagePose(float Alpha);
