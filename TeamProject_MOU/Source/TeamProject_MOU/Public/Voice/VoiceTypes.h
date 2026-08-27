@@ -1,4 +1,4 @@
-// MOU 음성 - 음성 시스템 전체가 공유하는 타입과 상수.
+﻿// MOU 음성 - 음성 시스템 전체가 공유하는 타입과 상수.
 //
 // [이 파일이 시스템 어디에 있나]
 //   Voice/ 폴더의 모든 파일이 이 헤더를 include 한다. 여기에는 로직이 없다.
@@ -37,6 +37,42 @@ enum class EVoiceMode : uint8
 	/** 범위 검사용. 실제 모드가 아니다. 항상 마지막에 둘 것. */
 	MAX UMETA(Hidden),
 };
+
+
+/**
+* 마이크 상태 표시용도
+* 마이크 없음 , 음소거, 대기상태, 발화상태,사망상태
+*/
+UENUM(BlueprintType)
+enum class EMicIconState : uint8
+{
+	NoDevice UMETA(DisplayName = "마이크 없음"),
+	Muted	 UMETA(DisplayName = "음소거"),
+	Idle	 UMETA(DisplayName = "대기상태"),
+	Speaking UMETA(DisplayName = "말하는 중"),
+	Calibrating UMETA(DisplayName = "감도보정"),
+	Dead	 UMETA(DisplayName = "사망상태")
+};
+
+/**
+* 무전기 상태 표시용도. 아이콘 4장(전원 OFF / 전원 ON / 송신 / 수신)에 대응한다.
+*
+* ★ None 에는 아이콘이 없다. 무전기를 안 가진 것은 정상 상태라서 위젯 자체를
+*   숨긴다 - 마이크와 다르다(마이크 없음은 설정이 잘못됐다는 경고라 항상 뜬다).
+*
+* ★ 송신과 수신이 동시에 성립하면 **송신이 이긴다.** 이 게임에서 송신은 곧
+*   위치가 새는 것이라, 켜진 줄 모르는 쪽이 훨씬 위험하다.
+*/
+UENUM(BlueprintType)
+enum class ERadioIconState : uint8
+{
+	None         UMETA(DisplayName = "무전기 없음"), // 위젯 Collapsed
+	Off          UMETA(DisplayName = "전원 꺼짐"),
+	On           UMETA(DisplayName = "전원 켜짐"),
+	Transmitting UMETA(DisplayName = "송신 중"),
+	Receiving    UMETA(DisplayName = "수신 중"),
+};
+
 
 /**
  * 이 목소리가 어느 경로로 전달되는가.
@@ -739,6 +775,19 @@ namespace MOUVoice
 	 * VAD hangover(0.2초)보다 커야 한 문장 안에서 리셋되지 않는다.
 	 */
 	inline constexpr double VoiceUtteranceGapSeconds = 0.5;
+
+	/**
+	 * "무전 수신 중" 표시를 프레임 하나마다 몇 초씩 붙잡아 둘지(초).
+	 *
+	 * ★ 이게 없으면 아이콘이 발작한다. 프레임은 20ms 간격으로 오는데, 한 프레임
+	 *   늦거나 빠지기만 해도 "수신 중" 이 켜졌다 꺼졌다 하기 때문이다. 사람 눈에
+	 *   깜빡임으로 안 보이려면 프레임 간격보다 한참 커야 한다.
+	 *
+	 * VoiceUtteranceGapSeconds(0.5)보다는 **작아야 한다.** 말이 끝났는데도
+	 * 수신 아이콘이 남아 있으면 "누가 아직 무전을 잡고 있다" 로 잘못 읽힌다 -
+	 * 그건 숨을지 말지를 가르는 정보라 틀리면 안 된다.
+	 */
+	inline constexpr double RadioReceiveHoldSeconds = 0.2;
 
 	/** 음량(0~1)을 패킷에 실을 uint8 로 양자화한다. */
 	inline uint8 QuantizeLoudness(float Loudness01)

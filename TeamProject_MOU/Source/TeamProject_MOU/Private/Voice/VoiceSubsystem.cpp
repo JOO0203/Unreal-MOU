@@ -734,6 +734,25 @@ void UVoiceSubsystem::SetRadioTransmitting(bool bTransmitting)
 			: TEXT(""));
 }
 
+bool UVoiceSubsystem::IsReceivingRadio() const
+{
+	// ★ 재생 컴포넌트를 캐시하지 않는다. 이건 PlayerController 에 붙어 있어서
+	//   레벨을 옮기면 컨트롤러째로 새로 생긴다 - 캐시하면 죽은 포인터가 된다.
+	//   0.1초에 한 번 FindComponentByClass 하는 비용은 없는 것과 같다.
+	const APlayerController* PC = GetOwningPlayerController();
+
+	if (!IsValid(PC))
+	{
+		return false;
+	}
+
+	const UVoicePlaybackComponent* Playback = PC->FindComponentByClass<UVoicePlaybackComponent>();
+
+	// 없을 수 있다. 무전을 한 번도 못 받았으면 아직 안 만들어졌다
+	// (UVoicePlaybackComponent::FindOrCreate 는 첫 프레임에서야 불린다).
+	return Playback != nullptr && Playback->IsReceivingRadio();
+}
+
 void UVoiceSubsystem::RequestVoiceDead(bool bDead)
 {
 	UVoiceComponent* Voice = GetVoiceComponent();
