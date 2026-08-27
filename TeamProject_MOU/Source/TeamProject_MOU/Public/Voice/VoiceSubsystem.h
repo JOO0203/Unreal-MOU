@@ -177,6 +177,17 @@ public:
 	bool IsRadioTransmitting() const { return bRadioTransmitting; }
 
 	/**
+	 * 지금 무전을 **받고** 있는가. UI 의 "수신 중" 아이콘이 이걸 쓴다.
+	 *
+	 * ★ 위 IsRadioTransmitting 과 짝이다. 송신은 내가 정하는 값이라 여기에
+	 *   플래그로 들고 있지만, 수신은 판단 근거가 재생 쪽에 있어서
+	 *   UVoicePlaybackComponent::IsReceivingRadio 로 넘긴다. UI 가 두 군데를
+	 *   찾아다니지 않게 창구만 여기로 통일한다(위젯은 이미 서브시스템을 안다).
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Voice")
+	bool IsReceivingRadio() const;
+
+	/**
 	 * 사망 상태를 서버에 요청한다(테스트용, `MOU.Voice.Die` / `MOU.Voice.Revive`).
 	 *
 	 * ★ 나중에 실제 게임 로직(체력 0 -> 사망)과 엮이면 이 함수는 사라진다.

@@ -421,6 +421,35 @@ void UVoicePlaybackComponent::ResetAllStreams()
 	Streams.Empty();
 }
 
+// ---------------------------------------------------------------------------
+// 수신 여부 (UI 전용)
+//
+// ★ 여기서 상태를 따로 들고 있지 않는다. 스트림 맵이 이미 진실을 갖고 있어서,
+//   플래그를 하나 더 두면 켜는 곳과 끄는 곳이 갈라져 어긋난다(스트림이 정리될
+//   때 끄는 것을 빠뜨리면 수신 아이콘이 영영 켜진 채로 남는다).
+//   스트림은 많아야 몇 개라 매번 훑어도 비용이 없다.
+// ---------------------------------------------------------------------------
+
+bool UVoicePlaybackComponent::IsReceivingRadio() const
+{
+	const double Now = FPlatformTime::Seconds();
+
+	for (const TPair<FVoiceStreamKey, FVoiceStream>& Pair : Streams)
+	{
+		if (Pair.Key.Route != EVoiceRoute::Radio)
+		{
+			continue;
+		}
+
+		if ((Now - Pair.Value.LastFrameTime) <= MOUVoice::RadioReceiveHoldSeconds)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 FString UVoicePlaybackComponent::GetStatsString() const
 {
 	int32 Played    = 0;
