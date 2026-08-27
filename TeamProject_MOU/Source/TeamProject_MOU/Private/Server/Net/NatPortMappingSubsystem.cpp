@@ -172,29 +172,46 @@ FText UNatPortMappingSubsystem::GetNatResultText(EMOUNatResultBP Result)
 	case EMOUNatResultBP::Success:
 		return NSLOCTEXT("MOUNat", "Success", "공유기에 포트를 열었습니다.");
 
+	// ★ 아래 실패 문구들이 "같은 네트워크에서만 접속할 수 있습니다" 라고 단정하면 안 된다.
+	//   UPnP 는 포트를 *자동으로* 여는 수단일 뿐이고, 공유기에 포트포워딩이 수동으로
+	//   걸려 있으면 (그리고 서버가 --public-ip 로 공인 주소를 방에 기록하면) UPnP 가
+	//   실패해도 외부 네트워크에서 멀쩡히 들어온다. 실제 운영 환경이 그 구성이라,
+	//   예전 문구는 다른 네트워크의 참가자가 잘 들어오고 있는데도 "못 들어온다" 고
+	//   거짓말을 하고 있었다. 확인된 사실(자동으로 못 열었다)만 말한다.
+	//   유일한 예외가 CarrierGradeNat 이다 — 그때는 수동 포워딩도 소용이 없다.
 	case EMOUNatResultBP::NoGatewayFound:
 		return NSLOCTEXT("MOUNat", "NoGateway",
-			"공유기가 UPnP 에 응답하지 않습니다. 같은 네트워크에서만 접속할 수 있습니다.");
+			"공유기가 UPnP 에 응답하지 않아 포트를 자동으로 열지 못했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 
 	case EMOUNatResultBP::CarrierGradeNat:
 		return NSLOCTEXT("MOUNat", "Cgnat",
 			"통신사 NAT 환경이라 포트를 열 수 없습니다. 같은 네트워크에서만 접속할 수 있습니다.");
 
 	case EMOUNatResultBP::PortConflict:
-		return NSLOCTEXT("MOUNat", "Conflict", "쓸 수 있는 외부 포트를 찾지 못했습니다.");
+		return NSLOCTEXT("MOUNat", "Conflict",
+			"쓸 수 있는 외부 포트를 찾지 못했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 
 	case EMOUNatResultBP::GatewayRefused:
 		return NSLOCTEXT("MOUNat", "Refused",
-			"공유기가 요청을 거부했습니다. 공유기 설정에서 UPnP 가 켜져 있는지 확인하세요.");
+			"공유기가 포트 열기 요청을 거부했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 
 	case EMOUNatResultBP::NetworkError:
-		return NSLOCTEXT("MOUNat", "NetworkError", "네트워크 오류로 포트를 열지 못했습니다.");
+		return NSLOCTEXT("MOUNat", "NetworkError",
+			"네트워크 오류로 포트를 자동으로 열지 못했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 
 	case EMOUNatResultBP::Timeout:
-		return NSLOCTEXT("MOUNat", "Timeout", "공유기가 제때 응답하지 않았습니다.");
+		return NSLOCTEXT("MOUNat", "Timeout",
+			"공유기가 제때 응답하지 않아 포트를 자동으로 열지 못했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 
 	default:
-		return NSLOCTEXT("MOUNat", "Unknown", "알 수 없는 이유로 포트를 열지 못했습니다.");
+		return NSLOCTEXT("MOUNat", "Unknown",
+			"알 수 없는 이유로 포트를 자동으로 열지 못했습니다. "
+			"공유기에 포트포워딩이 되어 있으면 외부에서도 접속할 수 있습니다.");
 	}
 }
 

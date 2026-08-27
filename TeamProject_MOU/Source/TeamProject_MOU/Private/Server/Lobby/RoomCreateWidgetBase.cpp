@@ -374,8 +374,10 @@ void URoomCreateWidgetBase::HandleNatMappingFinished(EMOUNatResultBP Result, int
 	}
 	else
 	{
-		// ★ 실패해도 오류가 아니다. 같은 네트워크에서는 그대로 접속되므로
-		//   방 만들기를 막지 않는다. 사용자에게는 "밖에서는 못 들어온다" 만 알려준다.
+		// ★ 실패해도 오류가 아니다. 방 만들기를 막지 않는다.
+		//   "밖에서는 못 들어온다" 고 단정하지도 않는다 — 공유기에 포트포워딩이
+		//   수동으로 걸려 있으면 UPnP 가 실패해도 외부에서 들어온다. 문구는
+		//   GetNatResultText 가 그 사실에 맞게 들고 있다.
 		SetMessage(UNatPortMappingSubsystem::GetNatResultText(Result).ToString(), false);
 	}
 }
