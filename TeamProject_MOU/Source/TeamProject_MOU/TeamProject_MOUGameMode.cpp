@@ -127,7 +127,41 @@ void ATeamProject_MOUGameMode::KillAllPlayersByTimeLimit()
 	}
 	bKillingPlayersForLevelTimeout = false;
 
-	FinishRun(ERunEndReason::LevelTimeExpired);
+	BeginLevelTimeoutSequence();
+}
+
+void ATeamProject_MOUGameMode::BeginLevelTimeoutSequence()
+{
+	if (!HasAuthority() || !RunState
+		|| RunState->RunPhase == ERunPhase::GameOver
+		|| RunState->RunPhase == ERunPhase::Resetting)
+	{
+		return;
+	}
+
+	// UI 연출이 끝날 때까지 현재 레벨에 머뭅니다. 아이템은 저장하지 않고 모두 유실시킵니다.
+	RunState->SetRunState(ERunPhase::GameOver, ERunEndReason::LevelTimeExpired);
+	GetWorldTimerManager().ClearTimer(LevelTimerUpdateHandle);
+	DestroyPlayerOwnedItems();
+}
+
+void ATeamProject_MOUGameMode::CompleteLevelTimeoutSequence()
+{
+	if (!HasAuthority() || bTimeoutTravelStarted || !RunState)
+	{
+		return;
+	}
+
+	if (RunState->RunPhase != ERunPhase::GameOver
+		|| RunState->RunEndReason != ERunEndReason::LevelTimeExpired)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("CompleteLevelTimeoutSequence ignored: the run did not end by level timeout."));
+		return;
+	}
+
+	bTimeoutTravelStarted = true;
+	TravelToLobbyAfterWipe();
 }
 
 void ATeamProject_MOUGameMode::CheckAllPlayersDead()
