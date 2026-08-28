@@ -58,6 +58,7 @@ void UProjectGameInstanceBase::SaveEconomyData()
 	SavedDebtCycle = ProjectGameState->DebtCycle;
 	SavedEconomyCurrentHalfDay = ProjectGameState->GetEconomyCurrentHalfDay();
 	bHaveSavedEconomyData = true;
+	SavedDebtCycleStartHalfDay = ProjectGameState->DebtCycleStartHalfDay;
 }
 
 void UProjectGameInstanceBase::LoadEconomyData()
@@ -80,6 +81,7 @@ void UProjectGameInstanceBase::LoadEconomyData()
 	}
 
 	// 저장해 둔 경제 정보를 새 레벨의 게임 상태에 다시 적용
+	ProjectGameState->DebtCycleStartHalfDay = SavedDebtCycleStartHalfDay;
 	ProjectGameState->SetGold(SavedGold);
 	ProjectGameState->SetReputation(SavedReputation);
 	ProjectGameState->SetCurrentDebt(SavedDebt);
@@ -95,9 +97,12 @@ void UProjectGameInstanceBase::ResetRunData()
 	SavedDebtCycle = 0;
 	SavedEconomyCurrentHalfDay = 0;
 	bHaveSavedEconomyData = false;
+	SavedDebtCycleStartHalfDay = 0;
+
 	ClearStoredItems();
 	bWarehouseInitialized = false;
 	ClearPendingDeliveryData();
+	SavedPlayerInventories.Reset();
 	if (UWarehouseDataSubsystem* WarehouseSubsystem = GetSubsystem<UWarehouseDataSubsystem>())
 	{
 		WarehouseSubsystem->InitializeWarehouseFromDataAsset();

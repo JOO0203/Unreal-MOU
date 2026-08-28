@@ -37,6 +37,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Run|Settlement")
 	bool NotifyLevelSettlement(const FLevelSettlementData& Result);
 
+	// 타임아웃 UI/정산 연출이 끝난 뒤 서버에서 호출하여 로비로 이동합니다.
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Run|Level Timer")
+	void CompleteLevelTimeoutSequence();
+
 protected:
 	// 전멸 후 즉시 이동할 로비입니다. 사용하는 GameMode BP에서 지정해야 합니다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Travel")
@@ -74,10 +78,12 @@ private:
 	FTimerHandle LevelTimerUpdateHandle;
 	FTimerHandle ResetTimerHandle;
 	bool bKillingPlayersForLevelTimeout = false;
+	bool bTimeoutTravelStarted = false;
 
 	void TryStartLevelTimer();
 	void UpdateLevelTimer();
 	void KillAllPlayersByTimeLimit();
+	void BeginLevelTimeoutSequence();
 	void FinalizeFailedSettlement(ELevelSettlementReason Reason);
 	void CheckAllPlayersDead();
 	void FinishRun(ERunEndReason Reason);

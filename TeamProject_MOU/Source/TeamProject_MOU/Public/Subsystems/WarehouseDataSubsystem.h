@@ -7,6 +7,7 @@
 
 class AItemBase;
 class UWarehouseComponent;
+class UInventoryComponent;
 
 UCLASS()
 class TEAMPROJECT_MOU_API UWarehouseDataSubsystem : public UGameInstanceSubsystem
@@ -44,6 +45,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	bool MergeFromWarehouseComponent(const UWarehouseComponent* WarehouseComponent);
 
+	// 레벨 이동 직전에 서버에서 호출하여 모든 플레이어의 슬롯 상태를 저장합니다.
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory|Persistence")
+	int32 SaveAllPlayerInventories();
+
+	// 새 맵에서 InventoryComponent가 준비되면 해당 플레이어의 슬롯을 복원합니다.
+	bool RestorePlayerInventory(UInventoryComponent* InventoryComponent);
+
 	// 저장된 창고 데이터를 컴포넌트로 복원
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	bool LoadIntoWarehouseComponent(UWarehouseComponent* WarehouseComponent) const;
@@ -77,4 +85,5 @@ private:
 	const TArray<FStoredItemInstanceData>& GetStoredItemInstancesInternal() const;
 	bool BuildValidatedDeliveryData(const TArray<FStoredItemData>& RequestedItems, FDeliveryData& OutDeliveryData) const;
 	bool ConsumeStoredItemsForDelivery(const FDeliveryData& DeliveryData);
+	FString BuildPlayerInventoryKey(const AActor* PlayerActor) const;
 };

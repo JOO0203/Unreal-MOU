@@ -4,8 +4,14 @@
 #include "Base/PackageBase.h"
 #include "Base/ProjectGameInstanceBase.h"
 #include "Components/WarehouseComponent.h"
+#include "Components/InventoryComponent.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 #include "Item/PackageItemSaveData.h"
 #include "Item/WarehouseInitialDataAsset.h"
+#include "Player/MainCharacter.h"
 
 void UWarehouseDataSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -230,6 +236,98 @@ bool UWarehouseDataSubsystem::MergeFromWarehouseComponent(const UWarehouseCompon
 	SaveStoredItemInstances(MergedInstances);
 	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Merged map warehouse. IncomingClasses=%d IncomingInstances=%d TotalInstances=%d"),
 		WarehouseComponent->StoredItems.Num(), IncomingInstances.Num(), MergedInstances.Num());
+	return true;
+}
+
+FString UWarehouseDataSubsystem::BuildPlayerInventoryKey(const AActor* PlayerActor) const
+{
+	const APawn* Pawn = Cast<APawn>(PlayerActor);
+	const APlayerState* PlayerState = Pawn ? Pawn->GetPlayerState() : nullptr;
+	if (!PlayerState) return FString();
+
+	const FString PlayerName = PlayerState->GetPlayerName();
+	if (!PlayerName.IsEmpty())
+	{
+		return FString::Printf(TEXT("Player:%s"), *PlayerName);
+	}
+	return FString::Printf(TEXT("PlayerId:%d"), PlayerState->GetPlayerId());
+}
+
+int32 UWarehouseDataSubsystem::SaveAllPlayerInventories()
+{
+	UWorld* World = GetWorld();
+	UProjectGameInstanceBase* GameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance());
+	if (!World || !GameInstance || World->GetNetMode() == NM_Client) return 0;
+
+	TArray<FPlayerInventorySaveData> SavedInventories;
+	int32 SavedItemCount = 0;
+	for (TActorIterator<AMainCharacter> It(World); It; ++It)
+	{
+		AMainCharacter* Character = *It;
+		UInventoryComponent* Inventory = Character->GetInventoryComponent();
+		const FString PlayerKey = BuildPlayerInventoryKey(Character);
+		if (!Inventory || PlayerKey.IsEmpty()) continue;
+
+		FPlayerInventorySaveData PlayerData;
+		PlayerData.PlayerKey = PlayerKey;
+		PlayerData.Slots.SetNum(Inventory->InventorySlots.Num());
+		for (int32 SlotIndex = 0; SlotIndex < Inventory->InventorySlots.Num(); ++SlotIndex)
+		{
+			AItemBase* Item = Inventory->InventorySlots[SlotIndex];
+			if (!IsValid(Item)) continue;
+
+			FStoredInventorySlotData& SlotData = PlayerData.Slots[SlotIndex];
+			Item->SaveItemToData(SlotData.ItemData);
+			SlotData.bOccupied = SlotData.ItemData.IsValid();
+			SavedItemCount += SlotData.bOccupied ? 1 : 0;
+		}
+		SavedInventories.Add(MoveTemp(PlayerData));
+	}
+
+	GameInstance->SavedPlayerInventories = MoveTemp(SavedInventories);
+	UE_LOG(LogTemp, Log, TEXT("[Inventory] Saved players=%d items=%d"),
+		GameInstance->SavedPlayerInventories.Num(), SavedItemCount);
+	return SavedItemCount;
+}
+
+bool UWarehouseDataSubsystem::RestorePlayerInventory(UInventoryComponent* InventoryComponent)
+{
+	if (!InventoryComponent || !InventoryComponent->GetOwner()
+		|| !InventoryComponent->GetOwner()->HasAuthority()) return false;
+
+	UWorld* World = InventoryComponent->GetWorld();
+	UProjectGameInstanceBase* GameInstance = Cast<UProjectGameInstanceBase>(GetGameInstance());
+	const FString PlayerKey = BuildPlayerInventoryKey(InventoryComponent->GetOwner());
+	if (!World || !GameInstance || PlayerKey.IsEmpty()) return false;
+
+	const int32 PlayerDataIndex = GameInstance->SavedPlayerInventories.IndexOfByPredicate(
+		[&PlayerKey](const FPlayerInventorySaveData& Data) { return Data.PlayerKey == PlayerKey; });
+	if (PlayerDataIndex == INDEX_NONE) return false;
+	const FPlayerInventorySaveData PlayerData = GameInstance->SavedPlayerInventories[PlayerDataIndex];
+
+	const int32 SlotCount = FMath::Min(InventoryComponent->InventorySlots.Num(), PlayerData.Slots.Num());
+	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
+	{
+		const FStoredInventorySlotData& SlotData = PlayerData.Slots[SlotIndex];
+		if (!SlotData.bOccupied || !SlotData.ItemData.IsValid()) continue;
+
+		const FTransform SpawnTransform(FRotator::ZeroRotator,
+			InventoryComponent->GetOwner()->GetActorLocation());
+		AItemBase* Item = World->SpawnActorDeferred<AItemBase>(
+			SlotData.ItemData.ItemClass, SpawnTransform, InventoryComponent->GetOwner(), nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (!Item) continue;
+
+		Item->FinishSpawning(SpawnTransform);
+		Item->LoadItemFromData(SlotData.ItemData);
+		Item->MulticastOnUnequipped(InventoryComponent->GetOwner());
+		InventoryComponent->InventorySlots[SlotIndex] = Item;
+		InventoryComponent->OnInventorySlotChanged.Broadcast(SlotIndex, Item);
+	}
+
+	// 레벨 이동 복원 데이터는 한 번만 소비하여 같은 맵 재스폰 시 아이템이 복제되지 않게 합니다.
+	GameInstance->SavedPlayerInventories.RemoveAt(PlayerDataIndex);
+	UE_LOG(LogTemp, Log, TEXT("[Inventory] Restored player=%s slots=%d"), *PlayerKey, SlotCount);
 	return true;
 }
 

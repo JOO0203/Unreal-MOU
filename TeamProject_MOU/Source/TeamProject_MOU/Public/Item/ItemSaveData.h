@@ -38,3 +38,28 @@ struct FStoredItemInstanceData
 		return ItemClass != nullptr;
 	}
 };
+
+USTRUCT(BlueprintType)
+struct FStoredInventorySlotData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|Save")
+	bool bOccupied = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|Save")
+	FStoredItemInstanceData ItemData;
+};
+
+USTRUCT(BlueprintType)
+struct FPlayerInventorySaveData
+{
+	GENERATED_BODY()
+
+	// PlayerState 이름을 우선 사용하며 이름이 없으면 PlayerId를 대체 키로 사용합니다.
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|Save")
+	FString PlayerKey;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|Save")
+	TArray<FStoredInventorySlotData> Slots;
+};

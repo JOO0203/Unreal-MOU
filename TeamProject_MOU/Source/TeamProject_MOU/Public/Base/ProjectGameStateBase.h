@@ -144,6 +144,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Time")
 	int32 DebtPeriodHalfDay;
 
+	// 현재 빚 회차가 시작된 HalfDay
+	// 상환 성공 시 현재 EconomyCurrentHalfDay로 갱신
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Economy|Time")
+	int32 DebtCycleStartHalfDay;
+
 	// 경제 시간 1 HalfDay 증가
 	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
 	void AdvanceEconomyHalfDay();
@@ -156,8 +161,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Economy|Time")
 	void SetEconomyCurrentHalfDay(int32 NewHalfDay);
 
-	// 현재 상환 회차 기준 다음 상환 시점 계산
-	// DebtCycle * DebtPeriodHalfDay
+	// 현재 빚 회차의 다음 상환 시점 반환
+	// 빚 회차 시작 HalfDay + 14 HalfDay(7일)
 	UFUNCTION(BlueprintPure, Category = "Economy|Time")
 	int32 GetNextDebtDueHalfDay() const;
 
@@ -190,7 +195,6 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EconomyCurrentHalfDay();
-
 
 	virtual void GetLifetimeReplicatedProps(
 		TArray<FLifetimeProperty>& OutLifetimeProps) const override;
