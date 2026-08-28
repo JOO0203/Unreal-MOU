@@ -259,7 +259,7 @@ void ADeliveryManager::ClearPackageFromPlayerHands(APackageBase* Package)
 		if (!CarryingComponent || CarryingComponent->GetCarriedActor() != Package) continue;
 
 		CarryingComponent->ClearCarriedItem();
-		Character->ChangeEmotion(Character->EmotionIndex_Normal);
+		Character->ChangeEmotion(0);
 		UE_LOG(LogTemp, Log, TEXT("[Delivery] Cleared delivered package from player hands. Player=%s Package=%s"),
 			*GetNameSafe(Character), *GetNameSafe(Package));
 	}
