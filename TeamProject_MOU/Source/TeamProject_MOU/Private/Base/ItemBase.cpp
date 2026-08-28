@@ -1,7 +1,5 @@
 #include "Base/ItemBase.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/WidgetComponent.h"
-#include "UI/ItemInfoWidget.h"
 #include "Net/UnrealNetwork.h"
 
 AItemBase::AItemBase()
@@ -24,13 +22,6 @@ AItemBase::AItemBase()
 	
 	// 외곽선 렌더링을 위한 커스텀 뎁스 비활성화 (포커스 시 활성화 예정)
 	MeshComponent->SetRenderCustomDepth(false);
-
-	// UI 위젯 컴포넌트 생성 및 설정
-	InfoWidgetComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("InfoWidgetComponent"));
-	InfoWidgetComponent->SetupAttachment(RootComponent);
-	InfoWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
-	InfoWidgetComponent->SetDrawSize(FVector2D(300.0f, 150.0f));
-	InfoWidgetComponent->SetVisibility(false);
 }
 
 void AItemBase::BeginPlay()
@@ -68,14 +59,6 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 
 void AItemBase::OnRep_CurrentDurability()
 {
-	// 내구도가 변경되었을 때, 만약 로컬 플레이어가 이 아이템을 보고 있어서 위젯이 켜져 있다면 UI를 갱신합니다.
-	if (InfoWidgetComponent && InfoWidgetComponent->IsVisible())
-	{
-		if (UItemInfoWidget* InfoWidget = Cast<UItemInfoWidget>(InfoWidgetComponent->GetUserWidgetObject()))
-		{
-			InfoWidget->UpdateItemInfo(this);
-		}
-	}
 }
 
 bool AItemBase::CanInteract_Implementation(AActor* Interactor) const
@@ -93,32 +76,8 @@ FText AItemBase::GetInteractPrompt_Implementation() const
 	return FText::Format(NSLOCTEXT("Interaction", "PickupPrompt", "{0} 줍기"), ItemName);
 }
 
-void AItemBase::ShowItemInfo()
-{
-	if (InfoWidgetComponent)
-	{
-		InfoWidgetComponent->SetVisibility(true);
-		
-		if (UItemInfoWidget* InfoWidget = Cast<UItemInfoWidget>(InfoWidgetComponent->GetUserWidgetObject()))
-		{
-			InfoWidget->UpdateItemInfo(this);
-		}
-	}
-}
-
-void AItemBase::HideItemInfo()
-{
-	if (InfoWidgetComponent)
-	{
-		InfoWidgetComponent->SetVisibility(false);
-	}
-}
-
 void AItemBase::MulticastPickUp_Implementation(AActor* Picker)
 {
-	// 픽업 시 자신이 띄워둔 UI 무조건 숨김
-	HideItemInfo();
-
 	// 모든 클라이언트에서 물리 비활성화, 충돌은 QueryOnly로 변경(물리적 밀어내기 방지)
 	MeshComponent->SetSimulatePhysics(false);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);

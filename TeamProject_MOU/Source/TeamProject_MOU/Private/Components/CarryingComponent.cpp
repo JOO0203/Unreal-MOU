@@ -128,9 +128,13 @@ void UCarryingComponent::GrabOrDrop()
 		}
 		
 		// 내려놓을 때 표정 복구
-		if (AMainCharacter* MainChar = Cast<AMainCharacter>(GetOwner()))
+		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
 		{
-			MainChar->ChangeEmotion(MainChar->EmotionIndex_Normal);
+			if (Char->GetVisualComponent())
+			{
+				Char->GetVisualComponent()->ClearTemporaryOverride();
+				Char->GetVisualComponent()->RefreshVisualState();
+			}
 		}
 
 		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
@@ -247,6 +251,11 @@ void UCarryingComponent::GrabOrDrop()
 					{
 						HitItem->AttachToComponent(Character->GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CarrySocketName);
 
+						if (APackageBase* Package = Cast<APackageBase>(HitItem))
+						{
+							HitItem->SetActorRelativeRotation(Package->SingleCarryRotationOffset);
+						}
+
 						FVector BoxCenter = HitItem->GetComponentsBoundingBox().GetCenter();
 						FVector Origin = HitItem->GetActorLocation();
 						if (!Origin.Equals(BoxCenter, 1.0f))
@@ -298,18 +307,11 @@ void UCarryingComponent::GrabOrDrop()
 			UpdateCharacterTotalWeight();
 
 			// 표정 변화 적용
-			if (AMainCharacter* MainChar = Cast<AMainCharacter>(GetOwner()))
+			if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
 			{
-				if (HitCharacter)
+				if (Char->GetVisualComponent())
 				{
-					MainChar->ChangeEmotion(MainChar->EmotionIndex_CarryCharacter);
-				}
-				else if (APackageBase* Package = Cast<APackageBase>(HitItem))
-				{
-					if (Package->PackageType == EPackageType::Heavy)
-					{
-						MainChar->ChangeEmotion(MainChar->EmotionIndex_HeavyPackage);
-					}
+					Char->GetVisualComponent()->RefreshVisualState();
 				}
 			}
 
@@ -403,9 +405,13 @@ void UCarryingComponent::Throw()
 		}
 
 		// 던질 때 표정 복구
-		if (AMainCharacter* MainChar = Cast<AMainCharacter>(GetOwner()))
+		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
 		{
-			MainChar->ChangeEmotion(MainChar->EmotionIndex_Normal);
+			if (Char->GetVisualComponent())
+			{
+				Char->GetVisualComponent()->ClearTemporaryOverride();
+				Char->GetVisualComponent()->RefreshVisualState();
+			}
 		}
 
 		if (ACharacterBase* Char = Cast<ACharacterBase>(GetOwner()))
