@@ -1,14 +1,14 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #include "Base/CharacterBase.h"
 
 #include "Base/BaseAttributeSet.h"
 #include "Components/GrabFollowComponent.h"
 #include "Components/StatusComponent.h"
+#include "Components/CharacterVisualComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/MainCharacter.h"
+#include "Components/CarryingComponent.h"
 
 ACharacterBase::ACharacterBase()
 {
@@ -24,6 +24,9 @@ ACharacterBase::ACharacterBase()
 
 	// 잡힌 캐릭터의 위치 및 회전을 운반자 소켓에 동기화하는 컴포넌트 생성
 	GrabFollowComponent = CreateDefaultSubobject<UGrabFollowComponent>(TEXT("GrabFollowComponent"));
+
+	// 비주얼(표정 및 LED 색상) 관리 컴포넌트 생성
+	VisualComponent = CreateDefaultSubobject<UCharacterVisualComponent>(TEXT("VisualComponent"));
 
 	// 캡슐 콜리전 기본 크기 설정
 	GetCapsuleComponent()->InitCapsuleSize(35.0f, 90.0f);
@@ -222,6 +225,20 @@ void ACharacterBase::HandleHealthChanged(const FOnAttributeChangeData& Data)
 		return;
 	}
 
+	// 체력 감소(대미지 피격) 시 피격 표정/LED 반응 자동 실행 (사망/그로기 상태 제외)
+	if (Data.NewValue < Data.OldValue && Data.NewValue > 0.0f)
+	{
+		if (AMainCharacter* MainChar = Cast<AMainCharacter>(this))
+		{
+			MainChar->PlayHitReaction(0.4f);
+		}
+		else if (VisualComponent)
+		{
+			static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
+			VisualComponent->SetTagTemporaryOverride(HitTag, 0.4f);
+		}
+	}
+
 	// 체력 변경 시 Blueprint 이벤트 호출 (UI 업데이트)
 	OnHealthUpdated(BaseAttribute->GetHealth(), BaseAttribute->GetMaxHealth());
 }
@@ -284,16 +301,26 @@ void ACharacterBase::HandleCurrentWeightChanged(const FOnAttributeChangeData& Da
 {
 	if (!BaseAttribute) return;
 	float MaxW = BaseAttribute->GetMaxWeight();
+	float Ratio = MaxW > 0.0f ? (Data.NewValue / MaxW) : 0.0f;
 	UpdateEncumbranceState(Data.NewValue, MaxW);
-	OnWeightUpdated(Data.NewValue, MaxW, MaxW > 0.0f ? (Data.NewValue / MaxW) : 0.0f);
+	if (VisualComponent)
+	{
+		VisualComponent->HandleWeightUpdated(Data.NewValue, MaxW, Ratio);
+	}
+	OnWeightUpdated(Data.NewValue, MaxW, Ratio);
 }
 
 void ACharacterBase::HandleMaxWeightChanged(const FOnAttributeChangeData& Data)
 {
 	if (!BaseAttribute) return;
 	float CurrW = BaseAttribute->GetCurrentWeight();
+	float Ratio = Data.NewValue > 0.0f ? (CurrW / Data.NewValue) : 0.0f;
 	UpdateEncumbranceState(CurrW, Data.NewValue);
-	OnWeightUpdated(CurrW, Data.NewValue, Data.NewValue > 0.0f ? (CurrW / Data.NewValue) : 0.0f);
+	if (VisualComponent)
+	{
+		VisualComponent->HandleWeightUpdated(CurrW, Data.NewValue, Ratio);
+	}
+	OnWeightUpdated(CurrW, Data.NewValue, Ratio);
 }
 
 void ACharacterBase::HandleBatteryChanged(const FOnAttributeChangeData& Data)
@@ -324,7 +351,14 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 	static const FGameplayTag HeavyCarryTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Heavy"), false);
 	static const FGameplayTag CarryCharTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Character"), false);
 
-	if ((PushingTag.IsValid() && HasMatchingGameplayTag(PushingTag)) ||
+	bool bIsPushing = false;
+	if (const AMainCharacter* MainChar = Cast<AMainCharacter>(this))
+	{
+		bIsPushing = MainChar->bIsPushingMode;
+	}
+
+	if (bIsPushing ||
+		(PushingTag.IsValid() && HasMatchingGameplayTag(PushingTag)) ||
 		(HeavyCarryTag.IsValid() && HasMatchingGameplayTag(HeavyCarryTag)) ||
 		(CarryCharTag.IsValid() && HasMatchingGameplayTag(CarryCharTag)))
 	{
@@ -355,6 +389,32 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 	}
 
 	return BaseSpeed; // 정상
+}
+
+void ACharacterBase::UpdateCharacterSpeed()
+{
+	if (!HasAuthority() || !BaseAttribute)
+	{
+		return;
+	}
+
+	float TargetSpeed = GetCalculatedWalkSpeed();
+
+	if (AMainCharacter* MainChar = Cast<AMainCharacter>(this))
+	{
+		float MaxW = BaseAttribute->GetMaxWeight();
+		float WeightRatio = MaxW > 0.0f ? (BaseAttribute->GetCurrentWeight() / MaxW) : 0.0f;
+		if (MainChar->bIsSprinting && WeightRatio <= 1.3f)
+		{
+			TargetSpeed *= 2.0f;
+		}
+	}
+
+	BaseAttribute->SetMoveSpeed(TargetSpeed);
+	if (GetCharacterMovement())
+	{
+		GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
+	}
 }
 
 void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWeight)
@@ -407,22 +467,10 @@ void ACharacterBase::UpdateEncumbranceState(float InCurrentWeight, float InMaxWe
 			ActiveEncumbranceEffectHandle = AbilitySystemComponent->ApplyGameplayEffectToSelf(
 				EffectToApply.GetDefaultObject(), 1.0f, Context);
 		}
-		else if (BaseAttribute)
+		else
 		{
-			// GE가 할당되지 않았거나 과적이 해제(<= 1.0f)되었을 때 C++ 속도 직접 복구 및 적용 폴백
-			float TargetSpeed = GetCalculatedWalkSpeed();
-
-			// 현재 달리는 상태(Tier 1 이하)라면 달리기 배율(2.0x) 적용
-			if (MainChar && MainChar->bIsSprinting && WeightRatio <= 1.3f)
-			{
-				TargetSpeed *= 2.0f;
-			}
-
-			BaseAttribute->SetMoveSpeed(TargetSpeed);
-			if (GetCharacterMovement())
-			{
-				GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
-			}
+			// GE가 할당되지 않았거나 과적이 해제(<= 1.0f)되었을 때 속도 직접 복구 및 적용
+			UpdateCharacterSpeed();
 		}
 	}
 
@@ -491,4 +539,91 @@ float ACharacterBase::GetPushResistance_Implementation() const
 void ACharacterBase::Push_Implementation(AActor* Pusher, FVector PushDirection)
 {
 	LaunchCharacter(PushDirection * 500.0f + FVector(0, 0, 200.0f), true, true);
+	if (VisualComponent)
+	{
+		static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
+		VisualComponent->SetTagTemporaryOverride(HitTag, 0.6f);
+	}
+}
+
+void ACharacterBase::ApplyTrapDamage_Implementation(float DamageAmount, AActor* Causer)
+{
+	if (!HasAuthority() || !BaseAttribute)
+	{
+		return;
+	}
+
+	float NewHealth = FMath::Max(0.0f, BaseAttribute->GetHealth() - DamageAmount);
+	BaseAttribute->SetHealth(NewHealth);
+
+	if (AMainCharacter* MainChar = Cast<AMainCharacter>(this))
+	{
+		MainChar->PlayHitReaction(0.4f);
+	}
+	else if (VisualComponent)
+	{
+		static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
+		VisualComponent->SetTagTemporaryOverride(HitTag, 0.4f);
+	}
+
+	if (NewHealth <= 0.0f)
+	{
+		AMainCharacter* MainChar = Cast<AMainCharacter>(this);
+		if (MainChar)
+		{
+			MainChar->HandleHealthZero();
+		}
+	}
+}
+
+void ACharacterBase::ApplyTrapStatusEffect_Implementation(TSubclassOf<UGameplayEffect> EffectClass, AActor* Causer)
+{
+	if (!HasAuthority() || !AbilitySystemComponent || !EffectClass)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
+	Context.AddSourceObject(Causer ? Causer : this);
+	AbilitySystemComponent->ApplyGameplayEffectToSelf(EffectClass.GetDefaultObject(), 1.0f, Context);
+}
+
+void ACharacterBase::ApplyTrapImpulse_Implementation(FVector ImpulseVector)
+{
+	LaunchCharacter(ImpulseVector, true, true);
+	if (VisualComponent)
+	{
+		static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
+		VisualComponent->SetTagTemporaryOverride(HitTag, 0.6f);
+	}
+}
+
+void ACharacterBase::ForceDropCarriedItem_Implementation()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	AMainCharacter* MainChar = Cast<AMainCharacter>(this);
+	if (MainChar && MainChar->GetCarryingComponent() && MainChar->GetCarryingComponent()->IsCarrying())
+	{
+		MainChar->GetCarryingComponent()->GrabOrDrop();
+	}
+}
+
+void ACharacterBase::DrainBattery_Implementation(float DrainAmount)
+{
+	if (!HasAuthority() || !BaseAttribute)
+	{
+		return;
+	}
+
+	float NewBattery = FMath::Max(0.0f, BaseAttribute->GetBattery() - DrainAmount);
+	BaseAttribute->SetBattery(NewBattery);
+}
+
+void ACharacterBase::OnTrapHazardEncountered_Implementation(ETrapHazardType HazardType, AActor* TrapActor)
+{
+	// 블루프린트 연출 또는 사운드 트리거용
 }
