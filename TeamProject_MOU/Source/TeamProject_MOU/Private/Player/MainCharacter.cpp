@@ -14,6 +14,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Base/ItemBase.h"
+#include "Item/WeaponItemBase.h"
 #include "Base/PackageBase.h"
 #include "Base/EventObjectBase.h"
 #include "Components/InventoryComponent.h"
@@ -1212,9 +1213,22 @@ void AMainCharacter::OnUse()
 	}
 }
 
+// 손에 든 무기가 지금 "사용 중"이면 true (사용 중엔 슬롯 변경 차단). [WEAPON-016]
+bool AMainCharacter::IsHandWeaponInUse() const
+{
+	if (CarryingComponent && CarryingComponent->IsCarrying())
+	{
+		if (const AWeaponItemBase* HandWeapon = Cast<AWeaponItemBase>(CarryingComponent->GetCarriedActor()))
+		{
+			return HandWeapon->IsInUse();
+		}
+	}
+	return false;
+}
+
 void AMainCharacter::OnSlot1()
 {
-	if (!CanAct() || bIsPushingMode) return;
+	if (!CanAct() || bIsPushingMode || IsHandWeaponInUse()) return;
 
 	if (AbilitySystemComponent)
 	{
@@ -1233,7 +1247,7 @@ void AMainCharacter::OnSlot1()
 
 void AMainCharacter::OnSlot2()
 {
-	if (!CanAct() || bIsPushingMode) return;
+	if (!CanAct() || bIsPushingMode || IsHandWeaponInUse()) return;
 
 	if (AbilitySystemComponent)
 	{
@@ -1252,7 +1266,7 @@ void AMainCharacter::OnSlot2()
 
 void AMainCharacter::OnSlot3()
 {
-	if (!CanAct() || bIsPushingMode) return;
+	if (!CanAct() || bIsPushingMode || IsHandWeaponInUse()) return;
 
 	if (AbilitySystemComponent)
 	{
