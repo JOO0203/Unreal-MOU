@@ -200,23 +200,69 @@ private:
 	// 발사(펴짐) 중이라 집게 콜라이더로 대상을 찾고 있는 상태. true인 동안 오버랩하면 잡는다.
 	bool bGrabArmed = false;
 
+	// 대상을 잡아 당기는 중(alpha 1→0 접히며 대상이 사용자 쪽으로 옴). 접힘 완료 시 detach.
+	bool bPulling = false;
+
+	// 그래버를 쓰는 동안(뻗기~완전히 당겨질 때까지) 사용자 입력 잠금 여부(복제).
+	// 서버가 설정 → 소유 클라의 OnRep에서 로컬 PlayerController에 실제 Ignore 적용.
+	UPROPERTY(ReplicatedUsing = OnRep_OwnerInputLocked)
+	bool bOwnerInputLocked = false;
+
+	UFUNCTION()
+	void OnRep_OwnerInputLocked();
+
+	// 마지막으로 로컬 컨트롤러에 적용한 잠금 상태 (중복 적용 방지, Ignore 카운터 짝 맞춤)
+	bool bLocalInputLockApplied = false;
+
+	// 실제 로컬 PlayerController에 Ignore 적용 (서버·클라 공통 진입점)
+	void ApplyLocalInputLock(bool bLock);
+
 	// [GRAB-002B] 집게 콜라이더 오버랩 콜백 - 펴짐 중(bGrabArmed) player/enemy 닿으면 잡기
 	UFUNCTION()
 	void OnJawOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	// [GRAB-010] 대상을 집는다 (서버). 집게 컴포넌트에 attach + 이동정지. 성공 시 내구도 1 소모.
+	// [GRAB-010] 대상을 집는다 (서버). 집게에 attach + 이동정지 + 당기기 시작. 성공 시 내구도 1 소모.
 	void GrabTarget(ACharacterBase* Target);
 
-	// [GRAB-011] 잡고 있던 대상을 놓는다 (서버). detach + 이동복원.
+	// [GRAB-011] 잡고 있던 대상을 놓는다 (서버). detach + 이동복원 + 사용자 잠금해제.
 	void ReleaseTarget();
 
 	// 집게 콜라이더 on/off (펴짐 시작/접힘에서 호출)
 	void SetJawColliderActive(bool bActive);
 
+	// [GRAB-015] 사용자(그래버 든 플레이어)의 이동+카메라 입력 잠금/해제 (PlayerController Ignore).
+	void SetOwnerInputLocked(bool bLock);
+
 	// 잡힌 대상의 이동 모드 복원용 저장값
 	uint8 GrabbedPrevMovementMode = 0;
 #pragma endregion
+
+protected:
+#pragma region [GRAB] 내구도 0 분해 연출
+	// 이미 분해됐는지 (중복 방지)
+	bool bBrokenApart = false;
+
+	// 이번 당기기가 끝나면(내구도 0) 분해할 예정인지. GrabTarget에서 세우고 ReleaseTarget에서 처리.
+	bool bBreakAfterPull = false;
+
+	// 떨어진 부품이 사라지기까지 시간 (초). BP에서 조정.
+	UPROPERTY(EditDefaultsOnly, Category = "GrabGun|Break")
+	float BrokenPartLifetime = 4.0f;
+
+	// 부품이 튀어오르는 임펄스 세기. BP에서 조정.
+	UPROPERTY(EditDefaultsOnly, Category = "GrabGun|Break")
+	float BreakImpulseStrength = 150.0f;
+
+	// [GRAB-016] 내구도 0 도달 시 빨간 부품(bar/pin/jaw/yoke)을 물리로 분해 (모든 클라 재생)
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastBreakApart();
+
+	// 실제 분해 처리 (부모 detach + 물리/콜라이더 ON + 임펄스 + 수명 타이머)
+	void BreakApartLinkage();
+#pragma endregion
+
+private:
 
 #pragma region [GRAB] 팬터그래프 부품/구동
 	// 링크 뻗음 정도 목표치 (0=접힘, 1=최대뻗음). 잡으면 1, 놓으면 0으로 보간된다.

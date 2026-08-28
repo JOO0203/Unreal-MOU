@@ -9,8 +9,10 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 #include "DrawDebugHelpers.h" // [DEBUG-GRAB] 확인용 임시
 
 // 부품 메시들이 들어있는 폴더 (재임포트 위치)
@@ -115,6 +117,7 @@ void AGrabGun::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetime
 
 	DOREPLIFETIME(AGrabGun, GrabbedTarget);
 	DOREPLIFETIME(AGrabGun, TargetExtendAlpha);
+	DOREPLIFETIME(AGrabGun, bOwnerInputLocked);
 }
 
 // =============================================================================
@@ -451,10 +454,29 @@ void AGrabGun::Tick(float DeltaTime)
 	}
 
 	// 목표치로 부드럽게 보간 (시각 표현이라 서버/클라 각자 로컬 계산)
-	if (!FMath::IsNearlyEqual(CurrentExtendAlpha, TargetExtendAlpha, 0.001f))
+	const bool bWasMoving = !FMath::IsNearlyEqual(CurrentExtendAlpha, TargetExtendAlpha, 0.001f);
+	if (bWasMoving)
 	{
 		CurrentExtendAlpha = FMath::FInterpConstantTo(CurrentExtendAlpha, TargetExtendAlpha, DeltaTime, ExtendSpeed);
 		UpdateLinkagePose(CurrentExtendAlpha);
+	}
+
+	// 시퀀스 완료 판정은 서버에서만 (상태 변경/detach는 서버 권한)
+	if (HasAuthority())
+	{
+		// 당기는 중이었고 링크가 완전히 접혔으면(alpha≈0) → 대상 놓기 + 사용자 잠금해제
+		if (bPulling && CurrentExtendAlpha <= 0.02f)
+		{
+			ReleaseTarget();
+		}
+		// 헛방(못 잡고 완전히 뻗기만 함): alpha=1 도달하면 자동으로 접기 시작
+		else if (bGrabArmed && !GrabbedTarget && CurrentExtendAlpha >= 0.98f)
+		{
+			bGrabArmed = false;
+			SetJawColliderActive(false);
+			TargetExtendAlpha = 0.0f; // 다시 접힘
+			bPulling = true;          // 접힘 완료 시 잠금해제 되도록 pulling 처리(대상 없음)
+		}
 	}
 }
 
@@ -465,17 +487,19 @@ void AGrabGun::Tick(float DeltaTime)
 void AGrabGun::Fire()
 {
 	// Fire는 서버 권한에서 호출됨 (WeaponItemBase::TryFireOnServer 경로)
-	// 토글: 이미 펴져 있으면(잡았든 뻗은 중이든) → 접기.
-	if (GrabbedTarget || TargetExtendAlpha > 0.5f)
+	// 이미 뻗는 중(bGrabArmed)/당기는 중(bPulling)이면 새 발사 무시 (시퀀스가 끝날 때까지).
+	if (bGrabArmed || bPulling || GrabbedTarget)
 	{
-		ReleaseTarget();
 		return;
 	}
 
-	// 펴기: 링크가 쫙 펴지고, 집게 콜라이더를 켜서 뻗는 동안 대상과 닿으면 잡는다.
+	// 뻗기 시작: 링크가 쫙 펴지고, 집게 콜라이더 ON. 뻗는 동안 대상과 닿으면 잡는다.
 	TargetExtendAlpha = 1.0f;
 	bGrabArmed = true;
 	SetJawColliderActive(true);
+
+	// 사용자 이동+카메라 잠금 (아이템 사용~완전히 당겨질 때까지)
+	SetOwnerInputLocked(true);
 
 	// VFX: 총구 → 집게 끝 (연출)
 	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : GetActorLocation();
@@ -566,16 +590,107 @@ void AGrabGun::GrabTarget(ACharacterBase* Target)
 
 	GrabbedTarget = Target;
 
-	// 잡기 성공 시에만 내구도 1 소모 (ShouldConsumeUseOnFire=false라 여기서 수동 차감)
+	// 잡는 즉시 당기기 시작: 뻗던 걸 멈추고 현재 지점부터 접힌다(alpha 1→0).
+	// 대상은 집게에 attach돼 있어 링크가 접히면 사용자 쪽으로 딸려온다.
+	bPulling = true;
+	TargetExtendAlpha = 0.0f;
+
+	// 잡기 성공 시에만 내구도 소모 (ShouldConsumeUseOnFire=false라 여기서 수동 차감)
 	if (CurrentDurability > 0.0f)
 	{
-		CurrentDurability -= 1.0f;
+		CurrentDurability -= 50.0f;
+		// 내구도가 0이 되면 이번 당기기를 끝낸 뒤 분해한다 (당기는 도중엔 안 부서짐).
+		if (CurrentDurability <= 0.0f)
+		{
+			CurrentDurability = 0.0f;
+			bBreakAfterPull = true;
+		}
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[GRAB] Grabbed %s"), *GetNameSafe(Target));
+	UE_LOG(LogTemp, Warning, TEXT("[GRAB] Grabbed & pulling %s"), *GetNameSafe(Target));
 }
 
-// [GRAB-011] 잡고 있던 대상을 놓는다 (서버): detach + 이동복원 + 링크 접힘
+// [GRAB-016] 내구도 0 도달 시 빨간 부품 분해 (모든 클라)
+void AGrabGun::MulticastBreakApart_Implementation()
+{
+	BreakApartLinkage();
+}
+
+// 빨간 부품(bar/pin/jaw/yoke) 물리 분해: 부모 detach + 물리·콜라이더 ON + 임펄스 + 수명 타이머
+void AGrabGun::BreakApartLinkage()
+{
+	if (bBrokenApart)
+	{
+		return;
+	}
+	bBrokenApart = true;
+
+	// 진행 중인 시퀀스 정리 (링크 갱신 멈춤)
+	bGrabArmed = false;
+	bPulling = false;
+	SetJawColliderActive(false);
+
+	// 모든 StaticMesh 컴포넌트 중 루트(body_shell=MeshComponent)와 트리거만 남기고
+	// 나머지 빨간 부품을 떨어뜨린다.
+	TArray<UStaticMeshComponent*> Meshes;
+	GetComponents<UStaticMeshComponent>(Meshes);
+
+	for (UStaticMeshComponent* Comp : Meshes)
+	{
+		if (!Comp || Comp == MeshComponent || Comp == TriggerMesh)
+		{
+			continue; // 총몸(루트)·방아쇠는 손에 남긴다
+		}
+
+		// 부모에서 떼어 월드에 독립 (Tick 링크 갱신이 위치를 덮지 않도록)
+		Comp->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+
+		// 물리 + 콜라이더 ON → 중력으로 떨어짐
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetCollisionProfileName(TEXT("PhysicsActor"));
+		Comp->SetSimulatePhysics(true);
+
+		// 살짝 랜덤 임펄스로 우수수 흩어지게
+		const FVector Impulse = FVector(
+			FMath::FRandRange(-1.0f, 1.0f),
+			FMath::FRandRange(-1.0f, 1.0f),
+			FMath::FRandRange(0.5f, 1.0f)).GetSafeNormal() * BreakImpulseStrength;
+		Comp->AddImpulse(Impulse, NAME_None, true);
+	}
+
+	// 팬터그래프 갱신 배열 비우기 (UpdateLinkagePose가 더 이상 만지지 않게)
+	CellPivots.Reset();
+	PivotUp.Reset();
+	PivotDn.Reset();
+	PinTop.Reset();
+	PinBottom.Reset();
+	PinCenter.Reset();
+	EndYoke = nullptr;
+	JawPivotTop = nullptr;
+	JawPivotBottom = nullptr;
+	JawBladeTop = nullptr;
+	JawBladeBottom = nullptr;
+	JawPadTop = nullptr;
+	JawPadBottom = nullptr;
+	YokeSpine = nullptr;
+
+	// 몇 초 뒤 떨어진 부품들을 파괴 (수명)
+	FTimerHandle DummyHandle;
+	GetWorldTimerManager().SetTimer(DummyHandle, [this, Meshes]()
+	{
+		for (UStaticMeshComponent* Comp : Meshes)
+		{
+			if (Comp && Comp != MeshComponent && Comp != TriggerMesh)
+			{
+				Comp->DestroyComponent();
+			}
+		}
+	}, BrokenPartLifetime, false);
+
+	UE_LOG(LogTemp, Warning, TEXT("[GRAB] Broke apart (durability 0)"));
+}
+
+// [GRAB-011] 시퀀스 종료 (서버): detach + 대상 이동복원 + 사용자 잠금해제 + 상태 리셋
 void AGrabGun::ReleaseTarget()
 {
 	if (!HasAuthority())
@@ -584,11 +699,12 @@ void AGrabGun::ReleaseTarget()
 	}
 
 	bGrabArmed = false;
+	bPulling = false;
 	SetJawColliderActive(false);
 
 	if (GrabbedTarget)
 	{
-		// 집게에서 떼어내 월드에 남긴다
+		// 집게에서 떼어내 월드에 남긴다 (당겨진 위치에 그대로)
 		GrabbedTarget->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
 		// 이동 복원
@@ -596,12 +712,61 @@ void AGrabGun::ReleaseTarget()
 		{
 			Move->SetMovementMode(static_cast<EMovementMode>(GrabbedPrevMovementMode));
 		}
-		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Released %s"), *GetNameSafe(GrabbedTarget));
+		UE_LOG(LogTemp, Warning, TEXT("[GRAB] Released (fully pulled) %s"), *GetNameSafe(GrabbedTarget));
 	}
 
 	GrabbedTarget = nullptr;
-	// 링크 접힘
-	TargetExtendAlpha = 0.0f;
+	TargetExtendAlpha = 0.0f; // 링크 접힘 유지
+
+	// 사용자 이동+카메라 잠금 해제 (시퀀스 종료)
+	SetOwnerInputLocked(false);
+
+	// 내구도 0으로 이번 당기기가 마지막이었으면, 당김 완료 후 지금 분해한다.
+	if (bBreakAfterPull)
+	{
+		bBreakAfterPull = false;
+		MulticastBreakApart();
+	}
+}
+
+// [GRAB-015] 사용자 입력 잠금/해제 (서버 진입점).
+// 복제 변수 bOwnerInputLocked만 세팅 → 소유 클라는 OnRep에서, 서버(리슨호스트)는 여기서 직접 로컬 적용.
+void AGrabGun::SetOwnerInputLocked(bool bLock)
+{
+	if (!HasAuthority() || bOwnerInputLocked == bLock)
+	{
+		return;
+	}
+	bOwnerInputLocked = bLock;
+	ApplyLocalInputLock(bLock); // 리슨서버 호스트 자신이 사용자인 경우 즉시 적용
+}
+
+// 복제 도착 시 소유 클라에서 로컬 컨트롤러에 실제 Ignore 적용
+void AGrabGun::OnRep_OwnerInputLocked()
+{
+	ApplyLocalInputLock(bOwnerInputLocked);
+}
+
+// 실제 로컬 PlayerController에 Ignore 적용 (로컬 소유일 때만). Ignore는 카운터라 짝을 맞춘다.
+void AGrabGun::ApplyLocalInputLock(bool bLock)
+{
+	if (bLocalInputLockApplied == bLock)
+	{
+		return;
+	}
+	APawn* OwnerPawn = Cast<APawn>(LastOwner);
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return; // 이 머신이 사용자를 로컬 제어하지 않으면 입력 무시 대상 아님
+	}
+	APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController());
+	if (!PC)
+	{
+		return;
+	}
+	PC->SetIgnoreMoveInput(bLock);
+	PC->SetIgnoreLookInput(bLock);
+	bLocalInputLockApplied = bLock;
 }
 
 // [GRAB-004] 그래버 자체를 내려놓을 때 잡고 있던 대상도 해제
