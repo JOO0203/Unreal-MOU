@@ -91,6 +91,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang|Hit")
 	float HitStatusDuration = 2.0f;
 
+	// 적중 시 대상 Health에서 깎을 데미지. 0 이하면 데미지 안 줌. BP에서 조정.
+	// (팀 정석 방식: Instant GE로 BaseAttributeSet.Health를 Additive 차감 → PostGameplayEffectExecute 사망처리 정상 동작)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang|Hit")
+	float HitDamage = 20.0f;
+
 	// 한 번 적중할 때마다 깎일 내구도. 최대 100 기준 10이면 10번 맞히면 소진. BP에서 조정.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang|Hit")
 	float DurabilityCostPerHit = 10.0f;
