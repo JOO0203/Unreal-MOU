@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Interfaces/InteractableInterface.h"
+#include "Item/ItemSaveData.h"
 #include "ItemBase.generated.h"
 
 class UStaticMeshComponent;
@@ -125,4 +126,17 @@ public:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnUnequipped(AActor* Equipper);
+
+	// ---------------------------------------------------------
+	// [저장 / 복원]
+	// ---------------------------------------------------------
+	// ItemBase가 공통 상태를 저장하고, 자식 클래스는 오버라이드로 ExtraSaveData를 추가합니다.
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Item|Save")
+	void SaveItemToData(UPARAM(ref) FStoredItemInstanceData& OutData) const;
+	virtual void SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const;
+
+	// 저장된 공통 상태를 복원합니다. 자식 클래스는 오버라이드로 자기 전용 ExtraSaveData를 읽습니다.
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Item|Save")
+	void LoadItemFromData(const FStoredItemInstanceData& InData);
+	virtual void LoadItemFromData_Implementation(const FStoredItemInstanceData& InData);
 };

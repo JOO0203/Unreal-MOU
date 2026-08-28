@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Item/ItemSaveData.h"
 #include "ItemSpawner.generated.h"
 
 class AItemBase;
@@ -51,5 +52,9 @@ public:
 	// [SPAWNER-002] 지정한 행의 아이템을 지정 위치/회전에 스폰 (동적 생성용)
 	UFUNCTION(BlueprintCallable, Category = "Spawner")
 	AItemBase* SpawnItemAt(FName RowName, FVector Location, FRotator Rotation);
+
+	// 저장된 아이템 상태를 기반으로 지정 위치/회전에 스폰합니다.
+	UFUNCTION(BlueprintCallable, Category = "Spawner")
+	AItemBase* SpawnItemFromSaveData(const FStoredItemInstanceData& ItemSaveData, FVector Location, FRotator Rotation);
 #pragma endregion
 };

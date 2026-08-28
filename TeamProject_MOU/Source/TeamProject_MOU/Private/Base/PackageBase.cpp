@@ -1,6 +1,8 @@
 #include "Base/PackageBase.h"
 #include "Base/CharacterBase.h"
 #include "Base/BaseAttributeSet.h"
+#include "Item/PackageItemSaveData.h"
+#include "Interfaces/QuestItemSaveInterface.h"
 #include "AbilitySystemComponent.h"
 #include "Components/CarryingComponent.h"
 #include "Components/CharacterVisualComponent.h"
@@ -289,6 +291,61 @@ bool APackageBase::CanInteract_Implementation(AActor* Interactor) const
 		return false;
 	}
 	return true;
+}
+
+void APackageBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const
+{
+	Super::SaveItemToData_Implementation(OutData);
+
+	FPackageItemSaveData PackageSaveData;
+	PackageSaveData.BaseValue = BaseValue;
+	PackageSaveData.PackageType = PackageType;
+	PackageSaveData.MaxSpoilTime = MaxSpoilTime;
+	PackageSaveData.CurrentSpoilTime = CurrentSpoilTime;
+	PackageSaveData.bIsBroken = bIsBroken;
+
+	OutData.ExtraSaveData.Add(FInstancedStruct::Make(PackageSaveData));
+
+	if (GetClass()->ImplementsInterface(UQuestItemSaveInterface::StaticClass()))
+	{
+		const FQuestItemSaveData QuestSaveData = IQuestItemSaveInterface::Execute_GetQuestItemSaveData(this);
+		if (QuestSaveData.IsValid())
+		{
+			OutData.ExtraSaveData.Add(FInstancedStruct::Make(QuestSaveData));
+		}
+	}
+}
+
+void APackageBase::LoadItemFromData_Implementation(const FStoredItemInstanceData& InData)
+{
+	Super::LoadItemFromData_Implementation(InData);
+
+	for (const FInstancedStruct& ExtraData : InData.ExtraSaveData)
+	{
+		if (const FPackageItemSaveData* PackageSaveData = ExtraData.GetPtr<FPackageItemSaveData>())
+		{
+			BaseValue = PackageSaveData->BaseValue;
+			PackageType = PackageSaveData->PackageType;
+			MaxSpoilTime = PackageSaveData->MaxSpoilTime;
+			CurrentSpoilTime = PackageSaveData->CurrentSpoilTime;
+			bIsBroken = PackageSaveData->bIsBroken;
+
+			OnRep_bIsBroken();
+			break;
+		}
+	}
+
+	if (GetClass()->ImplementsInterface(UQuestItemSaveInterface::StaticClass()))
+	{
+		for (const FInstancedStruct& ExtraData : InData.ExtraSaveData)
+		{
+			if (const FQuestItemSaveData* QuestSaveData = ExtraData.GetPtr<FQuestItemSaveData>())
+			{
+				IQuestItemSaveInterface::Execute_ApplyQuestItemSaveData(this, *QuestSaveData);
+				return;
+			}
+		}
+	}
 }
 
 void APackageBase::MulticastPickUp_Implementation(AActor* Picker)

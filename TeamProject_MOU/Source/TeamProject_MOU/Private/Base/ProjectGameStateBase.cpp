@@ -3,16 +3,25 @@
 
 #include "Base/ProjectGameStateBase.h"
 
+#include "Economy/EconomyDebtProcessor.h"
 #include "Net/UnrealNetwork.h"
 
 AProjectGameStateBase::AProjectGameStateBase()
 {
-	Gold = 0;
+	Gold = 1000;
 	Reputation = 0;
 
-	CurrentDebt = 200;
-	DebtMultiplier = 1.5f;
+	InitialDebt = 500;
+	CurrentDebt = InitialDebt;
+
+	BaseDebtIncrease = 250;
+	DebtGrowthDivisor = 8.0f;
+
 	DebtCycle = 1;
+
+	EconomyCurrentHalfDay = 0;
+	DebtPeriodHalfDay = 14;
+	DebtCycleStartHalfDay = 0;
 }
 
 // ==============================================
@@ -21,60 +30,60 @@ AProjectGameStateBase::AProjectGameStateBase()
 
 void AProjectGameStateBase::AddGold(int32 Amount)
 {
-	// Å¬¶óÀÌ¾ğÆ®°¡ ÀÓÀÇ·Î °ñµå¸¦ ¼öÁ¤ÇÏÁö ¸øÇÏµµ·Ï ÇÔ.
-	// GameStateÀÇ ½ÇÁ¦ Gold °ªÀº ¼­¹ö°¡ °ü¸®
+	// í´ë¼ì´ì–¸íŠ¸ê°€ ì„ì˜ë¡œ ê³¨ë“œë¥¼ ë³€ê²½í•˜ì§€ ëª»í•˜ë„ë¡ ì„œë²„ì—ì„œë§Œ ì²˜ë¦¬í•©ë‹ˆë‹¤.
+	// GameStateê°€ ê³¨ë“œ ìƒíƒœì˜ ê¶Œí•œì„ ê°€ì§‘ë‹ˆë‹¤.
 	if (!HasAuthority())
 	{
 		return;
 	}
 
-	// 0 ¶Ç´Â À½¼ö °ñµå´Â AddGold·Î ³ÖÁö ¾ÊÀ½.
-    // °ñµå °¨¼Ò´Â SpendGold¸¦ »ç¿ëÇÏµµ·Ï ¿ªÇÒÀ» ºĞ¸®.
+	// 0 ì´í•˜ ê¸ˆì•¡ì€ AddGoldì—ì„œ ì²˜ë¦¬í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
+	// ê³¨ë“œ ì°¨ê°ì€ SpendGoldë¥¼ ì‚¬ìš©í•˜ë„ë¡ ì±…ì„ì„ ë¶„ë¦¬í•©ë‹ˆë‹¤.
 	if (Amount <= 0)
 	{
 		return;
 	}
 
-	// ½ÇÁ¦ ÆÀ °ñµå Áõ°¡
+	// í˜„ì¬ ê³¨ë“œì— ê¸ˆì•¡ ì¶”ê°€
 	Gold += Amount;
 
 
-	// ¼­¹ö Ãø¿¡¼­µµ Gold º¯°æ »ç½ÇÀ» Blueprint¿¡ ¾Ë·ÁÁÜ.
-	// HUD µîÀÇ UI °»½Å¿¡ »ç¿ëÇÒ ¼ö ÀÖÀ½.
+	// ì„œë²„ì—ì„œ ë³€ê²½ëœ ê³¨ë“œ ê°’ì„ Blueprintì— ì•Œë¦½ë‹ˆë‹¤.
+	// HUD ë“±ì˜ UI ê°±ì‹ ì— ì‚¬ìš©í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
 	OnGoldUpdated(Gold);
 }
 
 bool AProjectGameStateBase::SpendGold(int32 Amount)
 {
-	// ¼­¹ö¿¡¼­¸¸ ½ÇÁ¦ °ñµå Â÷°¨ Çã¿ë
+	// ì„œë²„ì—ì„œë§Œ ê³¨ë“œ ì°¨ê° ì²˜ë¦¬
 	if (!HasAuthority())
 	{
 		return false;
 	}
 
-	// 0ÀÌ³ª À½¼ö ±İ¾× »ç¿ë ¹æÁö
+	// 0 ì´í•˜ ê¸ˆì•¡ì€ ì‚¬ìš©í•˜ì§€ ì•ŠìŒ
 	if (Amount <= 0)
 	{
 		return false;
 	}
 
-	// ÇöÀç °ñµå°¡ Amountº¸´Ù ÀûÀ¸¸é ±¸¸Å/ÁöºÒ ½ÇÆĞ
+	// í˜„ì¬ ê³¨ë“œê°€ Amountë³´ë‹¤ ì ìœ¼ë©´ ì‚¬ìš© ì‹¤íŒ¨
 	if (!CanAfford(Amount))
 	{
 		return false;
 	}
 
-	// ½ÇÁ¦ °ñµå Â÷°¨
+	// ê³¨ë“œ ì°¨ê° ì²˜ë¦¬
 	Gold -= Amount;
 
-	// UI µî¿¡ º¯°æµÈ Gold Àü´Ş
+	// UI ë“±ì— ë³€ê²½ëœ ê³¨ë“œ ì „ë‹¬
 	OnGoldUpdated(Gold);
 
 
 	return true;
 }
 
-// µ·À» ¾²Áö¾Ê°í »ì¼ö ÀÖ´ÂÁö °Ë»çÇÏ´Â ÇÔ¼ö
+// ì§€ì • ê¸ˆì•¡ì„ ì§€ë¶ˆí•  ìˆ˜ ìˆëŠ”ì§€ í™•ì¸í•˜ëŠ” í•¨ìˆ˜
 bool AProjectGameStateBase::CanAfford(int32 Amount) const
 {
 	return Amount > 0 && Gold >= Amount;
@@ -124,6 +133,26 @@ void AProjectGameStateBase::SetReputation(int32 NewReputation)
 // Debt
 // ==============================================
 
+// ì¦ê°€ëŸ‰ = BaseDebtIncrease Ã— (1 + ((DebtCycle - 1)Â² / DebtGrowthDivisor))
+int32 AProjectGameStateBase::CalculateDebtIncrease() const
+{
+	const float CycleValue = static_cast<float>(FMath::Max(0, DebtCycle - 1));
+
+	const float SafeDivisor = FMath::Max(0.01f, DebtGrowthDivisor);
+
+	const float GrowthFactor = 1.0f + (FMath::Square(CycleValue) / SafeDivisor);
+
+	const float Increase = static_cast<float>(BaseDebtIncrease) * GrowthFactor;
+
+	return FMath::RoundToInt(Increase);
+}
+
+// í˜„ì¬ ë¹š + ì´ë²ˆ ì¦ê°€ëŸ‰
+int32 AProjectGameStateBase::CalculateNextDebt() const
+{
+	return CurrentDebt + CalculateDebtIncrease();
+}
+
 bool AProjectGameStateBase::PayDebt()
 {
 	if (!HasAuthority())
@@ -131,17 +160,24 @@ bool AProjectGameStateBase::PayDebt()
 		return false;
 	}
 
-	// ºúÀ» ³¾ µ·ÀÌ ºÎÁ·ÇÔ
+	// í˜„ì¬ ë¹šë§Œí¼ ê³¨ë“œê°€ ë¶€ì¡±í•˜ë©´ ìƒí™˜ ì‹¤íŒ¨
 	if (!SpendGold(CurrentDebt))
 	{
-		return  false;
+		return false;
 	}
 
-	// »óÈ¯ ¼º°ø
-	DebtCycle++;
-	OnDebtCycleUpdated(DebtCycle);
+	// í˜„ì¬ DebtCycle ê¸°ì¤€ìœ¼ë¡œ ë‹¤ìŒ ë¹š ê¸ˆì•¡ ê³„ì‚°
+	const int32 NextDebt = CalculateNextDebt();
 
-	CurrentDebt = FMath::RoundToInt(CurrentDebt * DebtMultiplier);
+	// ìƒí™˜ ì„±ê³µ í›„ ë‹¤ìŒ íšŒì°¨ë¡œ ì´ë™
+	DebtCycle++;
+	// ë‹¤ìŒ íšŒì°¨ ë¹š ì„¤ì •
+	CurrentDebt = NextDebt;
+	// ìƒí™˜ ì„±ê³µ ì‹œ ìƒˆ ë¹š íšŒì°¨ ì‹œì‘
+	DebtCycleStartHalfDay = EconomyCurrentHalfDay;
+
+	// ë³€ê²½ í™˜ë£Œ í›„ BP/UIì— ì•Œë¦¼
+	OnDebtCycleUpdated(DebtCycle);
 	OnDebtUpdated(CurrentDebt);
 
 	return true;
@@ -171,6 +207,64 @@ void AProjectGameStateBase::SetDebtCycle(int32 NewDebtCycle)
 	OnDebtCycleUpdated(DebtCycle);
 }
 
+EDebtProcessResult AProjectGameStateBase::ProcessDebtDeadline()
+{
+	return FEconomyDebtProcessor::Process(this);
+}
+
+// ==============================================
+// Economy Time
+// ==============================================
+
+// ê²½ì œ ì‹œê°„ 1 HalfDay ì¦ê°€
+void AProjectGameStateBase::AdvanceEconomyHalfDay()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	EconomyCurrentHalfDay++;
+
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
+// í˜„ì¬ ê²½ì œ HalfDay ë°˜í™˜
+int32 AProjectGameStateBase::GetEconomyCurrentHalfDay() const
+{
+	return EconomyCurrentHalfDay;
+}
+
+// ê²½ì œ ì‹œê°„ì„ ì§ì ‘ ì„¤ì •
+void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	EconomyCurrentHalfDay = FMath::Max(0, NewHalfDay);
+
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
+// ë‹¤ìŒ ë¹š ìƒí™˜ HalfDay ë°˜í™˜
+int32 AProjectGameStateBase::GetNextDebtDueHalfDay() const
+{
+	return DebtCycleStartHalfDay + DebtPeriodHalfDay;
+}
+
+// ë‹¤ìŒ ë¹š ìƒí™˜ ê¸°í•œì— ë„ë‹¬í–ˆëŠ”ì§€ í™•ì¸
+bool AProjectGameStateBase::IsDebtDue() const
+{
+	return EconomyCurrentHalfDay >= GetNextDebtDueHalfDay();
+}
+
+// ë¹š ìƒí™˜ê¹Œì§€ ë‚¨ì€ HalfDay
+int32 AProjectGameStateBase::GetRemainingDebtHalfDay() const
+{
+	return FMath::Max(0,GetNextDebtDueHalfDay() - EconomyCurrentHalfDay);
+}
 
 // ==============================================
 // RepNotify
@@ -195,6 +289,11 @@ void AProjectGameStateBase::OnRep_DebtCycle()
 	OnDebtCycleUpdated(DebtCycle);
 }
 
+void AProjectGameStateBase::OnRep_EconomyCurrentHalfDay()
+{
+	OnEconomyHalfDayUpdated(EconomyCurrentHalfDay);
+}
+
 // ==============================================
 // Replication
 // ==============================================
@@ -206,4 +305,8 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
+	DOREPLIFETIME(AProjectGameStateBase, EconomyCurrentHalfDay);
+	DOREPLIFETIME(AProjectGameStateBase, DebtCycleStartHalfDay);
 }
+
+
