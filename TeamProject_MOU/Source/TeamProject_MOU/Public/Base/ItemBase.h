@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -29,10 +29,6 @@ public:
 	// ---------------------------------------------------------
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
-
-	// 아이템 정보를 화면에 띄워줄 위젯 컴포넌트
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<class UWidgetComponent> InfoWidgetComponent;
 
 	// ---------------------------------------------------------
 	// [기본 아이템 데이터]
@@ -80,15 +76,6 @@ public:
 	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual FText GetInteractPrompt_Implementation() const override;
-
-	// ---------------------------------------------------------
-	// [UI / 정보 표시]
-	// ---------------------------------------------------------
-	UFUNCTION(BlueprintCallable, Category = "Item|UI")
-	virtual void ShowItemInfo();
-
-	UFUNCTION(BlueprintCallable, Category = "Item|UI")
-	virtual void HideItemInfo();
 
 	// ---------------------------------------------------------
 	// [핵심 행동 함수]
