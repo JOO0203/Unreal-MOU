@@ -381,8 +381,8 @@ void AMainCharacter::Tick(float DeltaTime)
 	{
 		static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
 		static const FGameplayTag PrimaryStunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
-		bIsDown = (StunTag.IsValid() && GetStatusComponent()->HasStatusTag(StunTag)) || 
-		          (PrimaryStunTag.IsValid() && GetStatusComponent()->HasStatusTag(PrimaryStunTag));
+		bIsDown = (StunTag.IsValid() && GetStatusComponent()->HasStatusTag(StunTag)) ||
+			(PrimaryStunTag.IsValid() && GetStatusComponent()->HasStatusTag(PrimaryStunTag));
 	}
 
 	if (IsLocallyControlled() && GetFollowCamera())
@@ -541,7 +541,7 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMainCharacter::OnSprintStart);
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMainCharacter::OnSprintEnd);
 	}
-	
+
 	// 좌클릭: 아이템 사용
 	if (UseAction)
 	{
@@ -621,7 +621,7 @@ void AMainCharacter::DoMove(float Right, float Forward)
 		{
 			AddMovementInput(LockedPushDirection, Forward);
 		}
-		
+
 		// Super::DoMove()는 카메라 회전을 기준으로 방향을 잡으므로 생략
 		return;
 	}
@@ -841,7 +841,7 @@ void AMainCharacter::OnGrabOrDrop()
 	{
 		bool bWasCarrying = CarryingComponent->IsCarrying();
 		CarryingComponent->GrabOrDrop();
-		
+
 		// 들고 있던 물건을 방금 내려놓았다면, 현재 바라보고 있는 대상의 UI를 다시 갱신(표시)
 		if (bWasCarrying && !CarryingComponent->IsCarrying() && InteractionComponent)
 		{
@@ -1413,7 +1413,7 @@ void AMainCharacter::SetEmotion(int32 EmotionIndex, FLinearColor EmoteColor)
 			{
 				DMI->SetScalarParameterValue(EmotionParameterName, static_cast<float>(EmotionIndex));
 				DMI->SetVectorParameterValue(EmotionColorParameterName, EmoteColor);
-			} 
+			}
 		}
 	}
 }
@@ -1660,7 +1660,7 @@ void AMainCharacter::MulticastKnockdown_Implementation()
 	if (KnockdownMontage && GetMesh() && GetMesh()->GetAnimInstance())
 	{
 		float AnimDuration = GetMesh()->GetAnimInstance()->Montage_Play(KnockdownMontage);
-		
+
 		// 몽타주가 재생되지 않았을 경우(0.0) 대비 안전장치
 		if (AnimDuration <= 0.0f)
 		{
@@ -1761,7 +1761,7 @@ void AMainCharacter::HandleHealthZero()
 			{
 				CarryingComponent->GrabOrDrop();
 			}
-			
+
 			OnSprintEnd();
 			MulticastOnEnterGroggy();
 		}
@@ -1786,8 +1786,8 @@ void AMainCharacter::HandleHealthZero()
 					{
 						Item->MulticastOnEquipped(nullptr);
 						FVector ScatterImpulse = FVector(
-							FMath::RandRange(-400.f, 400.f), 
-							FMath::RandRange(-400.f, 400.f), 
+							FMath::RandRange(-400.f, 400.f),
+							FMath::RandRange(-400.f, 400.f),
 							FMath::RandRange(400.f, 700.f)
 						);
 						Item->Throw(ScatterImpulse, this);
@@ -1910,16 +1910,16 @@ void AMainCharacter::Interact_Implementation(AActor* Interactor)
 		{
 			// 살려주는 사람의 현재 체력 가져오기
 			float ReviverCurrentHealth = Reviver->BaseAttribute->GetHealth();
-			
+
 			// 자신의 체력을 절반 깎고, 그 양을 쓰러진 사람에게 부여
 			float HealthToGive = ReviverCurrentHealth / 2.0f;
-			
+
 			// 최소 체력 1은 남겨두기 위한 안전장치 (원한다면 제거 가능)
 			if (HealthToGive < 1.0f) HealthToGive = 1.0f;
 			float NewReviverHealth = FMath::Max(1.0f, ReviverCurrentHealth - HealthToGive);
 
 			Reviver->BaseAttribute->SetHealth(NewReviverHealth);
-			
+
 			// 쓰러진 캐릭터 부활 처리
 			ReviveCharacter(HealthToGive);
 		}
@@ -2091,7 +2091,7 @@ void AMainCharacter::StopPushMode()
 			AbilitySystemComponent->CancelAbilities(&PushTagContainer);
 		}
 	}
-	
+
 	if (CurrentPushedObject)
 	{
 		if (AEventObjectBase* EventObj = Cast<AEventObjectBase>(CurrentPushedObject))

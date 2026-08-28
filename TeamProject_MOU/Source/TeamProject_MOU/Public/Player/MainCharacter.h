@@ -505,7 +505,7 @@ protected:
 
 	// 감정 인덱스를 변경하는 머티리얼 파라미터 이름 (머티리얼에 적힌 이름과 정확히 일치해야 함)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emote")
-	FName EmotionParameterName = FName("Emotion index"); 
+	FName EmotionParameterName = FName("Emotion index");
 
 	// 감정 색상을 변경하는 머티리얼 파라미터 이름
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emote")
