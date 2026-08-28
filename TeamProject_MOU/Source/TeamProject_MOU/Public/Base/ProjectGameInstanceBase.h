@@ -53,6 +53,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
 	bool bHaveSavedEconomyData = false;
 
+
+	UPROPERTY(BlueprintReadOnly, Category = "Economy|Save")
+	int32 SavedDebtCycleStartHalfDay = 0;
+
 	UFUNCTION(BlueprintCallable, Category = "Storage|Save")
 	void SaveStoredItems(const TArray<FStoredItemData>& InStoredItems);
 
