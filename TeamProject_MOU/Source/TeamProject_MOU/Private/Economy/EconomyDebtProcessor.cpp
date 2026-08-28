@@ -16,13 +16,13 @@ EDebtProcessResult FEconomyDebtProcessor::Process(
 		return EDebtProcessResult::NotDue;
 	}
 
-	// 아직 상환 기한이 아니면 처리하지 않음
 	if (!GameState->IsDebtDue())
 	{
 		return EDebtProcessResult::NotDue;
 	}
 
-	// 상환 기한 도달 후 정상적으로 빚을 갚은 경우
+	// 이 함수는 OnDebtDeadlineReached에서만 호출
+	// 7일차에 현재 시점의 CurrentDebt 강제 상환 시도
 	if (GameState->PayDebt())
 	{
 		return EDebtProcessResult::Paid;
