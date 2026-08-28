@@ -21,6 +21,7 @@ AProjectGameStateBase::AProjectGameStateBase()
 
 	EconomyCurrentHalfDay = 0;
 	DebtPeriodHalfDay = 14;
+	DebtCycleStartHalfDay = 0;
 }
 
 // ==============================================
@@ -170,10 +171,13 @@ bool AProjectGameStateBase::PayDebt()
 
 	// 상환 성공 후 다음 회차로 이동
 	DebtCycle++;
-	OnDebtCycleUpdated(DebtCycle);
-
 	// 다음 회차 빚 설정
 	CurrentDebt = NextDebt;
+	// 상환 성공 시 새 빚 회차 시작
+	DebtCycleStartHalfDay = EconomyCurrentHalfDay;
+
+	// 변경 환료 후 BP/UI에 알림
+	OnDebtCycleUpdated(DebtCycle);
 	OnDebtUpdated(CurrentDebt);
 
 	return true;
@@ -247,7 +251,7 @@ void AProjectGameStateBase::SetEconomyCurrentHalfDay(int32 NewHalfDay)
 // 다음 빚 상환 HalfDay 반환
 int32 AProjectGameStateBase::GetNextDebtDueHalfDay() const
 {
-	return DebtCycle * DebtPeriodHalfDay;
+	return DebtCycleStartHalfDay + DebtPeriodHalfDay;
 }
 
 // 다음 빚 상환 기한에 도달했는지 확인
@@ -302,6 +306,7 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);
 	DOREPLIFETIME(AProjectGameStateBase, EconomyCurrentHalfDay);
+	DOREPLIFETIME(AProjectGameStateBase, DebtCycleStartHalfDay);
 }
 
 

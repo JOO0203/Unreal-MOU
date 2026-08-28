@@ -12,6 +12,6 @@ class TEAMPROJECT_MOU_API FEconomyDebtProcessor
 {
 public:
 
-	// 현재 경제 시간을 기준으로 빚 상환 기한 처리
+	// 상환 기한 콜백 발생 시 현재 빚 상환 처리
 	static EDebtProcessResult Process(AProjectGameStateBase* GameState);
 };
