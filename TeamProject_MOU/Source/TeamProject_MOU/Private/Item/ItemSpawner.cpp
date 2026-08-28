@@ -86,3 +86,35 @@ AItemBase* AItemSpawner::SpawnItemAt(FName RowName, FVector Location, FRotator R
 
 	return SpawnedItem;
 }
+
+AItemBase* AItemSpawner::SpawnItemFromSaveData(const FStoredItemInstanceData& ItemSaveData, FVector Location, FRotator Rotation)
+{
+	// 스폰은 서버 권한에서만 (스폰된 액터는 클라로 복제됨)
+	if (!HasAuthority())
+	{
+		return nullptr;
+	}
+
+	if (!ItemSaveData.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 저장 데이터의 ItemClass가 비어 있음"));
+		return nullptr;
+	}
+
+	const FTransform SpawnTransform(Rotation, Location);
+	AItemBase* SpawnedItem = GetWorld()->SpawnActorDeferred<AItemBase>(
+		ItemSaveData.ItemClass, SpawnTransform, nullptr, nullptr,
+		ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
+	if (!SpawnedItem)
+	{
+		return nullptr;
+	}
+
+	SpawnedItem->FinishSpawning(SpawnTransform);
+	SpawnedItem->LoadItemFromData(ItemSaveData);
+
+	// 배달맵에서는 창고에서 저장된 위치가 아니라 스포너가 지정한 위치에 배치합니다.
+	SpawnedItem->SetActorLocationAndRotation(Location, Rotation);
+
+	return SpawnedItem;
+}
