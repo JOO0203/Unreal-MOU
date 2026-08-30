@@ -31,6 +31,9 @@ void AMapItem::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// [MAP-007] 이 인스턴스 전용 RT 3개를 런타임 생성 (공유 애셋 깜빡임 방지)
+	CreatePerInstanceRenderTargets();
+
 	// 레벨 경계 볼륨(MapBounds 태그)에서 지도 범위 자동 설정
 	ResolveMapBoundsFromVolume();
 
@@ -47,12 +50,17 @@ void AMapItem::BeginPlay()
 		FogBrushMID = UMaterialInstanceDynamic::Create(FogBrushMaterial, this);
 	}
 
-	// 지형이 로드될 시간을 준 뒤 1회 캡처 (World Partition 스트리밍 대비)
 	if (UWorld* World = GetWorld())
 	{
+		// 지형이 로드될 시간을 준 뒤 1회 캡처 (World Partition 스트리밍 대비)
 		World->GetTimerManager().SetTimer(
 			CaptureDelayTimerHandle, this, &AMapItem::CaptureMapOnce,
 			0.5f, false);   // false = 반복 안 함, 0.5초 후 딱 1번
+
+		// [MAP-002] Fog 갱신은 손에 안 들어도(바닥에서도) 항상 가동
+		World->GetTimerManager().SetTimer(
+			FogUpdateTimerHandle, this, &AMapItem::UpdateFogMask,
+			FogUpdateInterval, true);
 	}
 }
 
@@ -97,6 +105,14 @@ void AMapItem::OnUse_Implementation()
 			MapWidgetInstance = CreateWidget<UUserWidget>(PC, MapWidgetClass);
 			if (MapWidgetInstance)
 			{
+				// [MAP-010] 위젯에 이 지도 인스턴스를 전달 (인스턴스 RT를 참조하게 함, 검은 화면 방지)
+				// WBP_Map에 입력 파라미터가 AMapItem* 1개인 커스텀 이벤트 "SetMapItem"을 구현해야 함
+				if (UFunction* SetMapFunc = MapWidgetInstance->FindFunction(TEXT("SetMapItem")))
+				{
+					struct { AMapItem* Map; } Params{ this };
+					MapWidgetInstance->ProcessEvent(SetMapFunc, &Params);
+				}
+
 				MapWidgetInstance->AddToViewport();
 				bMapOpen = true;
 			}
@@ -104,31 +120,17 @@ void AMapItem::OnUse_Implementation()
 	}
 }
 
-// [MAP-002] 손에 들었을 때: 소지자 세팅 + Fog 갱신 타이머 시작
+// [MAP-002] 손에 들었을 때: 소지자만 세팅 (Fog 타이머는 BeginPlay에서 상시 가동)
 void AMapItem::OnEquipped_Implementation(AActor* Equipper)
 {
 	Super::OnEquipped_Implementation(Equipper);
 
 	HoldingPlayer = Equipper;
-
-	// Fog 마스크를 주기적으로 갱신하는 타이머 시작 (Tick 대신 타이머)
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			FogUpdateTimerHandle, this, &AMapItem::UpdateFogMask,
-			FogUpdateInterval, true);
-	}
 }
 
-// [MAP-003] 손에서 해제될 때: 소지자 해제 + 타이머 정지
+// [MAP-003] 손에서 해제될 때: 소지자만 해제 (타이머는 계속 가동 — 바닥에서도 갱신)
 void AMapItem::OnUnequipped_Implementation(AActor* Equipper)
 {
-	// 갱신 타이머 정지
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(FogUpdateTimerHandle);
-	}
-
 	HoldingPlayer = nullptr;
 
 	Super::OnUnequipped_Implementation(Equipper);
@@ -216,18 +218,18 @@ void AMapItem::UpdateCaptureTransform()
 	CaptureCamera->SetWorldRotation(FRotator(-90.0f, 0.0f, 0.0f));
 }
 
-// [FOG-001] 플레이어 현재 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
+// [FOG-001] 지도 아이템 자신의 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
 void AMapItem::UpdateFogMask()
 {
 	// (지형 캡처는 CaptureMapOnce에서 1회만 하므로 여기선 캡처하지 않음)
 
-	if (!HoldingPlayer || !FogBrushMID)
+	if (!FogBrushMID)
 	{
 		return;
 	}
 
-	// 플레이어 위치 → UV, 반경 계산 (두 마스크 공통)
-	const FVector2D PlayerUV = WorldToMapUV(HoldingPlayer->GetActorLocation());
+	// 시야 기준 = 지도 아이템 자신의 위치 (바닥에 떨어져 있어도 그 자리 주변이 밝혀짐)
+	const FVector2D PlayerUV = WorldToMapUV(GetActorLocation());
 	const float RadiusUV = (MapWorldSize.X != 0.0f) ? (RevealRadius / MapWorldSize.X) : 0.0f;
 	FogBrushMID->SetVectorParameterValue(
 		TEXT("BrushCenter"), FLinearColor(PlayerUV.X, PlayerUV.Y, 0.0f, 0.0f));
@@ -246,5 +248,64 @@ void AMapItem::UpdateFogMask()
 		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogRevealRT, FLinearColor::Black);
 		FogBrushMID->SetScalarParameterValue(TEXT("BrushIntensity"), 1.0f);
 		UKismetRenderingLibrary::DrawMaterialToRenderTarget(this, FogRevealRT, FogBrushMID);
+	}
+}
+
+// [MAP-007] 인스턴스마다 RT 3개를 런타임 생성 (모든 지도가 같은 캔버스를 공유하던 깜빡임 버그 방지)
+void AMapItem::CreatePerInstanceRenderTargets()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const int32 Size = FMath::Max(64, RenderTargetSize);
+
+	// 지형 캡처: 컬러(RGBA8), Fog 마스크: 단일 채널(R8)이면 충분
+	CaptureRT   = UKismetRenderingLibrary::CreateRenderTarget2D(World, Size, Size, RTF_RGBA8);
+	FogMaskRT   = UKismetRenderingLibrary::CreateRenderTarget2D(World, Size, Size, RTF_R8);
+	FogRevealRT = UKismetRenderingLibrary::CreateRenderTarget2D(World, Size, Size, RTF_R8);
+
+	// 마스크는 검정(안 밝힘)에서 시작
+	if (FogMaskRT)
+	{
+		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogMaskRT, FLinearColor::Black);
+	}
+	if (FogRevealRT)
+	{
+		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogRevealRT, FLinearColor::Black);
+	}
+
+	// 캡처 카메라 출력 대상을 이 인스턴스 RT로 연결
+	if (CaptureCamera)
+	{
+		CaptureCamera->TextureTarget = CaptureRT;
+	}
+}
+
+// [MAP-008] 레벨 이동 시 Fog + 지형 초기화/재캡처 (Seamless Travel 등 아이템이 유지되는 경우 BP에서 호출)
+void AMapItem::ResetMapForNewLevel()
+{
+	// Fog 기록 리셋
+	if (FogMaskRT)
+	{
+		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogMaskRT, FLinearColor::Black);
+	}
+	if (FogRevealRT)
+	{
+		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogRevealRT, FLinearColor::Black);
+	}
+
+	// 새 레벨 경계 재인식
+	ResolveMapBoundsFromVolume();
+
+	// 지형을 다시 1회 캡처하도록 예약
+	bMapCaptured = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			CaptureDelayTimerHandle, this, &AMapItem::CaptureMapOnce,
+			0.5f, false);
 	}
 }

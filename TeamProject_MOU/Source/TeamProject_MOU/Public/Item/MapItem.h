@@ -36,18 +36,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Capture")
 	float CaptureOrthoWidth = 4096.0f;
 
-	// 실시간 캡처 결과 렌더타깃 (에디터 지정)
+	// [MAP-009] RT 해상도 (인스턴스마다 런타임 생성 시 사용)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Capture")
+	int32 RenderTargetSize = 1024;
+
+	// 실시간 캡처 결과 렌더타깃 (BeginPlay에서 인스턴스별 런타임 생성)
+	UPROPERTY(BlueprintReadOnly, Category = "Map|Capture")
 	TObjectPtr<UTextureRenderTarget2D> CaptureRT;
 #pragma endregion
 
 #pragma region [FOG] 지도별 누적 Fog 마스크
-	// 이 지도의 밝힘 기록 (방문한 곳 회색으로 누적, 맵 전체 크기 고정)
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
+	// 이 지도의 밝힘 기록 (방문한 곳 회색으로 누적, BeginPlay에서 인스턴스별 생성)
+	UPROPERTY(BlueprintReadOnly, Category = "Map|Fog")
 	TObjectPtr<UTextureRenderTarget2D> FogMaskRT;
 
-	// 현재 시야 마스크 (플레이어 현재 위치만 밝힘, 매번 갱신)
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Fog")
+	// 현재 시야 마스크 (현재 위치만 밝힘, 매번 갱신, BeginPlay에서 인스턴스별 생성)
+	UPROPERTY(BlueprintReadOnly, Category = "Map|Fog")
 	TObjectPtr<UTextureRenderTarget2D> FogRevealRT;
 
 	// 방문한 곳 회색 밝기 (현재 위치는 항상 1.0)
@@ -96,9 +100,16 @@ public:
 	// [MAP-004] 월드 좌표 → 지도 UV(0~1). 위젯 마커용
 	UFUNCTION(BlueprintCallable, Category = "Map")
 	FVector2D WorldToMapUV(const FVector& WorldLocation) const;
+
+	// [MAP-008] 레벨 이동 시 Fog + 지형 초기화/재캡처 (Seamless Travel 등에서 BP 호출용)
+	UFUNCTION(BlueprintCallable, Category = "Map")
+	void ResetMapForNewLevel();
 #pragma endregion
 
 private:
+	// [MAP-007] 인스턴스마다 RT 3개를 런타임 생성 (공유 애셋 깜빡임 방지)
+	void CreatePerInstanceRenderTargets();
+
 	// [MAP-005] 레벨의 MapBounds 태그 볼륨을 찾아 Origin/Size 자동 설정
 	void ResolveMapBoundsFromVolume();
 
