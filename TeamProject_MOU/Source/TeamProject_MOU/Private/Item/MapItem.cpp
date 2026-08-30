@@ -216,6 +216,8 @@ void AMapItem::UpdateCaptureTransform()
 	const FVector CamLoc(CenterX, CenterY, CaptureHeight);
 	CaptureCamera->SetWorldLocation(CamLoc);
 	CaptureCamera->SetWorldRotation(FRotator(-90.0f, 0.0f, 0.0f));
+	// 메시(루트) 스케일을 물려받지 않도록 캡처는 항상 1배로 고정 (아이템 크기와 캡처 분리)
+	CaptureCamera->SetWorldScale3D(FVector(1.0f));
 }
 
 // [FOG-001] 지도 아이템 자신의 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
@@ -228,8 +230,9 @@ void AMapItem::UpdateFogMask()
 		return;
 	}
 
-	// 시야 기준 = 지도 아이템 자신의 위치 (바닥에 떨어져 있어도 그 자리 주변이 밝혀짐)
-	const FVector2D PlayerUV = WorldToMapUV(GetActorLocation());
+	// 시야 기준: 손에 들고 있으면 플레이어 몸 중심(회전 튐 방지), 바닥이면 지도 자신 위치
+	const FVector RevealLoc = HoldingPlayer ? HoldingPlayer->GetActorLocation() : GetActorLocation();
+	const FVector2D PlayerUV = WorldToMapUV(RevealLoc);
 	const float RadiusUV = (MapWorldSize.X != 0.0f) ? (RevealRadius / MapWorldSize.X) : 0.0f;
 	FogBrushMID->SetVectorParameterValue(
 		TEXT("BrushCenter"), FLinearColor(PlayerUV.X, PlayerUV.Y, 0.0f, 0.0f));
