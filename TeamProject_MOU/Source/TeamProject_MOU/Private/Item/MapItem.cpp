@@ -31,13 +31,13 @@ void AMapItem::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// [MAP-007] 이 인스턴스 전용 RT 3개를 런타임 생성 (공유 애셋 깜빡임 방지)
+	// [MAP-007] 이 지도 인스턴스 전용 렌더타깃 3개 생성 (공유 애셋 대신 → 2인 깜빡임 해결)
 	CreatePerInstanceRenderTargets();
 
 	// 레벨 경계 볼륨(MapBounds 태그)에서 지도 범위 자동 설정
 	ResolveMapBoundsFromVolume();
 
-	// 캡처 카메라 초기 세팅 (직교 폭 / 렌더타깃 연결)
+	// 캡처 카메라 초기 세팅 (직교 폭 / 인스턴스 렌더타깃 연결)
 	if (CaptureCamera)
 	{
 		CaptureCamera->OrthoWidth = CaptureOrthoWidth;
@@ -120,7 +120,8 @@ void AMapItem::OnUse_Implementation()
 	}
 }
 
-// [MAP-002] 손에 들었을 때: 소지자만 세팅 (Fog 타이머는 BeginPlay에서 상시 가동)
+// [MAP-002] 손에 들었을 때: 소지자 세팅 (위젯 토글용).
+//   Fog 갱신은 BeginPlay부터 항상 돌므로 여기서 타이머는 안 건드림.
 void AMapItem::OnEquipped_Implementation(AActor* Equipper)
 {
 	Super::OnEquipped_Implementation(Equipper);
@@ -128,7 +129,7 @@ void AMapItem::OnEquipped_Implementation(AActor* Equipper)
 	HoldingPlayer = Equipper;
 }
 
-// [MAP-003] 손에서 해제될 때: 소지자만 해제 (타이머는 계속 가동 — 바닥에서도 갱신)
+// [MAP-003] 손에서 해제될 때: 소지자 해제. Fog 타이머는 계속 유지(바닥에서도 밝힘).
 void AMapItem::OnUnequipped_Implementation(AActor* Equipper)
 {
 	HoldingPlayer = nullptr;
@@ -220,7 +221,8 @@ void AMapItem::UpdateCaptureTransform()
 	CaptureCamera->SetWorldScale3D(FVector(1.0f));
 }
 
-// [FOG-001] 지도 아이템 자신의 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
+// [FOG-001] 현재 위치=밝음(1.0), 지나간 곳=회색(0.5) 누적
+//   시야 기준: 손에 들면 플레이어 몸 중심(회전 튐 방지), 바닥이면 지도 자신 위치.
 void AMapItem::UpdateFogMask()
 {
 	// (지형 캡처는 CaptureMapOnce에서 1회만 하므로 여기선 캡처하지 않음)
@@ -230,12 +232,12 @@ void AMapItem::UpdateFogMask()
 		return;
 	}
 
-	// 시야 기준: 손에 들고 있으면 플레이어 몸 중심(회전 튐 방지), 바닥이면 지도 자신 위치
+	// 시야 기준 위치 → UV, 반경 계산 (두 마스크 공통)
 	const FVector RevealLoc = HoldingPlayer ? HoldingPlayer->GetActorLocation() : GetActorLocation();
-	const FVector2D PlayerUV = WorldToMapUV(RevealLoc);
+	const FVector2D MapUV = WorldToMapUV(RevealLoc);
 	const float RadiusUV = (MapWorldSize.X != 0.0f) ? (RevealRadius / MapWorldSize.X) : 0.0f;
 	FogBrushMID->SetVectorParameterValue(
-		TEXT("BrushCenter"), FLinearColor(PlayerUV.X, PlayerUV.Y, 0.0f, 0.0f));
+		TEXT("BrushCenter"), FLinearColor(MapUV.X, MapUV.Y, 0.0f, 0.0f));
 	FogBrushMID->SetScalarParameterValue(TEXT("BrushRadius"), RadiusUV);
 
 	// 1) 방문 마스크: 회색(VisitedIntensity)으로 누적 (지우지 않음)
@@ -254,7 +256,9 @@ void AMapItem::UpdateFogMask()
 	}
 }
 
-// [MAP-007] 인스턴스마다 RT 3개를 런타임 생성 (모든 지도가 같은 캔버스를 공유하던 깜빡임 버그 방지)
+// [MAP-007] 이 지도 인스턴스 전용 렌더타깃 3개 생성 (공유 애셋 대신 → 2인 깜빡임 해결)
+//   ⚠️ 위젯(WBP_Map)은 이 인스턴스의 CaptureRT/FogMaskRT/FogRevealRT 필드를 Get해서 써야 한다.
+//      공유 RT 애셋을 직접 참조하면 검은 화면이 된다.
 void AMapItem::CreatePerInstanceRenderTargets()
 {
 	UWorld* World = GetWorld();
@@ -287,10 +291,12 @@ void AMapItem::CreatePerInstanceRenderTargets()
 	}
 }
 
-// [MAP-008] 레벨 이동 시 Fog + 지형 초기화/재캡처 (Seamless Travel 등 아이템이 유지되는 경우 BP에서 호출)
+// [MAP-008] 레벨 이동/재시작 시 Fog·지형 초기화 (RT 클리어 + 지형 재캡처).
+//   일반 레벨 이동(액터 재생성)이면 BeginPlay가 자동 초기화하므로 불필요.
+//   Seamless Travel 등 아이템이 유지되는 경우 BP에서 이 함수를 호출한다.
 void AMapItem::ResetMapForNewLevel()
 {
-	// Fog 기록 리셋
+	// Fog 기록 리셋 (탐험 처음부터)
 	if (FogMaskRT)
 	{
 		UKismetRenderingLibrary::ClearRenderTarget2D(this, FogMaskRT, FLinearColor::Black);
@@ -303,7 +309,7 @@ void AMapItem::ResetMapForNewLevel()
 	// 새 레벨 경계 재인식
 	ResolveMapBoundsFromVolume();
 
-	// 지형을 다시 1회 캡처하도록 예약
+	// 지형을 다시 1회 캡처하도록 예약 (새 레벨 지형 로드 대기)
 	bMapCaptured = false;
 	if (UWorld* World = GetWorld())
 	{
