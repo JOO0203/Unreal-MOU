@@ -21,6 +21,8 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	// [MAP-013] HoldingPlayer 복제 등록 (클라 좌클릭 사용에 필요)
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 public:
 #pragma region [CAP] Top-down 캡처 카메라
@@ -83,8 +85,9 @@ public:
 #pragma endregion
 
 #pragma region [MAP] 소지/갱신/토글
-	// 이 지도를 현재 소지 중인 플레이어 (OnEquipped 기준으로 세팅)
-	UPROPERTY(BlueprintReadOnly, Category = "Map|State")
+	// 이 지도를 현재 소지 중인 플레이어 (PickUp/OnEquipped 기준으로 세팅).
+	//   서버에서 세팅되므로 클라의 좌클릭 사용(OnUse)에서도 쓰려면 복제 필수. [MAP-013]
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Map|State")
 	TObjectPtr<AActor> HoldingPlayer;
 
 	// 지도 오버레이 위젯 클래스 (에디터 지정, WBP)
@@ -100,6 +103,15 @@ public:
 	// [MAP-003] 손에서 해제될 때: 소지자 해제 + 타이머 정지
 	virtual void OnUnequipped_Implementation(AActor* Equipper) override;
 
+	// [MAP-011] 바닥에서 처음 집는 경로(PickUp)에는 OnEquipped가 안 불린다.
+	//   그래서 여기서 HoldingPlayer를 직접 세팅해야 좌클릭 사용(OnUse)이 동작한다.
+	//   (참고: Radio.cpp가 같은 이유로 PickUp을 오버라이드함)
+	virtual void PickUp_Implementation(AActor* Picker) override;
+
+	// [MAP-012] 놓기/던지기: 소지자 해제 (HoldingPlayer null)
+	virtual void Drop_Implementation(FVector DropLocation, AActor* Dropper) override;
+	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower) override;
+
 	// [MAP-004] 월드 좌표 → 지도 UV(0~1). 위젯 마커용
 	UFUNCTION(BlueprintCallable, Category = "Map")
 	FVector2D WorldToMapUV(const FVector& WorldLocation) const;
@@ -112,6 +124,15 @@ public:
 #pragma endregion
 
 private:
+	// [MAP-014] 부착 시 스케일·위치가 튀지 않도록, 시작 시점의 메시 스케일을 기억했다가 복원.
+	//   SnapToTargetNotIncludingScale 부착이 RelativeScale을 재계산하고,
+	//   CarryingComponent 위치보정이 캡처카메라까지 박스에 넣어 지도를 밀어내는 것을 되돌린다.
+	FVector InitialMeshScale = FVector(1.0f);
+	void RestoreMeshScale();
+
+	// 손(캐릭터)에 붙어 있는지 (바닥에 놓인 지도 위치는 건드리지 않기 위함)
+	bool IsAttachedToPlayer() const;
+
 	// [MAP-007] 이 지도 인스턴스 전용 렌더타깃 3개를 런타임 생성 (공유 애셋 깜빡임 방지)
 	void CreatePerInstanceRenderTargets();
 

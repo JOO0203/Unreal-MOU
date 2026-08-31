@@ -6,6 +6,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Blueprint/UserWidget.h"
 #include "TimerManager.h"
+#include "Net/UnrealNetwork.h"
 
 AMapItem::AMapItem()
 {
@@ -30,6 +31,12 @@ AMapItem::AMapItem()
 void AMapItem::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// [MAP-014] 시작 시점의 메시 스케일(=BP에서 지정한 값)을 기억. 부착으로 튄 뒤 이 값으로 복원.
+	if (MeshComponent)
+	{
+		InitialMeshScale = MeshComponent->GetRelativeScale3D();
+	}
 
 	// [MAP-007] 이 지도 인스턴스 전용 렌더타깃 3개 생성 (공유 애셋 대신 → 2인 깜빡임 해결)
 	CreatePerInstanceRenderTargets();
@@ -62,6 +69,13 @@ void AMapItem::BeginPlay()
 			FogUpdateTimerHandle, this, &AMapItem::UpdateFogMask,
 			FogUpdateInterval, true);
 	}
+}
+
+// [MAP-013] HoldingPlayer 복제 등록 (서버에서 세팅 → 클라 좌클릭 사용에 필요)
+void AMapItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AMapItem, HoldingPlayer);
 }
 
 void AMapItem::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -127,6 +141,9 @@ void AMapItem::OnEquipped_Implementation(AActor* Equipper)
 	Super::OnEquipped_Implementation(Equipper);
 
 	HoldingPlayer = Equipper;
+
+	// [MAP-014] 인벤토리에서 꺼내 손에 붙일 때도 스케일 튐 복원
+	RestoreMeshScale();
 }
 
 // [MAP-003] 손에서 해제될 때: 소지자 해제. Fog 타이머는 계속 유지(바닥에서도 밝힘).
@@ -135,6 +152,33 @@ void AMapItem::OnUnequipped_Implementation(AActor* Equipper)
 	HoldingPlayer = nullptr;
 
 	Super::OnUnequipped_Implementation(Equipper);
+}
+
+// [MAP-011] 바닥에서 처음 집을 때(PickUp): OnEquipped가 안 불리므로 소지자를 여기서 세팅.
+//   이게 없으면 주운 지도는 손에 들려 있어도 좌클릭 사용(OnUse)이 HoldingPlayer=null이라 실패한다.
+void AMapItem::PickUp_Implementation(AActor* Picker)
+{
+	Super::PickUp_Implementation(Picker);
+
+	// PickUp은 서버에서 실행되지만 HoldingPlayer는 위젯 생성(로컬)에도 쓰이므로 모두 세팅
+	HoldingPlayer = Picker;
+
+	// [MAP-014] 바닥에서 집어 손 소켓에 붙일 때 스케일이 튀는 것을 시작값으로 복원
+	RestoreMeshScale();
+}
+
+// [MAP-012] 놓기: 소지자 해제
+void AMapItem::Drop_Implementation(FVector DropLocation, AActor* Dropper)
+{
+	HoldingPlayer = nullptr;
+	Super::Drop_Implementation(DropLocation, Dropper);
+}
+
+// [MAP-012] 던지기: 소지자 해제
+void AMapItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
+{
+	HoldingPlayer = nullptr;
+	Super::Throw_Implementation(ThrowVelocity, Thrower);
 }
 
 // [MAP-004] 월드 좌표 → 지도 UV(0~1). 위젯 마커용
@@ -254,6 +298,47 @@ void AMapItem::UpdateFogMask()
 		FogBrushMID->SetScalarParameterValue(TEXT("BrushIntensity"), 1.0f);
 		UKismetRenderingLibrary::DrawMaterialToRenderTarget(this, FogRevealRT, FogBrushMID);
 	}
+}
+
+// [MAP-014] 부착으로 튄 메시 스케일·위치를 손 소켓 기준으로 복원.
+//   ① SnapToTargetNotIncludingScale 부착이 RelativeScale을 재계산해 크기가 튀는 것 복원.
+//   ② CarryingComponent의 GetComponentsBoundingBox 위치보정이 캡처카메라(맵 상공 3000)까지
+//      박스에 포함해 지도를 손 밖 공중으로 밀어내는 것을, RelativeLocation=0으로 되돌려 복원.
+//   부착·보정이 같은 프레임 뒤에 일어날 수 있어, 즉시 + 다음 틱에 한 번 더 복원한다.
+void AMapItem::RestoreMeshScale()
+{
+	// PickUp 시점엔 아직 부착 전이다(부착·위치보정은 CarryingComponent가 PickUp 이후에 함).
+	// 따라서 즉시 복원은 부착돼 있을 때만 하고, 다음 틱 복원은 부착 여부와 무관하게 반드시 예약한다.
+	if (IsAttachedToPlayer())
+	{
+		SetActorRelativeLocation(FVector::ZeroVector);
+		if (MeshComponent)
+		{
+			MeshComponent->SetRelativeScale3D(InitialMeshScale);
+		}
+	}
+
+	// 다음 틱: 이때는 부착·위치보정이 끝난 상태 → 손 소켓 원점으로 확실히 복원
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick([this]()
+		{
+			if (IsValid(this) && IsAttachedToPlayer())
+			{
+				SetActorRelativeLocation(FVector::ZeroVector);
+				if (MeshComponent)
+				{
+					MeshComponent->SetRelativeScale3D(InitialMeshScale);
+				}
+			}
+		});
+	}
+}
+
+// 손(캐릭터 메시)에 붙어 있는지 확인 (바닥에 놓인 지도의 위치를 건드리지 않기 위함)
+bool AMapItem::IsAttachedToPlayer() const
+{
+	return GetAttachParentActor() != nullptr;
 }
 
 // [MAP-007] 이 지도 인스턴스 전용 렌더타깃 3개 생성 (공유 애셋 대신 → 2인 깜빡임 해결)
