@@ -14,8 +14,31 @@ void AItemSpawner::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 레벨 배치형: 서버에서만, 지정 행이 있으면 자기 위치에 자동 스폰
-	if (HasAuthority() && bAutoSpawnOnBeginPlay && !RowToSpawn.IsNone())
+	// 레벨 배치형: 서버 권한에서만 자동 스폰
+	if (!HasAuthority() || !bAutoSpawnOnBeginPlay)
+	{
+		return;
+	}
+
+	// 확률 슬롯 방식: 슬롯이 있으면 균등 확률(1/N)로 한 칸을 뽑아 스폰.
+	// 빈 칸(None)이 뽑히면 아무것도 스폰하지 않는다(꽝).
+	if (SpawnSlots.Num() > 0)
+	{
+		const int32 PickedIndex = FMath::RandRange(0, SpawnSlots.Num() - 1);
+		const FName PickedRow = SpawnSlots[PickedIndex];
+
+		if (PickedRow.IsNone())
+		{
+			// 빈 칸(None)이 뽑힘 = 꽝. 아무것도 스폰하지 않는다.
+			return;
+		}
+
+		SpawnItem(PickedRow);
+		return;
+	}
+
+	// 슬롯 미사용 시: 기존 단일 RowToSpawn 방식 (하위 호환)
+	if (!RowToSpawn.IsNone())
 	{
 		SpawnItem(RowToSpawn);
 	}

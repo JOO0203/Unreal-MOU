@@ -74,6 +74,10 @@ protected:
 
 	// [POTION-002] 투척형: 던지면 충돌 감지 준비 (부모 물리 투척 후 OnComponentHit 바인딩)
 	virtual void Throw_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
+
+	// [POTION-004] 좌클릭 사용: bApplyOnImpact가 켜져 있으면 던진다(충돌 시 발동),
+	// 꺼져 있으면 제자리에서 마신다. Q(단순 투척)와 구분하려고 좌클릭 경로에서만 발동 플래그를 세운다.
+	virtual void OnUse_Implementation() override;
 #pragma endregion
 
 private:
@@ -88,5 +92,9 @@ private:
 
 	// 중복 발동 방지 (OnComponentHit이 여러 번 불릴 수 있음)
 	bool bHasImpacted = false;
+
+	// 이번 던지기가 좌클릭 "사용" 발(發)인지 여부. true일 때만 충돌 발동(터짐).
+	// Q(단순 투척)는 이 플래그가 false라 어떤 포션이든 절대 안 터진다.
+	bool bThrowAsUse = false;
 #pragma endregion
 };

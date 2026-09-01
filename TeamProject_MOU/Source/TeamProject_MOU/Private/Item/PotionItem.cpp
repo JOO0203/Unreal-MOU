@@ -3,6 +3,7 @@
 #include "Player/MainCharacter.h"
 #include "Components/StatusComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/CarryingComponent.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "AbilitySystemBlueprintLibrary.h" // SendGameplayEventToActor
@@ -31,6 +32,27 @@ void APotionItem::ApplyEffect_Implementation()
 {
 	// 효과 대상 (SelfOnly면 든 플레이어 = LastOwner)
 	ApplyPotionEffectToTarget(ResolveEffectTarget());
+}
+
+// [POTION-004] 좌클릭: bApplyOnImpact 값으로 "던지기(사용) vs 제자리 마시기" 분기
+void APotionItem::OnUse_Implementation()
+{
+	// 투척형 포션(Apply on Impact 켜짐): 좌클릭 = 손에서 던지기 (충돌 시 터져서 발동)
+	if (bApplyOnImpact)
+	{
+		bThrowAsUse = true; // 이번 던지기는 "사용"이므로 터져도 됨
+		if (AActor* OwnerActor = GetOwner())
+		{
+			if (UCarryingComponent* Carrying = OwnerActor->FindComponentByClass<UCarryingComponent>())
+			{
+				Carrying->Throw();
+			}
+		}
+		return;
+	}
+
+	// 일반 포션(Apply on Impact 꺼짐): 기존대로 제자리에서 마신다
+	Super::OnUse_Implementation();
 }
 
 // 실제 GE 적용 + 상태이상 태그 제거를 한 대상에게 수행 (자기 사용 / 광역 공용)
@@ -149,7 +171,8 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 	POTION_DEBUG(FColor::Cyan, "Throw 호출됨: bApplyOnImpact=%d, HasAuthority=%d, MeshComponent=%d",
 		bApplyOnImpact ? 1 : 0, HasAuthority() ? 1 : 0, MeshComponent ? 1 : 0);
 
-	if (bApplyOnImpact && HasAuthority() && MeshComponent)
+	// 좌클릭 "사용" 던지기(bThrowAsUse)일 때만 충돌 발동. Q(단순 투척)는 어떤 포션이든 절대 안 터진다.
+	if (bThrowAsUse && bApplyOnImpact && HasAuthority() && MeshComponent)
 	{
 		bHasImpacted = false;
 		MeshComponent->SetNotifyRigidBodyCollision(true); // OnComponentHit 활성화
@@ -158,9 +181,12 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 	}
 	else
 	{
-		// 셋 중 하나라도 false면 여기 → 던져도 절대 안 터짐
-		POTION_DEBUG(FColor::Red, "충돌 감지 미설정! 위 3개 조건 중 0인 것이 원인");
+		// bThrowAsUse가 false(Q 투척)이거나 조건 미충족 → 던져도 절대 안 터짐
+		POTION_DEBUG(FColor::Red, "충돌 감지 미설정 (Q 투척이거나 조건 미충족)");
 	}
+
+	// 다음 던지기를 위해 "사용 발" 플래그 리셋 (Q 투척이 이전 좌클릭 상태를 물려받지 않도록)
+	bThrowAsUse = false;
 }
 
 // [POTION-003] 첫 충돌 → 반경 내 플레이어 전원에게 적용 → 깨짐
