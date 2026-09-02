@@ -61,9 +61,20 @@ void AItemBase::OnRep_CurrentDurability()
 {
 }
 
+bool AItemBase::CanBePickedUpBy(AActor* PotentialPicker) const
+{
+	// 이미 다른 액터에게 부착(Attach)되어 있다면 집기 불가 (아이템 가로채기 방지)
+	if (GetAttachParentActor() != nullptr)
+	{
+		return false;
+	}
+
+	return true;
+}
+
 bool AItemBase::CanInteract_Implementation(AActor* Interactor) const
 {
-	return true;
+	return CanBePickedUpBy(Interactor);
 }
 
 void AItemBase::Interact_Implementation(AActor* Interactor)
