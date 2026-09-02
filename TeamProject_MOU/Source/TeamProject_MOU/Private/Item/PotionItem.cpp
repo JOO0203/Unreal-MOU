@@ -91,6 +91,34 @@ void APotionItem::ApplyPotionEffectToTarget(AActor* Target)
 		}
 	}
 
+	// 이동속도 가감 (신속 +/슬로우 -). GE로 MoveSpeed를 바꾸면 UpdateCharacterSpeed가 덮어쓰므로
+	// CharacterBase의 SpeedBuffFlat에 직접 가감하고 지속시간 후 도로 뺀다.
+	if (SpeedFlatDelta != 0.0f)
+	{
+		if (ACharacterBase* TargetCharacter = Cast<ACharacterBase>(Target))
+		{
+			TargetCharacter->SpeedBuffFlat += SpeedFlatDelta;
+			TargetCharacter->UpdateCharacterSpeed(); // 즉시 반영
+
+			// 지속시간 후 원복 (더한 만큼 도로 빼기). 대상 캐릭터 타이머라 포션이 소멸돼도 유지된다.
+			if (SpeedBuffDuration > 0.0f)
+			{
+				TWeakObjectPtr<ACharacterBase> WeakTarget = TargetCharacter;
+				const float DeltaToRevert = SpeedFlatDelta;
+				FTimerDelegate RevertDelegate = FTimerDelegate::CreateLambda([WeakTarget, DeltaToRevert]()
+				{
+					if (WeakTarget.IsValid())
+					{
+						WeakTarget->SpeedBuffFlat -= DeltaToRevert;
+						WeakTarget->UpdateCharacterSpeed();
+					}
+				});
+				FTimerHandle TmpHandle;
+				TargetCharacter->GetWorldTimerManager().SetTimer(TmpHandle, RevertDelegate, SpeedBuffDuration, false);
+			}
+		}
+	}
+
 	// 상태이상 태그 제거 (감전 State.CC.Electirc 등) - StatusComponent 경유
 	if (!TagsToRemove.IsEmpty())
 	{

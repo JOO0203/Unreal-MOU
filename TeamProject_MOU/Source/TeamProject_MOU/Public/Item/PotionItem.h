@@ -56,6 +56,15 @@ protected:
 	// 비워두면(None) 아무 이벤트도 보내지 않는다. (정석 방식: 태그 직접 부여 대신 이 이벤트 사용)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion", meta = (Categories = "Event"))
 	FGameplayTag StatusEventTag;
+
+	// 이동속도 가감 수치 (신속=+150, 슬로우=-100). 0이면 이동속도 효과 미사용.
+	// GE로 MoveSpeed를 직접 바꾸면 UpdateCharacterSpeed가 덮어쓰므로, CharacterBase의 SpeedBuffFlat에 가감한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion|Speed")
+	float SpeedFlatDelta = 0.0f;
+
+	// 이동속도 가감 지속시간(초). 0 이하면 영구(원복 안 함).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Potion|Speed")
+	float SpeedBuffDuration = 5.0f;
 #pragma endregion
 
 #pragma region [POTION] 투척 설정값
