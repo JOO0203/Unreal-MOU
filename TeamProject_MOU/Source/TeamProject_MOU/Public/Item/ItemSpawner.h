@@ -44,6 +44,10 @@ protected:
 
 public:
 #pragma region [SPAWNER] 스폰 함수
+	// [SPAWNER-000] 사용할 데이터 테이블을 외부에서 지정 (상점 등 함수 호출형에서 표를 갈아끼울 때)
+	UFUNCTION(BlueprintCallable, Category = "Spawner")
+	void SetItemTable(UDataTable* InItemTable) { ItemTable = InItemTable; }
+
 	// [SPAWNER-001] 지정한 행의 아이템을 이 스포너 위치에 스폰 (함수 호출형 기본 오버로드)
 	UFUNCTION(BlueprintCallable, Category = "Spawner")
 	AItemBase* SpawnItem(FName RowName);

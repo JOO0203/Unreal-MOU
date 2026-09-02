@@ -1,10 +1,14 @@
 #include "Item/Boomerang.h"
 #include "Base/CharacterBase.h"
+#include "Base/BaseAttributeSet.h"
 #include "Components/StatusComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Controller.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "GameplayEffect.h"
 #include "TimerManager.h"
 #include "Net/UnrealNetwork.h"
 
@@ -206,10 +210,33 @@ void ABoomerang::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResul
 		}
 	}
 
-	// 적중당 내구도 차감은 "이번 비행의 첫 적중"에만 적용한다.
-	// (같은 프레임 다중 오버랩으로 ApplyWeaponHit이 여러 번 불려도 Outbound일 때만 1회 차감)
+	// 적중당 데미지/내구도 차감은 "이번 비행의 첫 적중"에만 적용한다.
+	// (같은 프레임 다중 오버랩으로 ApplyWeaponHit이 여러 번 불려도 Outbound일 때만 1회 처리)
 	if (FlightState == EBoomerangState::Outbound)
 	{
+		// 데미지: 팀 정석 방식 - Instant GE로 대상 Health를 Additive 차감.
+		// (TestDamageActor와 동일한 파이프라인이라 BaseAttributeSet::PostGameplayEffectExecute 사망처리가 정상 동작)
+		if (HitDamage > 0.0f)
+		{
+			if (UAbilitySystemComponent* TargetASC =
+				UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(HitActor))
+			{
+				UGameplayEffect* DamageEffect =
+					NewObject<UGameplayEffect>(GetTransientPackage(), FName(TEXT("BoomerangDamage")));
+				DamageEffect->DurationPolicy = EGameplayEffectDurationType::Instant;
+				DamageEffect->Modifiers.SetNum(1);
+
+				FGameplayModifierInfo& HealthModifier = DamageEffect->Modifiers[0];
+				HealthModifier.Attribute = UBaseAttributeSet::GetHealthAttribute();
+				HealthModifier.ModifierOp = EGameplayModOp::Additive;
+				HealthModifier.ModifierMagnitude = FScalableFloat(-HitDamage);
+
+				FGameplayEffectContextHandle Context = TargetASC->MakeEffectContext();
+				Context.AddSourceObject(this);
+				TargetASC->ApplyGameplayEffectToSelf(DamageEffect, 1.0f, Context);
+			}
+		}
+
 		CurrentDurability -= DurabilityCostPerHit;
 
 		// 내구도가 다 닳으면 지금 파괴하지 않고, 손에 돌아온 순간(CatchByOwner) 파괴하도록 예약.
