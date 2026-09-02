@@ -85,6 +85,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Player|Status")
 	int32 DownCount = 0;
 
+	// 이번 레벨에서 실제 넉다운 상태에 진입한 누적 횟수입니다.
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Player|Status")
+	int32 KnockdownCount = 0;
+
 	// 현재 그로기 상태인지 여부
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Player|Status")
 	bool bIsGroggy = false;

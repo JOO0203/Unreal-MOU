@@ -4,6 +4,9 @@
 #include "GameFramework/Info.h"
 #include "LevelSettlementState.generated.h"
 
+class AItemBase;
+class UTexture2D;
+
 UENUM(BlueprintType)
 enum class ELevelSettlementReason : uint8
 {
@@ -12,6 +15,61 @@ enum class ELevelSettlementReason : uint8
 	TimeExpired,
 	AllPlayersDead,
 	Aborted
+};
+
+/** 정산 UI의 아이템 목록 한 줄입니다. 같은 클래스의 아이템은 수량과 금액으로 합산합니다. */
+USTRUCT(BlueprintType)
+struct TEAMPROJECT_MOU_API FSettlementItemEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Item")
+	TSubclassOf<AItemBase> ItemClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Item")
+	FText ItemName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Item")
+	TObjectPtr<UTexture2D> ItemIcon = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Item")
+	int32 Quantity = 0;
+
+	// 배달 품목은 실제 획득 금액, 약탈 품목은 0입니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Item")
+	int32 EarnedGold = 0;
+};
+
+/** 플레이어 한 명의 배달 정산 결과입니다. */
+USTRUCT(BlueprintType)
+struct TEAMPROJECT_MOU_API FPlayerSettlementData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	int32 PlayerId = INDEX_NONE;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	FString PlayerName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	int32 DeliveredItemCount = 0;
+
+	// 팀 골드와 별개로 이 플레이어가 배달에 기여한 금액입니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	int32 EarnedGold = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	int32 KnockdownCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	TArray<FSettlementItemEntry> DeliveredItems;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	int32 LootedItemCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement|Player")
+	TArray<FSettlementItemEntry> LootedItems;
 };
 
 USTRUCT(BlueprintType)
@@ -36,6 +94,21 @@ struct TEAMPROJECT_MOU_API FLevelSettlementData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
 	int32 DeathCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
+	int32 KnockdownCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
+	TArray<FSettlementItemEntry> DeliveredItems;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
+	TArray<FPlayerSettlementData> PlayerResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
+	int32 LootedItemCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
+	TArray<FSettlementItemEntry> LootedItems;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settlement")
 	float LevelPlayTimeSeconds = 0.0f;

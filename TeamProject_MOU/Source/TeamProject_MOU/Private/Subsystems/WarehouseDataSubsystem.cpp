@@ -174,6 +174,61 @@ bool UWarehouseDataSubsystem::MergeFromWarehouseComponent(const UWarehouseCompon
 		return false;
 	}
 
+	LastLootedItems.Reset();
+	for (const FStoredItemData& Item : WarehouseComponent->StoredItems)
+	{
+		if (Item.ItemClass && Item.Quantity > 0)
+		{
+			LastLootedItems.Add(Item);
+		}
+	}
+
+	LastPlayerLootResults.Reset();
+	for (const TObjectPtr<AItemBase>& Item : WarehouseComponent->StoredItemInstances)
+	{
+		if (!IsValid(Item)) continue;
+
+		const AMainCharacter* OwnerCharacter = Cast<AMainCharacter>(Item->LastOwner);
+		if (!IsValid(OwnerCharacter) || !OwnerCharacter->IsPlayerControlled()) continue;
+
+		const APlayerState* PlayerState = OwnerCharacter->GetPlayerState();
+		const int32 PlayerId = PlayerState ? PlayerState->GetPlayerId() : INDEX_NONE;
+		const FString PlayerName = PlayerState ? PlayerState->GetPlayerName() : OwnerCharacter->GetName();
+		int32 PlayerIndex = LastPlayerLootResults.IndexOfByPredicate(
+			[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
+			{
+				return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
+			});
+		if (PlayerIndex == INDEX_NONE)
+		{
+			FPlayerSettlementData Player;
+			Player.PlayerId = PlayerId;
+			Player.PlayerName = PlayerName;
+			PlayerIndex = LastPlayerLootResults.Add(MoveTemp(Player));
+		}
+
+		FPlayerSettlementData& Player = LastPlayerLootResults[PlayerIndex];
+		++Player.LootedItemCount;
+		const int32 ItemIndex = Player.LootedItems.IndexOfByPredicate(
+			[Item](const FSettlementItemEntry& Entry)
+			{
+				return Entry.ItemClass == Item->GetClass();
+			});
+		if (ItemIndex != INDEX_NONE)
+		{
+			++Player.LootedItems[ItemIndex].Quantity;
+		}
+		else
+		{
+			FSettlementItemEntry Entry;
+			Entry.ItemClass = Item->GetClass();
+			Entry.ItemName = Item->ItemName;
+			Entry.ItemIcon = Item->ItemIcon;
+			Entry.Quantity = 1;
+			Player.LootedItems.Add(MoveTemp(Entry));
+		}
+	}
+
 	TArray<FStoredItemData> MergedItems = GetStoredItemsInternal();
 	TArray<FStoredItemInstanceData> MergedInstances = GetStoredItemInstancesInternal();
 	const TArray<FStoredItemInstanceData> IncomingInstances = WarehouseComponent->BuildStoredItemInstanceData();
