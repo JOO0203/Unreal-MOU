@@ -14,6 +14,7 @@ class UArrowComponent;
  * 압살하는 대형 유압식 프레스/낙하 압살 함정입니다.
  * - 단일 CrusherMesh가 이동 방향(CrushDirectionArrow)으로 하강하고 복귀합니다.
  * - 하단에 상자(AEventObjectBase)가 끼어 있으면 하강이 저지되는 물리 퍼즐을 지원합니다.
+ * - 타격 시 MulticastOnCrushImpact를 통해 모든 클라이언트에서 즉시 멈추도록 동기화합니다.
  */
 UCLASS()
 class TEAMPROJECT_MOU_API ATrapCrusher : public ATrapBase
@@ -74,6 +75,12 @@ protected:
 	void HandleCrushOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	void UpdateCrusherMovement(float DeltaTime);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastOnCrushImpact(FVector ImpactRelativeLocation);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastOnCrushBlocked();
 
 protected:
 	FVector InitialCrusherRelativeLocation;

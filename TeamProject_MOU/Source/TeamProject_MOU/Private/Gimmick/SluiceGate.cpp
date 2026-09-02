@@ -1,6 +1,8 @@
 #include "Gimmick/SluiceGate.h"
 #include "Components/SceneComponent.h"
 #include "Components/ChildActorComponent.h"
+#include "Water/MOUWaterBodyLakeComponent.h"
+#include "Water/MOUWaterBodyRiverComponent.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Net/UnrealNetwork.h"
@@ -29,26 +31,6 @@ ASluiceGate::ASluiceGate()
 	RiverMinZ = -200.0f;
 
 	InterpSpeed = 4.0f;
-}
-
-void ASluiceGate::MakeAllActorComponentsMovable(AActor* InActor)
-{
-	if (!InActor) return;
-
-	if (USceneComponent* RootComp = InActor->GetRootComponent())
-	{
-		RootComp->SetMobility(EComponentMobility::Movable);
-	}
-
-	TArray<USceneComponent*> AllSceneComponents;
-	InActor->GetComponents<USceneComponent>(AllSceneComponents);
-	for (USceneComponent* Comp : AllSceneComponents)
-	{
-		if (Comp)
-		{
-			Comp->SetMobility(EComponentMobility::Movable);
-		}
-	}
 }
 
 void ASluiceGate::BeginPlay()
@@ -82,22 +64,35 @@ void ASluiceGate::BeginPlay()
 	TargetOpenRatio = CurrentOpenRatio;
 	VisualOpenRatio = CurrentOpenRatio;
 
-	// Water Body 액터와 모든 내부 컴포넌트(WaterBodyLakeComponent 등)의 모빌리티를 Movable로 자동 승격
-	MakeAllActorComponentsMovable(LakeWaterActor);
-	MakeAllActorComponentsMovable(RiverWaterActor);
-
+	// Water Body 액터에서 커스텀 MOU 컴포넌트 캐싱 및 초기 수위 설정
 	if (LakeWaterActor)
 	{
-		FVector LakeLoc = LakeWaterActor->GetActorLocation();
-		LakeLoc.Z = LakeInitialZ;
-		LakeWaterActor->SetActorLocation(LakeLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		CachedLakeComp = LakeWaterActor->FindComponentByClass<UMOUWaterBodyLakeComponent>();
+		if (CachedLakeComp.IsValid())
+		{
+			CachedLakeComp->SetLakeWaterLevelZ(LakeInitialZ);
+		}
+		else
+		{
+			FVector LakeLoc = LakeWaterActor->GetActorLocation();
+			LakeLoc.Z = LakeInitialZ;
+			LakeWaterActor->SetActorLocation(LakeLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		}
 	}
 
 	if (RiverWaterActor)
 	{
-		FVector RiverLoc = RiverWaterActor->GetActorLocation();
-		RiverLoc.Z = RiverInitialZ;
-		RiverWaterActor->SetActorLocation(RiverLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		CachedRiverComp = RiverWaterActor->FindComponentByClass<UMOUWaterBodyRiverComponent>();
+		if (CachedRiverComp.IsValid())
+		{
+			CachedRiverComp->SetRiverWaterLevelZ(RiverInitialZ);
+		}
+		else
+		{
+			FVector RiverLoc = RiverWaterActor->GetActorLocation();
+			RiverLoc.Z = RiverInitialZ;
+			RiverWaterActor->SetActorLocation(RiverLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		}
 	}
 
 	UpdateGateMovement(0.0f);
@@ -196,25 +191,48 @@ void ASluiceGate::UpdateWaterActors(float DeltaTime)
 		);
 	}
 
-	// 1. 머티리얼 파라미터 컬렉션(MPC) 갱신 (셰이더 레벨 수위 제어)
+	// 1. 머티리얼 파라미터 컬렉션(MPC) 갱신 (선택 사항)
 	if (WaterMaterialParameterCollection)
 	{
 		UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), WaterMaterialParameterCollection, LakeZParameterName, TargetLakeZ);
 		UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), WaterMaterialParameterCollection, RiverZParameterName, TargetRiverZ);
 	}
 
-	// 2. 액터 월드 위치 갱신
+	// 2. 호수 수위 갱신 (MOUWaterBodyLakeComponent 활용)
 	if (LakeWaterActor)
 	{
-		FVector LakeLoc = LakeWaterActor->GetActorLocation();
-		LakeLoc.Z = (DeltaTime > 0.0f) ? FMath::FInterpTo(LakeLoc.Z, TargetLakeZ, DeltaTime, InterpSpeed) : TargetLakeZ;
-		LakeWaterActor->SetActorLocation(LakeLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		float CurrentLakeZ = (DeltaTime > 0.0f)
+			? FMath::FInterpTo(LakeWaterActor->GetActorLocation().Z, TargetLakeZ, DeltaTime, InterpSpeed)
+			: TargetLakeZ;
+
+		if (CachedLakeComp.IsValid())
+		{
+			CachedLakeComp->SetLakeWaterLevelZ(CurrentLakeZ);
+		}
+		else
+		{
+			FVector LakeLoc = LakeWaterActor->GetActorLocation();
+			LakeLoc.Z = CurrentLakeZ;
+			LakeWaterActor->SetActorLocation(LakeLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		}
 	}
 
+	// 3. 강 수위 갱신 (MOUWaterBodyRiverComponent 활용)
 	if (RiverWaterActor)
 	{
-		FVector RiverLoc = RiverWaterActor->GetActorLocation();
-		RiverLoc.Z = (DeltaTime > 0.0f) ? FMath::FInterpTo(RiverLoc.Z, TargetRiverZ, DeltaTime, InterpSpeed) : TargetRiverZ;
-		RiverWaterActor->SetActorLocation(RiverLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		float CurrentRiverZ = (DeltaTime > 0.0f)
+			? FMath::FInterpTo(RiverWaterActor->GetActorLocation().Z, TargetRiverZ, DeltaTime, InterpSpeed)
+			: TargetRiverZ;
+
+		if (CachedRiverComp.IsValid())
+		{
+			CachedRiverComp->SetRiverWaterLevelZ(CurrentRiverZ);
+		}
+		else
+		{
+			FVector RiverLoc = RiverWaterActor->GetActorLocation();
+			RiverLoc.Z = CurrentRiverZ;
+			RiverWaterActor->SetActorLocation(RiverLoc, false, nullptr, ETeleportType::TeleportPhysics);
+		}
 	}
 }
