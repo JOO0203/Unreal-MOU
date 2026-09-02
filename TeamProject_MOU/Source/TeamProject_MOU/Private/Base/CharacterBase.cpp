@@ -276,25 +276,29 @@ void ACharacterBase::HandleMaxSteminaChanged(const FOnAttributeChangeData& Data)
 
 void ACharacterBase::HandleMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
-	if (!BaseAttribute)
+	if (!BaseAttribute || !GetCharacterMovement())
 	{
 		return;
 	}
 
-	// 이동속도 속성 변경 시 CharacterMovement의 MaxWalkSpeed 동기화
-	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
-	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
+	// 이동속도 속성 변경 시 CharacterMovement의 MaxWalkSpeed 동기화 (MaxMoveSpeed 상한치 준수)
+	float ClampedSpeed = FMath::Clamp(Data.NewValue, 0.0f, BaseAttribute->GetMaxMoveSpeed());
+	GetCharacterMovement()->MaxWalkSpeed = ClampedSpeed;
+	OnSpeedUpdated(ClampedSpeed, BaseAttribute->GetMaxMoveSpeed());
 }
 
 void ACharacterBase::HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
-	if (!BaseAttribute)
+	if (!BaseAttribute || !GetCharacterMovement())
 	{
 		return;
 	}
 
-	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
-	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
+	// MaxMoveSpeed(상한치) 변경 시 현재 MoveSpeed가 상한치를 초과하지 않도록 클램프
+	float CurrentSpeed = BaseAttribute->GetMoveSpeed();
+	float ClampedSpeed = FMath::Clamp(CurrentSpeed, 0.0f, Data.NewValue);
+	GetCharacterMovement()->MaxWalkSpeed = ClampedSpeed;
+	OnSpeedUpdated(ClampedSpeed, Data.NewValue);
 }
 
 void ACharacterBase::HandleCurrentWeightChanged(const FOnAttributeChangeData& Data)
@@ -341,7 +345,7 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 {
 	if (!BaseAttribute)
 	{
-		return 300.0f;
+		return FMath::Max(0.0f, 300.0f + SpeedBuffFlat);
 	}
 
 	// 1. 상태별 기본 걷기 속도 (Base Speed) 결정
@@ -369,26 +373,33 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 	float MaxWeight = BaseAttribute->GetMaxWeight();
 	if (MaxWeight <= 0.0f)
 	{
-		return BaseSpeed;
+		// 포션 가감(SpeedBuffFlat) 반영 (음수로 내려가지 않게 clamp)
+		return FMath::Max(0.0f, BaseSpeed + SpeedBuffFlat);
 	}
 
 	float WeightRatio = BaseAttribute->GetCurrentWeight() / MaxWeight;
 
 	// 3. 과적 단계별 배율 적용
+	float Result;
 	if (WeightRatio > 1.5f)
 	{
-		return 10.0f; // 과적 3단계: 극초저속 10.0f (점프/달리기 완전 차단)
+		return 10.0f; // 과적 3단계: 극초저속 10.0f (점프/달리기 완전 차단) - 가감 무시
 	}
 	else if (WeightRatio > 1.3f)
 	{
-		return BaseSpeed * 0.50f; // 과적 2단계: 50% 감속 (일반 150, 밀기/무거운택배 75)
+		Result = BaseSpeed * 0.50f; // 과적 2단계: 50% 감속 (일반 150, 밀기/무거운택배 75)
 	}
 	else if (WeightRatio > 1.0f)
 	{
-		return BaseSpeed * 0.85f; // 과적 1단계: 15% 감속 (일반 255, 밀기/무거운택배 127.5)
+		Result = BaseSpeed * 0.85f; // 과적 1단계: 15% 감속 (일반 255, 밀기/무거운택배 127.5)
+	}
+	else
+	{
+		Result = BaseSpeed; // 정상
 	}
 
-	return BaseSpeed; // 정상
+	// 포션 가감(SpeedBuffFlat) 반영 (음수로 내려가지 않게 clamp)
+	return FMath::Max(0.0f, Result + SpeedBuffFlat);
 }
 
 void ACharacterBase::UpdateCharacterSpeed()

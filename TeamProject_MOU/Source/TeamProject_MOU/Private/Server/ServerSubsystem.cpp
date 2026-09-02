@@ -151,7 +151,7 @@ void UServerSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 		UMOUServerSettings::ResolveEndpoint(ResolvedHost, ResolvedPort, &Source);
 
 		if (Host.IsEmpty()) { Host = ResolvedHost; }
-		if (Port <= 0)      { Port = ResolvedPort; }
+		if (Port <= 0) { Port = ResolvedPort; }
 
 		UE_LOG(LogMOUServer, Log, TEXT("접속 대상: %s:%d — 출처 %s"), *Host, Port, *Source);
 	}
@@ -239,9 +239,9 @@ void UServerSubsystem::Login(const FString& LoginId, const FString& Password, in
 {
 	// 요청은 항상 보관해둔다.
 	// 연결이 끊겼다가 자동 재접속했을 때 이 값으로 다시 로그인해야 하기 때문이다.
-	PendingLoginId   = LoginId;
-	PendingPassword  = Password;
-	PendingTeamId    = TeamId;
+	PendingLoginId = LoginId;
+	PendingPassword = Password;
+	PendingTeamId = TeamId;
 	bHasPendingLogin = true;
 
 	if (ConnectionState == EChatConnectionState::Connected
@@ -262,10 +262,10 @@ void UServerSubsystem::RegisterAccount(const FString& LoginId, const FString& Pa
 	// 연결 전에 불릴 수 있으므로 일단 보관한다.
 	// 지금 바로 EnqueuePacket 하면, 연결이 성사되는 순간 워커가 송신 큐를 비우면서
 	// 이 패킷까지 같이 버린다(그 비우기는 낡은 패킷이 LoginReq 를 앞지르는 것을 막는 장치다).
-	PendingRegisterId       = LoginId;
+	PendingRegisterId = LoginId;
 	PendingRegisterPassword = Password;
 	PendingRegisterNickname = Nickname;
-	bHasPendingRegister     = true;
+	bHasPendingRegister = true;
 
 	if (ConnectionState == EChatConnectionState::Connected
 		|| ConnectionState == EChatConnectionState::LoggedIn)
@@ -617,7 +617,7 @@ bool UServerSubsystem::IsSelfReady() const
 
 void UServerSubsystem::ClearRoomState()
 {
-	MyRoomId      = 0;
+	MyRoomId = 0;
 	CurrentRoomId = 0;
 	RoomMembers.Reset();
 	bAllMembersReady = false;
@@ -754,7 +754,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 		case EServerClientEventType::RoomCreateAck:
 			if (Event.bRoomSuccess)
 			{
-				MyRoomId      = Event.RoomId;
+				MyRoomId = Event.RoomId;
 				CurrentRoomId = Event.RoomId;   // 방장도 그 방의 멤버다
 				UE_LOG(LogMOUServer, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
 			}
@@ -791,7 +791,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			// 빠르게 나갔다 다른 방에 들어가면 실제로 이런 순서가 나온다.
 			if (Event.RoomId == CurrentRoomId)
 			{
-				RoomMembers      = Event.Members;
+				RoomMembers = Event.Members;
 				bAllMembersReady = Event.bAllReady;
 				UE_LOG(LogMOUServer, Verbose, TEXT("대기실 #%d 명단 %d명 (전원준비 %s)"),
 					Event.RoomId, RoomMembers.Num(), bAllMembersReady ? TEXT("O") : TEXT("X"));
@@ -1320,8 +1320,8 @@ namespace
 				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					const FString Title = Args.IsValidIndex(0) ? Args[0] : TEXT("테스트방");
-					const FString Pw    = Args.IsValidIndex(1) ? Args[1] : FString();
-					const int32   Port  = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 7777;
+					const FString Pw = Args.IsValidIndex(1) ? Args[1] : FString();
+					const int32   Port = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 7777;
 					Chat->CreateRoom(Title, Pw, Port);
 				}
 			}));

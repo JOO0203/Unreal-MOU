@@ -100,10 +100,10 @@ void UVoiceRouter::RouteFrame(APlayerController* SenderPC, const FVoiceFrame& Fr
 	// 그대로 믿고 재생해도 된다.
 	FVoiceFrameOut Out;
 	Out.SpeakerId = SpeakerId;
-	Out.Seq       = Frame.Seq;
-	Out.Mode      = Mode;
-	Out.Loudness  = Frame.Loudness;
-	Out.Opus      = Frame.Opus;
+	Out.Seq = Frame.Seq;
+	Out.Mode = Mode;
+	Out.Loudness = Frame.Loudness;
+	Out.Opus = Frame.Opus;
 
 	// --- 7. 무전 자격 검사 (V6) ---------------------------------------------
 	//
@@ -152,7 +152,7 @@ void UVoiceRouter::RouteFrame(APlayerController* SenderPC, const FVoiceFrame& Fr
 		const int32 RadioDelivered = RouteRadio(SenderPC, Out, AlreadyRouted, Now);
 
 		FramesDelivered += RadioDelivered;
-		FramesRadio     += (RadioDelivered > 0) ? 1 : 0;
+		FramesRadio += (RadioDelivered > 0) ? 1 : 0;
 	}
 
 	// --- 9. NPC 소음 발행 (V8) ----------------------------------------------
@@ -506,10 +506,10 @@ void UVoiceRouter::UnregisterRadio(URadioComponent* Radio)
 	}
 
 	PoweredRadios.RemoveAll([Radio](const TWeakObjectPtr<URadioComponent>& Entry)
-	{
-		// 죽은 참조도 같이 치운다. 어차피 훑는 김에.
-		return !Entry.IsValid() || Entry.Get() == Radio;
-	});
+		{
+			// 죽은 참조도 같이 치운다. 어차피 훑는 김에.
+			return !Entry.IsValid() || Entry.Get() == Radio;
+		});
 
 	UE_LOG(LogMOUVoice, Verbose, TEXT("무전기 해제. 켜진 무전기 %d대."), PoweredRadios.Num());
 }
@@ -580,9 +580,9 @@ bool UVoiceRouter::CheckRateLimit(int32 SpeakerId, double Now)
 	// 새 창 시작. 처음 만들어진 항목은 WindowStartTime 이 0 이라 여기서 초기화된다.
 	if ((Now - Window.WindowStartTime) >= 1.0)
 	{
-		Window.WindowStartTime    = Now;
-		Window.FrameCount         = 0;
-		Window.bWarnedThisWindow  = false;
+		Window.WindowStartTime = Now;
+		Window.FrameCount = 0;
+		Window.bWarnedThisWindow = false;
 	}
 
 	++Window.FrameCount;

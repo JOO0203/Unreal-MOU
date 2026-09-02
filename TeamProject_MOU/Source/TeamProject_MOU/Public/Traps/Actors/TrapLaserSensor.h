@@ -7,13 +7,13 @@
 
 class USceneComponent;
 class UStaticMeshComponent;
-class UNiagaraComponent;
 class UArrowComponent;
 
 /**
  * ATrapLaserSensor
- * 전방으로 적외선 레이저 광선을 방출하며, 플레이어/NPC/패키지에 의해 광선이 차단되면
+ * 전방으로 레이저 광선을 방출하며, 플레이어/NPC/패키지에 의해 광선이 차단되면
  * 연결된 모든 타겟 함정(LinkedTraps)에 발동 신호를 브로드캐스트하는 독립 센서 액터입니다.
+ * - LaserMesh의 트랜스폼(위치, 회전, 길이, 굵기)과 메시/머티리얼은 블루프린트에서 100% 자유롭게 편집 가능합니다.
  */
 UCLASS()
 class TEAMPROJECT_MOU_API ATrapLaserSensor : public AActor, public ITrapTriggerableInterface
@@ -37,8 +37,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UArrowComponent> LaserDirectionArrow;
 
+	/** 레이저 광선 스태틱 메시 (블루프린트 디테일 패널에서 트랜스폼/메시/머티리얼 자유 편집) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<UNiagaraComponent> LaserBeamFX;
+	TObjectPtr<UStaticMeshComponent> LaserMesh;
 
 	// ---------------------------------------------------------
 	// [연동 설정 (N:M Event Linkage)]
@@ -48,7 +49,7 @@ public:
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "Laser|LinkedTraps")
 	TArray<TObjectPtr<AActor>> LinkedTraps;
 
-	/** 레이저 최대 감지 사거리 (cm) */
+	/** 레이저 감지 사거리 (LineTrace 스캔 거리, cm) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Laser|Config")
 	float LaserMaxDistance = 1500.0f;
 

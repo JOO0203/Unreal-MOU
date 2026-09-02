@@ -178,6 +178,21 @@ void UCarryingComponent::GrabOrDrop()
 		{
 			if (AItemBase* Item = Cast<AItemBase>(Actor))
 			{
+				// 다른 사람이 이미 들고 있어 집을 수 없는 아이템은 대상에서 제외 (가로채기 방지 및 헛손질 방지)
+				if (!Item->CanBePickedUpBy(GetOwner()))
+				{
+					continue;
+				}
+
+				// 밀기 전용 오브젝트 제외
+				if (AEventObjectBase* EventObj = Cast<AEventObjectBase>(Item))
+				{
+					if (EventObj->bIsPushable)
+					{
+						continue;
+					}
+				}
+
 				float DistSq = FVector::DistSquared(OwnerLocation, Actor->GetActorLocation());
 				if (DistSq < MinDistanceSq)
 				{
@@ -206,6 +221,11 @@ void UCarryingComponent::GrabOrDrop()
 
 			if (HitItem)
 			{
+				if (!HitItem->CanBePickedUpBy(GetOwner()))
+				{
+					return;
+				}
+
 				// [요구사항] 밀기 전용 이벤트 오브젝트는 잡거나 던질 수 없음
 				if (AEventObjectBase* EventObj = Cast<AEventObjectBase>(HitItem))
 				{
@@ -220,18 +240,7 @@ void UCarryingComponent::GrabOrDrop()
 
 				if (APackageBase* Package = Cast<APackageBase>(HitItem))
 				{
-					// 무거운 택배는 이미 2명이 들고 있으면 들 수 없음
-					if (Package->PackageType == EPackageType::Heavy && Package->CurrentCarriers.Num() >= 2)
-					{
-						UE_LOG(LogTemp, Warning, TEXT("무거운 택배는 이미 2명이 들고 있어 들 수 없습니다."));
-						return;
-					}
-
 					if (Package->PackageType == EPackageType::Heavy)
-					{
-						bShouldAttach = false;
-					}
-					else if (Package->CurrentCarriers.Num() > 0)
 					{
 						bShouldAttach = false;
 					}

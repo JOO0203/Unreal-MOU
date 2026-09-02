@@ -36,6 +36,29 @@ void APackageBase::BeginPlay()
 	CurrentSpoilTime = MaxSpoilTime;
 }
 
+bool APackageBase::CanBePickedUpBy(AActor* PotentialPicker) const
+{
+	if (!PotentialPicker)
+	{
+		return false;
+	}
+
+	// 이미 본인이 들고 있는 경우 중복 줍기 불가
+	if (CurrentCarriers.Contains(PotentialPicker))
+	{
+		return false;
+	}
+
+	// 무거운 택배(Heavy)의 경우 최대 2명까지 허용
+	if (PackageType == EPackageType::Heavy)
+	{
+		return CurrentCarriers.Num() < 2;
+	}
+
+	// 일반 물품은 다른 사람이 1명이라도 들고 있으면 줍기 불가 (가로채기 차단)
+	return CurrentCarriers.Num() == 0 && GetAttachParentActor() == nullptr;
+}
+
 void APackageBase::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
