@@ -13,6 +13,8 @@
 #include "Game/LevelSettlementState.h"
 #include "Delivery/DeliveryManager.h"
 #include "Player/MainCharacter.h"
+#include "Subsystems/WarehouseDataSubsystem.h"
+#include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 
@@ -69,7 +71,9 @@ void ATeamProject_MOUGameMode::NotifyDebtPaymentFailed()
 
 bool ATeamProject_MOUGameMode::NotifyLevelSettlement(const FLevelSettlementData& Result)
 {
-	if (!LevelSettlementState || !LevelSettlementState->FinalizeSettlement(Result))
+	FLevelSettlementData EnrichedResult = Result;
+	EnrichSettlementData(EnrichedResult);
+	if (!LevelSettlementState || !LevelSettlementState->FinalizeSettlement(EnrichedResult))
 	{
 		return false;
 	}
@@ -187,6 +191,7 @@ void ATeamProject_MOUGameMode::FinalizeFailedSettlement(ELevelSettlementReason R
 	FLevelSettlementData Result;
 	Result.Reason = Reason;
 	Result.bSucceeded = false;
+	EnrichSettlementData(Result);
 	Result.FinalThreatLevel = RunState ? RunState->ThreatLevel : 0.0f;
 	if (LevelTimerState)
 	{
@@ -194,6 +199,87 @@ void ATeamProject_MOUGameMode::FinalizeFailedSettlement(ELevelSettlementReason R
 			- LevelTimerState->GetRemainingSeconds();
 	}
 	LevelSettlementState->FinalizeSettlement(Result);
+}
+
+void ATeamProject_MOUGameMode::EnrichSettlementData(FLevelSettlementData& Result) const
+{
+	if (DeliveryManager)
+	{
+		const FDeliveryProgress& Delivery = DeliveryManager->Progress;
+		Result.EarnedGold = Delivery.EarnedGold;
+		Result.DeliveredItemCount = Delivery.DeliveredItemCount;
+		Result.FailedDeliveryCount = Delivery.BrokenItemCount;
+		Result.DeliveredItems = Delivery.DeliveredItems;
+		Result.PlayerResults = Delivery.PlayerResults;
+	}
+
+	Result.DeathCount = 0;
+	Result.KnockdownCount = 0;
+	for (TActorIterator<AMainCharacter> It(GetWorld()); It; ++It)
+	{
+		if (!It->IsPlayerControlled()) continue;
+		const int32 PlayerDeathCount = It->bIsDead ? 1 : 0;
+		Result.DeathCount += PlayerDeathCount;
+		Result.KnockdownCount += It->KnockdownCount;
+
+		const APlayerState* PlayerState = It->GetPlayerState();
+		const int32 PlayerId = PlayerState ? PlayerState->GetPlayerId() : INDEX_NONE;
+		const FString PlayerName = PlayerState ? PlayerState->GetPlayerName() : It->GetName();
+		int32 PlayerIndex = Result.PlayerResults.IndexOfByPredicate(
+			[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
+			{
+				return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
+			});
+		if (PlayerIndex == INDEX_NONE)
+		{
+			FPlayerSettlementData Player;
+			Player.PlayerId = PlayerId;
+			Player.PlayerName = PlayerName;
+			PlayerIndex = Result.PlayerResults.Add(MoveTemp(Player));
+		}
+		Result.PlayerResults[PlayerIndex].KnockdownCount = It->KnockdownCount;
+	}
+
+	Result.LootedItems.Reset();
+	Result.LootedItemCount = 0;
+	if (const UWarehouseDataSubsystem* WarehouseSubsystem =
+		GetGameInstance()->GetSubsystem<UWarehouseDataSubsystem>())
+	{
+		for (const FStoredItemData& LootedItem : WarehouseSubsystem->GetLastLootedItemsCopy())
+		{
+			if (!LootedItem.ItemClass || LootedItem.Quantity <= 0) continue;
+
+			FSettlementItemEntry Entry;
+			Entry.ItemClass = LootedItem.ItemClass;
+			Entry.Quantity = LootedItem.Quantity;
+			if (const AItemBase* ItemDefaults = LootedItem.ItemClass->GetDefaultObject<AItemBase>())
+			{
+				Entry.ItemName = ItemDefaults->ItemName;
+				Entry.ItemIcon = ItemDefaults->ItemIcon;
+			}
+			Result.LootedItemCount += Entry.Quantity;
+			Result.LootedItems.Add(MoveTemp(Entry));
+		}
+
+		for (const FPlayerSettlementData& LootResult : WarehouseSubsystem->GetLastPlayerLootResultsCopy())
+		{
+			int32 PlayerIndex = Result.PlayerResults.IndexOfByPredicate(
+				[&LootResult](const FPlayerSettlementData& Player)
+				{
+					return Player.PlayerId == LootResult.PlayerId
+						&& Player.PlayerName == LootResult.PlayerName;
+				});
+			if (PlayerIndex == INDEX_NONE)
+			{
+				PlayerIndex = Result.PlayerResults.Add(LootResult);
+			}
+			else
+			{
+				Result.PlayerResults[PlayerIndex].LootedItemCount = LootResult.LootedItemCount;
+				Result.PlayerResults[PlayerIndex].LootedItems = LootResult.LootedItems;
+			}
+		}
+	}
 }
 
 void ATeamProject_MOUGameMode::FinishRun(ERunEndReason Reason)

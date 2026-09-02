@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Game/LevelSettlementState.h"
 #include "GameFramework/Info.h"
 #include "DeliveryManager.generated.h"
 
@@ -22,6 +23,12 @@ struct TEAMPROJECT_MOU_API FDeliveryProgress
 
 	UPROPERTY(BlueprintReadOnly, Category = "Delivery")
 	int32 EarnedGold = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Delivery")
+	TArray<FSettlementItemEntry> DeliveredItems;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Delivery")
+	TArray<FPlayerSettlementData> PlayerResults;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Delivery")
 	int32 Revision = 0;
@@ -101,6 +108,7 @@ private:
 	void DiscoverPlacedZones();
 	void AssignWaitingPackages();
 	void ClearPackageFromPlayerHands(APackageBase* Package);
+	void RecordPlayerDelivery(APackageBase* Package, int32 DeliveryValue);
 	bool AssignRandomZone(APackageBase* Package);
 	void BroadcastProgress();
 
