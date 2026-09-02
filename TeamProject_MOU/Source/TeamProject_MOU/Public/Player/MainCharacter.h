@@ -9,7 +9,6 @@ class UInteractionComponent;
 class UCarryingComponent;
 class UInventoryComponent;
 class UInputAction;
-class USceneComponent;
 class AItemBase;
 
 UCLASS()
@@ -70,20 +69,6 @@ public:
 	// 외부(택배 충돌 등)에서 호출할 넉다운 함수
 	UFUNCTION(BlueprintCallable, Category = "Player|Status")
 	void Knockdown();
-
-	// NPC 등 외부 액터가 플레이어를 잡을 때 사용합니다. 메시만 분리하지 않고
-	// 캡슐을 포함한 플레이어 액터 전체를 GrabParent에 부착합니다.
-	UFUNCTION(BlueprintCallable, Category = "Player|Grab",
-		meta = (AutoCreateRefTerm = "LocationOffset,RotationOffset"))
-	void BeginExternalGrab(USceneComponent* GrabParent, FName SocketName,
-		FVector LocationOffset = FVector::ZeroVector,
-		FRotator RotationOffset = FRotator::ZeroRotator);
-
-	// 외부 잡기를 해제하고 잡히기 전 회전, 메시/카메라 계층, 충돌 및 이동을 복구합니다.
-	// 던지는 경우 bThrow를 true로 하고 ThrowVelocity를 전달합니다.
-	UFUNCTION(BlueprintCallable, Category = "Player|Grab",
-		meta = (AutoCreateRefTerm = "ThrowVelocity"))
-	void ReleaseExternalGrab(bool bThrow = false, FVector ThrowVelocity = FVector::ZeroVector);
 
 	// 로컬 클라이언트가 AimYaw를 서버로 전송 (다른 클라이언트 AO Yaw 동기화용)
 	UFUNCTION(Server, Unreliable)
@@ -655,32 +640,6 @@ private:
 	// ---------------------------------------------------------
 
 protected:
-	UFUNCTION(Server, Reliable)
-	void ServerBeginExternalGrab(USceneComponent* GrabParent, FName SocketName,
-		FVector LocationOffset, FRotator RotationOffset);
-
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastBeginExternalGrab(USceneComponent* GrabParent, FName SocketName,
-		FVector LocationOffset, FRotator RotationOffset);
-
-	UFUNCTION(Server, Reliable)
-	void ServerReleaseExternalGrab(bool bThrow, FVector ThrowVelocity);
-
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastReleaseExternalGrab(bool bThrow, FVector ThrowVelocity);
-
-	void RemoveExternalGrabTags();
-
-	bool bExternalGrabActive = false;
-	FTransform PreGrabMeshRelativeTransform = FTransform::Identity;
-	FName PreGrabMeshAttachSocket = NAME_None;
-	FRotator PreGrabActorRotation = FRotator::ZeroRotator;
-	FRotator PreGrabControlRotation = FRotator::ZeroRotator;
-	uint8 PreGrabCapsuleCollision = 3; // ECollisionEnabled::QueryAndPhysics
-	uint8 PreGrabMovementMode = 1; // MOVE_Walking
-	uint8 PreGrabCustomMovementMode = 0;
-	bool bHadPreGrabController = false;
-
 	// 넉다운 시 재생할 몽타주 (에디터에서 할당 필요)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Player|Animation")
 	TObjectPtr<class UAnimMontage> KnockdownMontage;
