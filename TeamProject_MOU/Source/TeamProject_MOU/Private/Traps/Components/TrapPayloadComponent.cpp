@@ -24,6 +24,10 @@ void UTrapPayloadComponent::ExecutePayloadOnActor(AActor* TargetActor, const UTr
 	float BatteryDrain = InTrapData ? InTrapData->BatteryDrainAmount : 0.0f;
 	float ImpulseStrength = InTrapData ? InTrapData->ImpulseStrength : 0.0f;
 	bool bForceDrop = InTrapData ? InTrapData->bForceDropItem : false;
+	if (DefaultHazardType == ETrapHazardType::ElectricShock)
+	{
+		bForceDrop = true;
+	}
 	TSubclassOf<UGameplayEffect> EffectClass = InTrapData ? InTrapData->StatusEffectClass : nullptr;
 
 	// 1. 대미지 적용

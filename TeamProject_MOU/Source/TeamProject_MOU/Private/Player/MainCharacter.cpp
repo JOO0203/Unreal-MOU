@@ -35,6 +35,7 @@
 #include "Ability/GA_Interact.h"
 #include "Ability/GA_Groggy.h"
 #include "Ability/GA_Death.h"
+#include "Ability/GA_Knockdown.h"
 
 AMainCharacter::AMainCharacter()
 {
@@ -147,6 +148,9 @@ void AMainCharacter::BeginPlay()
 
 		TSubclassOf<UGameplayAbility> DeathClass = DeathAbilityClass ? DeathAbilityClass : TSubclassOf<UGameplayAbility>(UGA_Death::StaticClass());
 		DeathAbilitySpecHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DeathClass, 1));
+
+		TSubclassOf<UGameplayAbility> KnockdownClass = KnockdownAbilityClass ? KnockdownAbilityClass : TSubclassOf<UGameplayAbility>(UGA_Knockdown::StaticClass());
+		KnockdownAbilitySpecHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(KnockdownClass, 1));
 	}
 
 	if (USkeletalMeshComponent* SkelMesh = GetMesh())
@@ -708,12 +712,22 @@ void AMainCharacter::OnFocusedActorChanged(AActor* NewFocusedActor)
 		return;
 	}
 
-	// 새 포커스 액터가 아이템인지 확인 (플레이어 블루프린트 이벤트 호출)
+	// 새 포커스 액터가 아이템인지 확인 (이벤트 오브젝트 제외하고 순수 아이템/택배만 UI 표시)
 	if (AItemBase* NewItem = Cast<AItemBase>(NewFocusedActor))
 	{
-		bIsAimingAtItem = true;
-		FocusedItem = NewItem;
-		OnItemAimChanged(true, NewItem);
+		// [요구사항] 이벤트 오브젝트(AEventObjectBase)는 아이템 정보 UI 표시 대상에서 완전 제외
+		if (!NewItem->IsA<AEventObjectBase>())
+		{
+			bIsAimingAtItem = true;
+			FocusedItem = NewItem;
+			OnItemAimChanged(true, NewItem);
+		}
+		else if (bIsAimingAtItem)
+		{
+			bIsAimingAtItem = false;
+			FocusedItem = nullptr;
+			OnItemAimChanged(false, nullptr);
+		}
 	}
 	else if (bIsAimingAtItem)
 	{
@@ -1634,87 +1648,27 @@ bool AMainCharacter::CanMove() const
 
 void AMainCharacter::Knockdown()
 {
-	if (!HasAuthority())
-	{
-		return;
-	}
-
-	// 이미 기절 상태면 무시
 	if (bIsStunned)
 	{
 		return;
 	}
 
-	bIsStunned = true;
-
-	// 부활 차징 중이었다면 취소
-	if (bIsHoldingRevive)
+	if (!HasAuthority())
 	{
-		CancelReviveHold();
+		ServerKnockdown();
+		return;
 	}
 
-	// 물건을 들고 있었다면 떨어뜨림 (GrabOrDrop은 서버에서만 호출해야 함)
-	if (CarryingComponent && CarryingComponent->IsCarrying())
+	// GAS GA_Knockdown 어빌리티 실행
+	if (AbilitySystemComponent && KnockdownAbilitySpecHandle.IsValid())
 	{
-		CarryingComponent->GrabOrDrop();
-	}
-
-	// 달리기 취소
-	if (bIsSprinting)
-	{
-		ServerSetSprinting_Implementation(false);
-	}
-
-	// 애니메이션 재생 멀티캐스트 호출
-	MulticastKnockdown();
-}
-
-void AMainCharacter::MulticastKnockdown_Implementation()
-{
-	if (KnockdownMontage && GetMesh() && GetMesh()->GetAnimInstance())
-	{
-		float AnimDuration = GetMesh()->GetAnimInstance()->Montage_Play(KnockdownMontage);
-
-		// 몽타주가 재생되지 않았을 경우(0.0) 대비 안전장치
-		if (AnimDuration <= 0.0f)
-		{
-			AnimDuration = 2.0f;
-		}
-
-		// Data Asset에 설정된 State.Player.Knockdown 프리셋 적용 (Data Asset 설정값 직접 사용)
-		if (VisualComponent)
-		{
-			static const FGameplayTag KnockdownTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Knockdown"), false);
-			VisualComponent->SetTagTemporaryOverride(KnockdownTag, AnimDuration);
-		}
-
-		// 서버에서 타이머를 설정하여 기절 상태 복구
-		if (HasAuthority())
-		{
-			GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AMainCharacter::OnKnockdownEnd, AnimDuration, false);
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("KnockdownMontage가 할당되지 않았거나 재생할 수 없습니다. 즉시 회복됩니다."));
-		if (HasAuthority())
-		{
-			OnKnockdownEnd();
-		}
+		AbilitySystemComponent->TryActivateAbility(KnockdownAbilitySpecHandle);
 	}
 }
 
-void AMainCharacter::OnKnockdownEnd()
+void AMainCharacter::ServerKnockdown_Implementation()
 {
-	if (HasAuthority())
-	{
-		bIsStunned = false;
-	}
-
-	if (VisualComponent)
-	{
-		VisualComponent->ClearTemporaryOverride();
-	}
+	Knockdown();
 }
 
 void AMainCharacter::PlayHitReaction(float Duration)
@@ -1998,6 +1952,14 @@ void AMainCharacter::StartPushMode(AActor* TargetObject)
 		}
 	}
 
+	if (UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(TargetObject->GetRootComponent()))
+	{
+		PrimComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		PrimComp->IgnoreActorWhenMoving(this, true);
+		GetCapsuleComponent()->IgnoreActorWhenMoving(TargetObject, true);
+		GetMesh()->IgnoreActorWhenMoving(TargetObject, true);
+	}
+
 	if (AEventObjectBase* EventObj = Cast<AEventObjectBase>(CurrentPushedObject))
 	{
 		EventObj->AddPusher(this);
@@ -2043,19 +2005,12 @@ void AMainCharacter::StartPushMode(AActor* TargetObject)
 
 	LastCharacterLocation = GetActorLocation();
 
-	if (UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(TargetObject->GetRootComponent()))
-	{
-		PrimComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-		PrimComp->IgnoreActorWhenMoving(this, true);
-		GetCapsuleComponent()->IgnoreActorWhenMoving(TargetObject, true);
-		GetMesh()->IgnoreActorWhenMoving(TargetObject, true);
-	}
-
 	if (StatusComponent)
 	{
 		static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Pushing"), false);
 		StatusComponent->AddStatusTag(PushingTag);
 	}
+
 
 	UpdateCharacterSpeed();
 }

@@ -77,6 +77,10 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual FText GetInteractPrompt_Implementation() const override;
 
+	// 다른 캐릭터가 이 아이템을 집을 수 있는지 검사 (다른 사람이 들고 있는 아이템 뺏어가기 방지)
+	UFUNCTION(BlueprintCallable, Category = "Item|Action")
+	virtual bool CanBePickedUpBy(AActor* PotentialPicker) const;
+
 	// ---------------------------------------------------------
 	// [핵심 행동 함수]
 	// ---------------------------------------------------------

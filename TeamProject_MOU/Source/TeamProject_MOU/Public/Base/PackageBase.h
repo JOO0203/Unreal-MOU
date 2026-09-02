@@ -112,6 +112,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Package|Coop")
 	float HandleLength = 100.0f;
 
+	virtual bool CanBePickedUpBy(AActor* PotentialPicker) const override;
+
 
 protected:
 	// [무거운 택배 전용] Tick에서 서버가 패키지 위치/회전을 계산하고 이동시킴
