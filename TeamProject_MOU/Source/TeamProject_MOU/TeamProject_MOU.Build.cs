@@ -28,6 +28,7 @@ public class TeamProject_MOU : ModuleRules
             "Niagara",
             "Sockets",
             "Networking",
+            "Water", // WaterBodyRiver 런타임 수위 제어 (MOUWaterBodyRiverComponent)
 
             // 채팅 서버 주소를 Project Settings 에 노출한다 (Server/ServerSettings.h).
             "DeveloperSettings",
