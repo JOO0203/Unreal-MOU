@@ -99,7 +99,7 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 	// 서버가 우리 편이라는 가정은 맞지만, 범위 밖 enum 이 흘러들어오면
 	// 나중에 이 값으로 배열을 인덱싱하는 코드가 생겼을 때 터진다.
 	const EVoiceRoute Route = MOUVoice::SanitizeRoute(Frame.Route);
-	const EVoiceMode  Mode  = MOUVoice::SanitizeMode(Frame.Mode);
+	const EVoiceMode  Mode = MOUVoice::SanitizeMode(Frame.Mode);
 
 	const FVoiceStreamKey Key{ Frame.SpeakerId, Route };
 	FVoiceStream& Stream = Streams.FindOrAdd(Key);
@@ -132,8 +132,8 @@ void UVoicePlaybackComponent::HandleFrame(const FVoiceFrameOut& Frame)
 	}
 
 	Stream.LastFrameTime = Now;
-	Stream.LastMode      = Mode;
-	Stream.Route         = Route;
+	Stream.LastMode = Mode;
+	Stream.Route = Route;
 
 	// 무전이면 소리를 낼 무전기가 프레임에 실려 온다.
 	// 매번 갱신한다 - 같은 사람이라도 무전기를 바꿔 들 수 있다.
@@ -416,26 +416,26 @@ void UVoicePlaybackComponent::ResetAllStreams()
 
 FString UVoicePlaybackComponent::GetStatsString() const
 {
-	int32 Played    = 0;
+	int32 Played = 0;
 	int32 Concealed = 0;
-	int32 Late      = 0;
+	int32 Late = 0;
 	int32 Duplicate = 0;
-	int32 Resync    = 0;
-	int32 Starve    = 0;
-	int32 Pending   = 0;
+	int32 Resync = 0;
+	int32 Starve = 0;
+	int32 Pending = 0;
 
 	for (const TPair<FVoiceStreamKey, FVoiceStream>& Pair : Streams)
 	{
 		const FVoiceStream& Stream = Pair.Value;
 
-		Played    += Stream.FramesPlayed;
+		Played += Stream.FramesPlayed;
 		Concealed += Stream.FramesConcealed;
 
-		Late      += Stream.Jitter.GetLateCount();
+		Late += Stream.Jitter.GetLateCount();
 		Duplicate += Stream.Jitter.GetDuplicateCount();
-		Resync    += Stream.Jitter.GetResyncCount();
-		Starve    += Stream.Jitter.GetStarveCount();
-		Pending   += Stream.Jitter.GetPendingCount();
+		Resync += Stream.Jitter.GetResyncCount();
+		Starve += Stream.Jitter.GetStarveCount();
+		Pending += Stream.Jitter.GetPendingCount();
 	}
 
 	// 지터 깊이를 ms 로도 보여준다. 프레임 수보다 "지금 몇 ms 늦게 듣고 있는지" 가

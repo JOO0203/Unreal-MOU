@@ -62,7 +62,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 	if (OutHost.IsEmpty())
 	{
 		OutHost = kFallbackHost;
-		Source  = TEXT("기본값");
+		Source = TEXT("기본값");
 	}
 	if (!IsValidPort(OutPort))
 	{
@@ -84,7 +84,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 			if (!HostPart.IsEmpty())
 			{
 				OutHost = HostPart;
-				Source  = TEXT("실행 인자 -MOUServer");
+				Source = TEXT("실행 인자 -MOUServer");
 			}
 			const int32 ParsedPort = FCString::Atoi(*PortPart);
 			if (IsValidPort(ParsedPort))
@@ -95,7 +95,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		else if (!Combined.IsEmpty())
 		{
 			OutHost = Combined;
-			Source  = TEXT("실행 인자 -MOUServer");
+			Source = TEXT("실행 인자 -MOUServer");
 		}
 	}
 
@@ -106,7 +106,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		if (!HostSwitch.IsEmpty())
 		{
 			OutHost = HostSwitch;
-			Source  = TEXT("실행 인자 -MOUChatHost");
+			Source = TEXT("실행 인자 -MOUChatHost");
 		}
 	}
 
