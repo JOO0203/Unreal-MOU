@@ -41,7 +41,7 @@ public class TeamProject_MOU : ModuleRules
             "AudioExtensions"    // 소스 이펙트 체인 (무전기 필터)
         });
 
-        PrivateDependencyModuleNames.AddRange(new string[] { });
+        PrivateDependencyModuleNames.AddRange(new string[] {});
 
         PublicIncludePaths.AddRange(new string[] {
             "TeamProject_MOU"
