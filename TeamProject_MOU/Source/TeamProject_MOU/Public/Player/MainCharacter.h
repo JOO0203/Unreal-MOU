@@ -611,6 +611,9 @@ private:
 	void OnSlot2();
 	void OnSlot3();
 
+	// 손에 든 무기가 "사용 중"이면 true (사용 중엔 슬롯 변경 차단). [WEAPON-016]
+	bool IsHandWeaponInUse() const;
+
 	// 인벤토리 장착 요청 콜백
 	UFUNCTION()
 	void OnEquipRequested(AItemBase* ItemToEquip);

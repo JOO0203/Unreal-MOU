@@ -41,6 +41,13 @@ protected:
 	// BeginPlay에 RowToSpawn을 자동 스폰할지 여부 (레벨 배치형일 때 true)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner")
 	bool bAutoSpawnOnBeginPlay = true;
+
+	// 확률 스폰 슬롯: 배열 크기 = 슬롯 개수, 각 칸에 DT_Item 행 이름 지정.
+	// 스폰 시 이 중 한 칸을 균등 확률(1/N)로 뽑는다. 빈 칸(None)이 뽑히면 아무것도 안 나옴(꽝).
+	// 예) 5칸 중 4칸만 채우면 각 20%씩 아이템 + 20% 꽝.
+	// 비어 있으면 기존 RowToSpawn 단일 스폰 방식을 사용한다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner")
+	TArray<FName> SpawnSlots;
 #pragma endregion
 
 public:
