@@ -276,25 +276,29 @@ void ACharacterBase::HandleMaxSteminaChanged(const FOnAttributeChangeData& Data)
 
 void ACharacterBase::HandleMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
-	if (!BaseAttribute)
+	if (!BaseAttribute || !GetCharacterMovement())
 	{
 		return;
 	}
 
-	// 이동속도 속성 변경 시 CharacterMovement의 MaxWalkSpeed 동기화
-	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
-	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
+	// 이동속도 속성 변경 시 CharacterMovement의 MaxWalkSpeed 동기화 (MaxMoveSpeed 상한치 준수)
+	float ClampedSpeed = FMath::Clamp(Data.NewValue, 0.0f, BaseAttribute->GetMaxMoveSpeed());
+	GetCharacterMovement()->MaxWalkSpeed = ClampedSpeed;
+	OnSpeedUpdated(ClampedSpeed, BaseAttribute->GetMaxMoveSpeed());
 }
 
 void ACharacterBase::HandleMaxMoveSpeedChanged(const FOnAttributeChangeData& Data)
 {
-	if (!BaseAttribute)
+	if (!BaseAttribute || !GetCharacterMovement())
 	{
 		return;
 	}
 
-	GetCharacterMovement()->MaxWalkSpeed = Data.NewValue;
-	OnSpeedUpdated(BaseAttribute->GetMoveSpeed(), BaseAttribute->GetMaxMoveSpeed());
+	// MaxMoveSpeed(상한치) 변경 시 현재 MoveSpeed가 상한치를 초과하지 않도록 클램프
+	float CurrentSpeed = BaseAttribute->GetMoveSpeed();
+	float ClampedSpeed = FMath::Clamp(CurrentSpeed, 0.0f, Data.NewValue);
+	GetCharacterMovement()->MaxWalkSpeed = ClampedSpeed;
+	OnSpeedUpdated(ClampedSpeed, Data.NewValue);
 }
 
 void ACharacterBase::HandleCurrentWeightChanged(const FOnAttributeChangeData& Data)

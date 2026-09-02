@@ -70,6 +70,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Status")
 	void Knockdown();
 
+	UFUNCTION(Server, Reliable)
+	void ServerKnockdown();
+
 	// 로컬 클라이언트가 AimYaw를 서버로 전송 (다른 클라이언트 AO Yaw 동기화용)
 	UFUNCTION(Server, Unreliable)
 	void ServerSetAimYaw(float NewAimYaw);
@@ -367,6 +370,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Abilities")
 	TSubclassOf<class UGA_Death> DeathAbilityClass;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Abilities")
+	TSubclassOf<class UGA_Knockdown> KnockdownAbilityClass;
+
 	UPROPERTY(Transient)
 	FGameplayAbilitySpecHandle SprintAbilitySpecHandle;
 
@@ -393,6 +399,9 @@ public:
 
 	UPROPERTY(Transient)
 	FGameplayAbilitySpecHandle DeathAbilitySpecHandle;
+
+	UPROPERTY(Transient)
+	FGameplayAbilitySpecHandle KnockdownAbilitySpecHandle;
 
 protected:
 	virtual void HandleHealthChanged(const struct FOnAttributeChangeData& Data) override;
@@ -635,24 +644,13 @@ private:
 	// [기절 / 넉다운 (Stun / Knockdown)]
 	// ---------------------------------------------------------
 
-protected:
-	// 넉다운 시 재생할 몽타주 (에디터에서 할당 필요)
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Player|Animation")
-	TObjectPtr<class UAnimMontage> KnockdownMontage;
-
+public:
 	// 현재 기절(Stun) 상태 여부 (이동/행동 불가)
-	UPROPERTY(Replicated)
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Player|Status")
 	bool bIsStunned = false;
 
-	// 클라이언트 동기화용 멀티캐스트
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastKnockdown();
-
-	// 넉다운 종료 콜백
-	void OnKnockdownEnd();
-
-	// 넉다운 복구 타이머
-	FTimerHandle KnockdownTimerHandle;
+	UFUNCTION(BlueprintCallable, Category = "Player|Status")
+	void SetIsStunned(bool bNewStunned) { bIsStunned = bNewStunned; }
 
 public:
 	// 피격/가벼운 충격 시 표정 반응 재생 (서버/로컬 호출 지원)

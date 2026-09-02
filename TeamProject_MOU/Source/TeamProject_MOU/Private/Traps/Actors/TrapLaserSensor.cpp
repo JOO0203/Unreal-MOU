@@ -1,7 +1,6 @@
 #include "Traps/Actors/TrapLaserSensor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/ArrowComponent.h"
-#include "NiagaraComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
@@ -24,9 +23,11 @@ ATrapLaserSensor::ATrapLaserSensor()
 	LaserDirectionArrow->ArrowSize = 1.5f;
 	LaserDirectionArrow->bIsEditorOnly = false;
 
-	LaserBeamFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("LaserBeamFX"));
-	LaserBeamFX->SetupAttachment(LaserDirectionArrow);
-	LaserBeamFX->bAutoActivate = true;
+	LaserMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LaserMesh"));
+	LaserMesh->SetupAttachment(LaserDirectionArrow);
+	LaserMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	LaserMesh->SetCastShadow(false);
+	LaserMesh->SetCanEverAffectNavigation(false);
 }
 
 void ATrapLaserSensor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -39,6 +40,11 @@ void ATrapLaserSensor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 void ATrapLaserSensor::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (LaserMesh)
+	{
+		LaserMesh->SetVisibility(bIsSensorActive);
+	}
 
 	if (HasAuthority() && bIsSensorActive && GetWorld())
 	{
@@ -72,6 +78,10 @@ void ATrapLaserSensor::TriggerTrap_Implementation(AActor* InstigatorActor)
 		{
 			GetWorld()->GetTimerManager().SetTimer(ScanTimerHandle, this, &ATrapLaserSensor::PerformLaserScan, ScanInterval, true);
 		}
+		if (LaserMesh)
+		{
+			LaserMesh->SetVisibility(true);
+		}
 		OnSensorStateChanged_BP(true);
 	}
 }
@@ -83,6 +93,10 @@ void ATrapLaserSensor::ResetTrap_Implementation()
 		bIsSensorActive = true;
 		bWasObstructed = false;
 		LastDetectedActor = nullptr;
+		if (LaserMesh)
+		{
+			LaserMesh->SetVisibility(true);
+		}
 		OnSensorStateChanged_BP(true);
 	}
 }
@@ -96,15 +110,19 @@ void ATrapLaserSensor::DisarmTrap_Implementation(AActor* Disarmer)
 		{
 			GetWorld()->GetTimerManager().ClearTimer(ScanTimerHandle);
 		}
+		if (LaserMesh)
+		{
+			LaserMesh->SetVisibility(false);
+		}
 		OnSensorStateChanged_BP(false);
 	}
 }
 
 void ATrapLaserSensor::OnRep_bIsSensorActive()
 {
-	if (LaserBeamFX)
+	if (LaserMesh)
 	{
-		LaserBeamFX->SetVisibility(bIsSensorActive);
+		LaserMesh->SetVisibility(bIsSensorActive);
 	}
 
 	OnSensorStateChanged_BP(bIsSensorActive);
