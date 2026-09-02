@@ -20,10 +20,15 @@ ATrapCrusher::ATrapCrusher()
 
 	CrusherMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CrusherMesh"));
 	CrusherMesh->SetupAttachment(RootScene);
+	CrusherMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+	CrusherMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	CrusherMesh->CanCharacterStepUpOn = ECB_No;
+	CrusherMesh->SetCanEverAffectNavigation(false);
 
 	CrushDamageBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CrushDamageBox"));
 	CrushDamageBox->SetupAttachment(CrusherMesh);
+	CrushDamageBox->SetRelativeLocation(FVector(0.0f, 0.0f, -20.0f)); // 하단 선제 감지
+	CrushDamageBox->InitBoxExtent(FVector(60.0f, 60.0f, 25.0f));
 	CrushDamageBox->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
 	CrushDamageBox->SetGenerateOverlapEvents(true);
 
@@ -40,6 +45,9 @@ void ATrapCrusher::BeginPlay()
 
 	if (CrusherMesh)
 	{
+		CrusherMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+		CrusherMesh->CanCharacterStepUpOn = ECB_No;
+
 		InitialCrusherRelativeLocation = CrusherMesh->GetRelativeLocation();
 		TargetCrusherRelativeLocation = InitialCrusherRelativeLocation;
 	}
@@ -140,6 +148,11 @@ void ATrapCrusher::HandleCrushOverlap(UPrimitiveComponent* OverlappedComp, AActo
 	if (OtherActor->IsA(AEventObjectBase::StaticClass()))
 	{
 		bIsBlocked = true;
+		bIsDescending = false;
+		bIsAscending = true;
+		TargetCrusherRelativeLocation = InitialCrusherRelativeLocation;
+
+		MulticastOnCrushBlocked();
 		return;
 	}
 
@@ -149,9 +162,31 @@ void ATrapCrusher::HandleCrushOverlap(UPrimitiveComponent* OverlappedComp, AActo
 		PayloadComponent->ExecutePayloadOnActor(OtherActor, TrapData);
 	}
 
-	// 3. 대상을 찍어누른 즉시 하강 정지 -> 해당 위치에서 홀드 후 복귀 (물리 클리핑 방지)
+	// 3. 대상을 찍어누른 즉시 모든 클라이언트에 정지 및 홀드 전파
+	FVector ImpactLoc = CrusherMesh ? CrusherMesh->GetRelativeLocation() : TargetCrusherRelativeLocation;
 	bIsDescending = false;
 	BottomHoldTimer = BottomHoldDuration;
+
+	MulticastOnCrushImpact(ImpactLoc);
+}
+
+void ATrapCrusher::MulticastOnCrushImpact_Implementation(FVector ImpactRelativeLocation)
+{
+	bIsDescending = false;
+	BottomHoldTimer = BottomHoldDuration;
+	if (CrusherMesh)
+	{
+		CrusherMesh->SetRelativeLocation(ImpactRelativeLocation);
+	}
+	TargetCrusherRelativeLocation = InitialCrusherRelativeLocation;
+}
+
+void ATrapCrusher::MulticastOnCrushBlocked_Implementation()
+{
+	bIsBlocked = true;
+	bIsDescending = false;
+	bIsAscending = true;
+	TargetCrusherRelativeLocation = InitialCrusherRelativeLocation;
 }
 
 void ATrapCrusher::ExecuteTrapPayload()
