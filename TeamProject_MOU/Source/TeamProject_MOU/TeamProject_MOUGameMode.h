@@ -90,6 +90,7 @@ private:
 	void DestroyPlayerOwnedItems();
 	void ResetRunToDayOne();
 	void TravelToLobbyAfterWipe();
+	void EnrichSettlementData(FLevelSettlementData& Result) const;
 };
 
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Game/LevelSettlementState.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Item/DeliveryData.h"
 #include "WarehouseDataSubsystem.generated.h"
@@ -45,6 +46,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
 	bool MergeFromWarehouseComponent(const UWarehouseComponent* WarehouseComponent);
 
+	// 가장 최근 맵 창고 병합분, 즉 이번 판 약탈 정산 목록입니다.
+	UFUNCTION(BlueprintPure, Category = "Warehouse|Settlement")
+	TArray<FStoredItemData> GetLastLootedItemsCopy() const { return LastLootedItems; }
+
+	UFUNCTION(BlueprintPure, Category = "Warehouse|Settlement")
+	TArray<FPlayerSettlementData> GetLastPlayerLootResultsCopy() const { return LastPlayerLootResults; }
+
 	// 레벨 이동 직전에 서버에서 호출하여 모든 플레이어의 슬롯 상태를 저장합니다.
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory|Persistence")
 	int32 SaveAllPlayerInventories();
@@ -81,6 +89,12 @@ public:
 	void ClearPendingDeliveryData();
 
 private:
+	UPROPERTY(Transient)
+	TArray<FStoredItemData> LastLootedItems;
+
+	UPROPERTY(Transient)
+	TArray<FPlayerSettlementData> LastPlayerLootResults;
+
 	const TArray<FStoredItemData>& GetStoredItemsInternal() const;
 	const TArray<FStoredItemInstanceData>& GetStoredItemInstancesInternal() const;
 	bool BuildValidatedDeliveryData(const TArray<FStoredItemData>& RequestedItems, FDeliveryData& OutDeliveryData) const;

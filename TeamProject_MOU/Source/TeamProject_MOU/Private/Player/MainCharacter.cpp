@@ -496,6 +496,7 @@ void AMainCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(AMainCharacter, LockedPushDirection);
 	DOREPLIFETIME(AMainCharacter, PushLocalAnchor);
 	DOREPLIFETIME(AMainCharacter, DownCount);
+	DOREPLIFETIME(AMainCharacter, KnockdownCount);
 	DOREPLIFETIME(AMainCharacter, bIsGroggy);
 	DOREPLIFETIME(AMainCharacter, bIsDead);
 	DOREPLIFETIME(AMainCharacter, bIsReviving);
@@ -1630,6 +1631,8 @@ void AMainCharacter::Knockdown()
 	{
 		return;
 	}
+
+	++KnockdownCount;
 
 	bIsStunned = true;
 
