@@ -5,7 +5,24 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
 #include "Economy/EconomyTypes.h"
+#include "Item/DeliveryData.h"
 #include "ProjectGameStateBase.generated.h"
+
+// Revision ensures that an empty initial warehouse also reaches joining clients.
+USTRUCT()
+struct FWarehouseStorageSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TArray<FStoredItemData> Items;
+
+	UPROPERTY()
+	TArray<FStoredItemInstanceData> Instances;
+
+	UPROPERTY()
+	int32 Revision = 0;
+};
 
 /**
  * 
@@ -17,6 +34,10 @@ class TEAMPROJECT_MOU_API AProjectGameStateBase : public AGameStateBase
 	
 public:
 	AProjectGameStateBase();
+	virtual void BeginPlay() override;
+
+	// Publish the server's persistent warehouse; late joiners receive the same snapshot.
+	void PublishWarehouseStorage();
 
 	// ==============================================
 	// Gold
@@ -181,6 +202,12 @@ public:
 	void OnEconomyHalfDayUpdated(int32 NewHalfDay);
 
 protected:
+	UPROPERTY(ReplicatedUsing = OnRep_WarehouseStorage)
+	FWarehouseStorageSnapshot WarehouseStorage;
+
+	UFUNCTION()
+	void OnRep_WarehouseStorage();
+
 	UFUNCTION()
 	void OnRep_Gold();
 

@@ -2,6 +2,7 @@
 
 
 #include "TeamProject_MOUPlayerController.h"
+#include "Subsystems/WarehouseDataSubsystem.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
@@ -31,6 +32,20 @@ ATeamProject_MOUPlayerController::ATeamProject_MOUPlayerController()
 	// ★ 생성자에서 만들어야 서버와 클라이언트가 같은 컴포넌트를 갖는다.
 	//   이유는 헤더의 VoiceComponent 주석 참고.
 	VoiceComponent = CreateDefaultSubobject<UVoiceComponent>(TEXT("MOUVoiceComponent"));
+}
+
+void ATeamProject_MOUPlayerController::ServerSaveWarehouseDelivery_Implementation(
+	const TArray<FStoredItemData>& RequestedItems)
+{
+	UWarehouseDataSubsystem* Warehouse = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<UWarehouseDataSubsystem>() : nullptr;
+	const bool bSucceeded = Warehouse && Warehouse->SavePendingDeliveryDataFromRequest(RequestedItems);
+	ClientWarehouseDeliverySaveCompleted(bSucceeded);
+}
+
+void ATeamProject_MOUPlayerController::ClientWarehouseDeliverySaveCompleted_Implementation(bool bSucceeded)
+{
+	OnWarehouseDeliverySaveCompleted.Broadcast(bSucceeded);
 }
 
 void ATeamProject_MOUPlayerController::BeginPlay()

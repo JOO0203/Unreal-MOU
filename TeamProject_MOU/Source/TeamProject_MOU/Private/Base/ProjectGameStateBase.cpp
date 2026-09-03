@@ -5,6 +5,8 @@
 
 #include "Economy/EconomyDebtProcessor.h"
 #include "Net/UnrealNetwork.h"
+#include "Base/ProjectGameInstanceBase.h"
+#include "Subsystems/WarehouseDataSubsystem.h"
 
 AProjectGameStateBase::AProjectGameStateBase()
 {
@@ -27,6 +29,43 @@ AProjectGameStateBase::AProjectGameStateBase()
 // ==============================================
 // Gold
 // ==============================================
+
+void AProjectGameStateBase::BeginPlay()
+{
+	Super::BeginPlay();
+	if (HasAuthority())
+	{
+		PublishWarehouseStorage();
+	}
+	else if (WarehouseStorage.Revision > 0)
+	{
+		OnRep_WarehouseStorage();
+	}
+}
+
+void AProjectGameStateBase::PublishWarehouseStorage()
+{
+	if (!HasAuthority()) return;
+	if (const UProjectGameInstanceBase* Instance = Cast<UProjectGameInstanceBase>(GetGameInstance()))
+	{
+		WarehouseStorage.Items = Instance->SavedStoredItems;
+		WarehouseStorage.Instances = Instance->SavedStoredItemInstances;
+		++WarehouseStorage.Revision;
+		ForceNetUpdate();
+	}
+}
+
+void AProjectGameStateBase::OnRep_WarehouseStorage()
+{
+	if (WarehouseStorage.Revision <= 0) return;
+	if (UGameInstance* Instance = GetGameInstance())
+	{
+		if (UWarehouseDataSubsystem* Warehouse = Instance->GetSubsystem<UWarehouseDataSubsystem>())
+		{
+			Warehouse->ApplyReplicatedStorage(WarehouseStorage.Items, WarehouseStorage.Instances);
+		}
+	}
+}
 
 void AProjectGameStateBase::AddGold(int32 Amount)
 {
@@ -302,6 +341,7 @@ void AProjectGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AProjectGameStateBase, Gold);
+	DOREPLIFETIME(AProjectGameStateBase, WarehouseStorage);
 	DOREPLIFETIME(AProjectGameStateBase, Reputation);
 	DOREPLIFETIME(AProjectGameStateBase, CurrentDebt);
 	DOREPLIFETIME(AProjectGameStateBase, DebtCycle);

@@ -3,6 +3,7 @@
 #include "Base/ItemBase.h"
 #include "Base/PackageBase.h"
 #include "Base/ProjectGameInstanceBase.h"
+#include "Base/ProjectGameStateBase.h"
 #include "Components/WarehouseComponent.h"
 #include "Components/InventoryComponent.h"
 #include "Engine/World.h"
@@ -17,6 +18,51 @@ void UWarehouseDataSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	InitializeWarehouseFromDataAsset();
+}
+
+void UWarehouseDataSubsystem::NotifyStoredWarehouseChanged()
+{
+	// Existing BP change listeners may save the warehouse again.
+	if (bNotifyingStoredWarehouse) return;
+	TGuardValue<bool> NotifyGuard(bNotifyingStoredWarehouse, true);
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		if (AProjectGameStateBase* State = World->GetGameState<AProjectGameStateBase>())
+		{
+			if (State->HasAuthority()) State->PublishWarehouseStorage();
+		}
+
+		// Only refresh summary-only lobby warehouses. Physical map warehouses
+		// keep their own overlap-driven inventory and must not be overwritten.
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			TInlineComponentArray<UWarehouseComponent*> Warehouses;
+			It->GetComponents(Warehouses);
+			for (UWarehouseComponent* Warehouse : Warehouses)
+			{
+				if (Warehouse->bUsesSavedWarehouseData)
+				{
+					LoadIntoWarehouseComponent(Warehouse);
+				}
+			}
+		}
+	}
+	OnStoredItemsChanged.Broadcast();
+}
+
+void UWarehouseDataSubsystem::ApplyReplicatedStorage(const TArray<FStoredItemData>& Items,
+	const TArray<FStoredItemInstanceData>& Instances)
+{
+	if (!GetWorld() || GetWorld()->GetNetMode() != NM_Client) return;
+	if (UProjectGameInstanceBase* Instance = Cast<UProjectGameInstanceBase>(GetGameInstance()))
+	{
+		// Update the legacy getters without calling the server publication path.
+		Instance->SavedStoredItems = Items;
+		Instance->SavedStoredItemInstances = Instances;
+		Instance->bWarehouseInitialized = true;
+		NotifyStoredWarehouseChanged();
+	}
 }
 
 void UWarehouseDataSubsystem::InitializeWarehouseFromDataAsset()
@@ -395,6 +441,7 @@ bool UWarehouseDataSubsystem::LoadIntoWarehouseComponent(UWarehouseComponent* Wa
 
 	// 저장된 요약 데이터만 복원하고, 실제 액터 인스턴스 목록은 새 맵 기준으로 비워 둡니다.
 	WarehouseComponent->StoredItems = GetStoredItemsInternal();
+	WarehouseComponent->bUsesSavedWarehouseData = true;
 	WarehouseComponent->StoredItemInstances.Reset();
 	WarehouseComponent->OnWarehouseItemsChanged.Broadcast();
 	return true;
@@ -431,18 +478,50 @@ bool UWarehouseDataSubsystem::CanBuildDeliveryData(const TArray<FStoredItemData>
 
 bool UWarehouseDataSubsystem::SavePendingDeliveryDataFromRequest(const TArray<FStoredItemData>& RequestedItems)
 {
+	// Clients must request this through their owning PlayerController RPC.
+	if (!GetWorld() || GetWorld()->GetNetMode() == NM_Client)
+	{
+		return false;
+	}
+
 	FDeliveryData DeliveryData;
 	if (!BuildValidatedDeliveryData(RequestedItems, DeliveryData))
 	{
 		return false;
 	}
 
+	// Each confirmation adds a new batch to the shared delivery manifest.
+	// Prepare the merge before consuming stock so a rejected request changes nothing.
+	FDeliveryData AccumulatedData = GetPendingDeliveryDataCopy();
+	for (const FStoredItemData& RequestedItem : DeliveryData.SelectedItems)
+	{
+		FStoredItemData* ExistingItem = AccumulatedData.SelectedItems.FindByPredicate(
+			[&RequestedItem](const FStoredItemData& Item)
+			{
+				return Item.ItemClass == RequestedItem.ItemClass;
+			});
+		if (ExistingItem)
+		{
+			if (ExistingItem->Quantity > MAX_int32 - RequestedItem.Quantity)
+			{
+				return false;
+			}
+			ExistingItem->Quantity += RequestedItem.Quantity;
+		}
+		else
+		{
+			AccumulatedData.SelectedItems.Add(RequestedItem);
+		}
+	}
+	AccumulatedData.SelectedItemInstances.Append(DeliveryData.SelectedItemInstances);
+
+	// Previously confirmed batches have already been deducted.
 	if (!ConsumeStoredItemsForDelivery(DeliveryData))
 	{
 		return false;
 	}
 
-	SavePendingDeliveryData(DeliveryData);
+	SavePendingDeliveryData(AccumulatedData);
 	return true;
 }
 
@@ -500,14 +579,22 @@ bool UWarehouseDataSubsystem::BuildValidatedDeliveryData(const TArray<FStoredIte
 	OutDeliveryData.SelectedItemInstances.Reset();
 
 	TSet<int32> UsedInstanceIndices;
+	TSet<TSubclassOf<AItemBase>> RequestedClasses;
 	const TArray<FStoredItemInstanceData>& StoredItemInstances = GetStoredItemInstancesInternal();
 
 	for (const FStoredItemData& RequestedItem : RequestedItems)
 	{
 		if (!RequestedItem.ItemClass || RequestedItem.Quantity <= 0)
 		{
-			continue;
+			return false;
 		}
+
+		// One UI row per class; reject duplicate rows before allocating instances.
+		if (RequestedClasses.Contains(RequestedItem.ItemClass))
+		{
+			return false;
+		}
+		RequestedClasses.Add(RequestedItem.ItemClass);
 
 		// 창고에 없는 수량을 요청하면 전체 요청을 실패 처리합니다.
 		if (GetStoredQuantity(RequestedItem.ItemClass) < RequestedItem.Quantity)
