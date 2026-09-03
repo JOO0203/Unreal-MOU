@@ -53,6 +53,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Attributes")
 	float DefaultMaxWeight = 100.0f;
 
+	// 포션 등으로 인한 이동속도 가감 수치 (신속=+150, 슬로우=-100, 기본 0).
+	// GetCalculatedWalkSpeed 결과에 더해진다. 포션이 이 값을 +=/-= 로 조절하고 지속시간 후 원복한다.
+	UPROPERTY(BlueprintReadWrite, Category = "Attributes|Movement")
+	float SpeedBuffFlat = 0.0f;
+
 	// 상태 이상 및 디버프 관리 컴포넌트 (플레이어 및 NPC 공통 사용)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Status")
 	TObjectPtr<UStatusComponent> StatusComponent;

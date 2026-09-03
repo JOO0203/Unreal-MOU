@@ -5,6 +5,8 @@
 #include "SluiceGate.generated.h"
 
 class UMaterialParameterCollection;
+class UMOUWaterBodyLakeComponent;
+class UMOUWaterBodyRiverComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSluiceGateRatioChanged, float, CurrentRatio, float, Delta);
 
@@ -41,7 +43,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SluiceGate|Movement")
 	float InterpSpeed = 4.0f;
 
-	// --- Water Bodies Integration (Actor Location) ---
+	// --- Water Bodies Integration ---
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "SluiceGate|Water")
 	TObjectPtr<AActor> LakeWaterActor;
 
@@ -113,7 +115,12 @@ protected:
 	UPROPERTY(Transient)
 	float VisualOpenRatio = 1.0f;
 
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UMOUWaterBodyLakeComponent> CachedLakeComp;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UMOUWaterBodyRiverComponent> CachedRiverComp;
+
 	void UpdateGateMovement(float DeltaTime);
 	void UpdateWaterActors(float DeltaTime);
-	void MakeAllActorComponentsMovable(AActor* InActor);
 };
