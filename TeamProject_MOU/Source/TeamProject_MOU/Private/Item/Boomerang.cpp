@@ -55,6 +55,12 @@ void ABoomerang::Fire()
 	StartFlight();
 }
 
+// 비행 중(손에 없을 때)에는 내려놓기/던지기를 막는다. 손에 돌아와 Idle이 되면 다시 허용.
+bool ABoomerang::CanBeDropped() const
+{
+	return FlightState == EBoomerangState::Idle;
+}
+
 // [BOOMERANG-002] 비행 시작 (서버). 손에서 분리 → 물리 끄고 운동학 이동 준비 → 콜라이더 켜기.
 void ABoomerang::StartFlight()
 {
@@ -136,7 +142,13 @@ void ABoomerang::Tick(float DeltaTime)
 
 	if (FlightState == EBoomerangState::Outbound)
 	{
-		// 앞으로 직진
+		//// 비행 방향을 매 프레임 수평(Z축)으로 회전시켜 원호 궤도를 만든다. (0이면 직진)
+		//if (!FMath::IsNearlyZero(CurveTurnRate))
+		//{
+		//	FlightDirection = FlightDirection.RotateAngleAxis(CurveTurnRate * DeltaTime, FVector::UpVector);
+		//}
+
+		// 휜 방향으로 전진
 		SetActorLocation(CurrentLoc + FlightDirection * FlightSpeed * DeltaTime);
 
 		// 최대 사거리 or 시간 초과 → 되돌아오기

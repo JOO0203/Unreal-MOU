@@ -72,6 +72,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang")
 	FVector SpinAxis = FVector(0.0f, 0.0f, 1.0f);
 
+	// 나가는 동안 비행 방향을 수평으로 휘게 하는 각속도 (deg/s). 0이면 직진.
+	// 값이 클수록 원이 작아진다(더 급하게 휨). 부호로 좌/우 커브 방향 결정. BP에서 조정.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang")
+	float CurveTurnRate = 120.0f;
+
 	// 소유자와 이 거리(cm) 안으로 들어오면 "잡힘"으로 판정.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Boomerang")
 	float CatchRadius = 120.0f;
@@ -122,6 +127,9 @@ protected:
 
 	// 부메랑은 비행 중(던져서 손에 돌아올 때까지) "사용 중"이라 슬롯 변경을 막는다. [WEAPON-015]
 	virtual bool bUsesInUseState() const override { return true; }
+
+	// 비행 중(Idle이 아님)에는 손에서 내려놓기/던지기를 막는다. (손에 돌아온 뒤에만 놓을 수 있음)
+	virtual bool CanBeDropped() const override;
 
 	// [BOOMERANG-001] 무기 공통 히트 override: 맞은 캐릭터에 상태이상 부여 + 내구도 차감 + 즉시 되돌아오기 전환
 	virtual void ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult& Hit) override;

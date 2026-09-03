@@ -81,6 +81,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Item|Action")
 	virtual bool CanBePickedUpBy(AActor* PotentialPicker) const;
 
+	// 지금 손에서 내려놓기(Drop)/던지기(Throw)가 가능한 상태인지.
+	// 기본 true. 사용 중이라 놓으면 안 되는 아이템(예: 비행 중 부메랑)은 false로 막는다.
+	UFUNCTION(BlueprintCallable, Category = "Item|Action")
+	virtual bool CanBeDropped() const { return true; }
+
 	// ---------------------------------------------------------
 	// [핵심 행동 함수]
 	// ---------------------------------------------------------

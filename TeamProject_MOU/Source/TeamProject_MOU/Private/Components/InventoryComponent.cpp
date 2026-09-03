@@ -75,6 +75,13 @@ void UInventoryComponent::RequestSlotAction(int32 SlotIndex)
 	AItemBase* CurrentHandItem = Cast<AItemBase>(CarryingComp->GetCarriedActor());
 	AItemBase* ItemInSlot = InventorySlots[SlotIndex];
 
+	// 사용 중이라 손에서 뗄 수 없는 아이템(비행 중 부메랑, 시퀀스 중 그랩건 등)은
+	// 슬롯 교체(수납/스왑/꺼내기)도 막는다. [WEAPON-015]
+	if (CurrentHandItem && !CurrentHandItem->CanBeDropped())
+	{
+		return;
+	}
+
 	// 빈손일 때 -> 슬롯의 아이템을 꺼냄
 	if (!CurrentHandItem)
 	{
