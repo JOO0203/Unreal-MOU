@@ -50,7 +50,7 @@ void ATaserGun::Fire()
 	const bool bHit = FireHitscan(TraceStart, TraceEnd, Hit);
 
 	// [DEBUG-TASER] 트레이스 선 시각화 (맞으면 초록/빨강, 히트 지점에 구) - 확인 후 제거
-	DrawDebugLine(GetWorld(), TraceStart, TraceEnd, bHit ? FColor::Green : FColor::Red, false, 2.0f, 0, 1.5f);
+	/*DrawDebugLine(GetWorld(), TraceStart, TraceEnd, bHit ? FColor::Green : FColor::Red, false, 2.0f, 0, 1.5f);
 	if (bHit)
 	{
 		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 15.0f, 12, FColor::Yellow, false, 2.0f);
@@ -59,7 +59,7 @@ void ATaserGun::Fire()
 	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[TASER] Miss (nothing hit)"));
-	}
+	}*/
 
 	// VFX 시작점은 총구(MuzzlePoint), 끝점은 트레이스 도착지점(히트면 히트, 아니면 최대거리)
 	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : TraceStart;
