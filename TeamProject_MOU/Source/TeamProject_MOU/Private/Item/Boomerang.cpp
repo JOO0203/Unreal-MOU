@@ -2,6 +2,7 @@
 #include "Base/CharacterBase.h"
 #include "Base/BaseAttributeSet.h"
 #include "Components/StatusComponent.h"
+#include "Components/CarryingComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
@@ -273,6 +274,20 @@ void ABoomerang::CatchByOwner()
 	// (비행 중 파괴하면 궤적이 끊겨 어색하므로 회수 후 파괴로 처리)
 	if (bPendingDestroyOnCatch)
 	{
+		// 부메랑은 좌클릭 무기라 든 동안 CarryingComponent가 이 액터를 손 아이템(CarriedActor)으로 잡고 있다.
+		// 그냥 Destroy()만 하면 손 상태가 정리되지 않아 무게가 남고 드는 애니메이션이 유지된다.
+		// 파괴 전에 소유자의 CarryingComponent에 손 비우기를 통지해 무게·애니를 정상 복구시킨다.
+		if (LastOwner)
+		{
+			if (UCarryingComponent* Carry = LastOwner->FindComponentByClass<UCarryingComponent>())
+			{
+				if (Carry->GetCarriedActor() == this)
+				{
+					Carry->ClearCarriedItem();
+				}
+			}
+		}
+
 		Destroy();
 		return;
 	}
