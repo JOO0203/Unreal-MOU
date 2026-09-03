@@ -111,6 +111,12 @@ ACharacterBase* ANPCSpawner::SpawnOneNPC()
 
 	// NPC의 BeginPlay/Blackboard 초기화보다 먼저 정찰 액터를 지정합니다.
 	AssignPatrolActors(SpawnedNPC, SelectedDefinition);
+
+	// FinishSpawningActor에서 BeginPlay가 호출되기 전에 AIController가 Pawn을 Possess하도록
+	// 런타임 스폰을 자동 Possess 대상에 포함합니다. BP가 PlacedInWorld로만
+	// 설정되어 있으면 BeginPlay의 GetBlackboard가 Controller 생성보다 먼저 실행됩니다.
+	SpawnedNPC->AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
 	if (UCapsuleComponent* CapsuleComponent = SpawnedNPC->GetCapsuleComponent())
 	{
 		FVector SpawnLocation = SpawnTransform.GetLocation();
@@ -119,7 +125,7 @@ ACharacterBase* ANPCSpawner::SpawnOneNPC()
 	}
 	UGameplayStatics::FinishSpawningActor(SpawnedNPC, SpawnTransform);
 
-	// BP의 Auto Possess AI 설정과 무관하게 런타임 Spawn NPC에 AIController를 붙입니다.
+	// 잘못된 AIControllerClass 등으로 자동 Possess가 실패한 경우의 안전망입니다.
 	if (!SpawnedNPC->GetController())
 	{
 		SpawnedNPC->SpawnDefaultController();
