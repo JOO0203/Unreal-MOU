@@ -10,6 +10,8 @@ class AItemBase;
 class UWarehouseComponent;
 class UInventoryComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStoredWarehouseChanged);
+
 UCLASS()
 class TEAMPROJECT_MOU_API UWarehouseDataSubsystem : public UGameInstanceSubsystem
 {
@@ -18,6 +20,14 @@ class TEAMPROJECT_MOU_API UWarehouseDataSubsystem : public UGameInstanceSubsyste
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	void InitializeWarehouseFromDataAsset();
+
+	// UI using GetStoredItemsCopy should refresh when this event arrives.
+	UPROPERTY(BlueprintAssignable, Category = "Warehouse|Storage")
+	FOnStoredWarehouseChanged OnStoredItemsChanged;
+
+	void NotifyStoredWarehouseChanged();
+	void ApplyReplicatedStorage(const TArray<FStoredItemData>& Items,
+		const TArray<FStoredItemInstanceData>& Instances);
 
 	// 창고 요약 데이터를 GameInstance에 저장
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Storage")
@@ -74,7 +84,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Delivery")
 	bool CanBuildDeliveryData(const TArray<FStoredItemData>& RequestedItems) const;
 
-	// UI에서 만든 요청 목록을 검증한 뒤 PendingDeliveryData로 저장.
+	// Server-only: validate and consume this request, then append to the shared pending delivery.
+	// Client UI must call ServerSaveWarehouseDelivery on its owning controller.
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Delivery")
 	bool SavePendingDeliveryDataFromRequest(const TArray<FStoredItemData>& RequestedItems);
 
@@ -89,6 +100,8 @@ public:
 	void ClearPendingDeliveryData();
 
 private:
+	bool bNotifyingStoredWarehouse = false;
+
 	UPROPERTY(Transient)
 	TArray<FStoredItemData> LastLootedItems;
 

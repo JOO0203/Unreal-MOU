@@ -45,17 +45,29 @@ void UProjectGameInstanceBase::SaveStoredItems(const TArray<FStoredItemData>& In
 {
 	SavedStoredItems = InStoredItems;
 	bWarehouseInitialized = true;
+	if (UWarehouseDataSubsystem* Warehouse = GetSubsystem<UWarehouseDataSubsystem>())
+	{
+		Warehouse->NotifyStoredWarehouseChanged();
+	}
 }
 
 void UProjectGameInstanceBase::SaveStoredItemInstances(const TArray<FStoredItemInstanceData>& InStoredItemInstances)
 {
 	SavedStoredItemInstances = InStoredItemInstances;
+	if (UWarehouseDataSubsystem* Warehouse = GetSubsystem<UWarehouseDataSubsystem>())
+	{
+		Warehouse->NotifyStoredWarehouseChanged();
+	}
 }
 
 void UProjectGameInstanceBase::ClearStoredItems()
 {
 	SavedStoredItems.Reset();
 	SavedStoredItemInstances.Reset();
+	if (UWarehouseDataSubsystem* Warehouse = GetSubsystem<UWarehouseDataSubsystem>())
+	{
+		Warehouse->NotifyStoredWarehouseChanged();
+	}
 }
 
 void UProjectGameInstanceBase::SavePendingDeliveryData(const FDeliveryData& InDeliveryData)
