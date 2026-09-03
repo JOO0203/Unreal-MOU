@@ -1,6 +1,7 @@
 ﻿#include "Item/WeaponItemBase.h"
 #include "Base/CharacterBase.h"
 #include "Player/MainCharacter.h"
+#include "Item/ShopBase.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -272,6 +273,13 @@ bool AWeaponItemBase::FireHitscan(const FVector& Start, const FVector& End, FHit
 		// 캐릭터가 아닌 지형(벽/바닥)을 먼저 만나면 탄이 막힘 → 종료
 		if (!Cast<ACharacterBase>(HitActor))
 		{
+			// 상점은 관통시킨다: 상점의 상호작용용 투명 콜라이더가 트레이스를 막아
+			// 근처 대상을 못 맞히는 문제 방지. (뒤의 대상 계속 검사)
+			if (Cast<AShopBase>(HitActor))
+			{
+				continue;
+			}
+
 			OutHit = Hit;
 			return false; // 지형에 막힘 (캐릭터 못 맞힘)
 		}

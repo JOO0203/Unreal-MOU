@@ -102,12 +102,7 @@ void AMapItem::OnUse_Implementation()
 	if (bMapOpen)
 	{
 		// 열려 있으면 닫기
-		if (MapWidgetInstance)
-		{
-			MapWidgetInstance->RemoveFromParent();
-			MapWidgetInstance = nullptr;
-		}
-		bMapOpen = false;
+		CloseMapWidget();
 	}
 	else
 	{
@@ -151,6 +146,10 @@ void AMapItem::OnUnequipped_Implementation(AActor* Equipper)
 {
 	HoldingPlayer = nullptr;
 
+	// [MAP-015] 지도를 켠 채로 인벤토리에 수납하면 UI가 남으므로 강제로 닫는다.
+	//   (OnUnequipped는 MulticastOnUnequipped 경유라 위젯이 있는 클라에서 실행된다)
+	CloseMapWidget();
+
 	Super::OnUnequipped_Implementation(Equipper);
 }
 
@@ -167,18 +166,39 @@ void AMapItem::PickUp_Implementation(AActor* Picker)
 	RestoreMeshScale();
 }
 
-// [MAP-012] 놓기: 소지자 해제
+// [MAP-012] 놓기: 소지자 해제 + 열려 있던 지도 UI 강제 닫기(전 클라)
 void AMapItem::Drop_Implementation(FVector DropLocation, AActor* Dropper)
 {
 	HoldingPlayer = nullptr;
+	// [MAP-015] Drop은 서버에서만 실행되므로, 원격 소지 클라의 위젯까지 닫으려면 Multicast로 전파한다.
+	MulticastCloseMap();
 	Super::Drop_Implementation(DropLocation, Dropper);
 }
 
-// [MAP-012] 던지기: 소지자 해제
+// [MAP-012] 던지기: 소지자 해제 + 열려 있던 지도 UI 강제 닫기(전 클라)
 void AMapItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	HoldingPlayer = nullptr;
+	// [MAP-015] Throw도 서버에서만 실행되므로 Multicast로 전 클라 위젯을 닫는다.
+	MulticastCloseMap();
 	Super::Throw_Implementation(ThrowVelocity, Thrower);
+}
+
+// [MAP-015] 열린 지도 오버레이 위젯을 로컬에서 닫는다 (위젯이 없는 머신에선 아무 일도 안 함).
+void AMapItem::CloseMapWidget()
+{
+	if (MapWidgetInstance)
+	{
+		MapWidgetInstance->RemoveFromParent();
+		MapWidgetInstance = nullptr;
+	}
+	bMapOpen = false;
+}
+
+// [MAP-015] 전 클라 위젯 닫기 (Drop/Throw는 서버 전용이라 소지 클라에 전파 필요).
+void AMapItem::MulticastCloseMap_Implementation()
+{
+	CloseMapWidget();
 }
 
 // [MAP-004] 월드 좌표 → 지도 UV(0~1). 위젯 마커용

@@ -98,6 +98,14 @@ void AGrabGun::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 총몸(body_shell)이 커서 플레이어가 그 위에 올라타는 문제 방지:
+	// ItemBase::BeginPlay가 강제한 ECC_Pawn=Block을 Ignore로 덮어 캐릭터가 총을 관통하게 한다.
+	// (바닥/벽 WorldStatic Block은 그대로라 그랩건은 정상적으로 땅에 안착한다)
+	if (MeshComponent)
+	{
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+
 	// 셀 보장 (CellCount만큼) + 시작은 완전히 접힌 포즈
 	RebuildCells();
 	CurrentExtendAlpha = 0.0f;

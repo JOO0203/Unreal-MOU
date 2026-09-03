@@ -148,6 +148,15 @@ private:
 	// [FOG-001] 소지 플레이어 위치를 Fog 마스크에 누적으로 밝힘
 	void UpdateFogMask();
 
+	// [MAP-015] 열려 있는 지도 오버레이 위젯을 로컬에서 닫는다 (없으면 무시).
+	//   던지기/버리기/수납 등 손에서 사라질 때 UI가 화면에 박제되는 것 방지.
+	void CloseMapWidget();
+
+	// [MAP-015] 위젯은 소지 클라이언트 로컬에만 있는데 Drop/Throw는 서버에서만 실행되므로,
+	//   전 클라에 닫기를 전파해 원격 소지 클라의 위젯까지 확실히 닫는다.
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastCloseMap();
+
 	// 지도 오버레이 위젯 인스턴스 (토글 상태 추적)
 	UPROPERTY()
 	TObjectPtr<UUserWidget> MapWidgetInstance;
