@@ -50,7 +50,7 @@ void ATaserGun::Fire()
 	const bool bHit = FireHitscan(TraceStart, TraceEnd, Hit);
 
 	// [DEBUG-TASER] 트레이스 선 시각화 (맞으면 초록/빨강, 히트 지점에 구) - 확인 후 제거
-	DrawDebugLine(GetWorld(), TraceStart, TraceEnd, bHit ? FColor::Green : FColor::Red, false, 2.0f, 0, 1.5f);
+	/*DrawDebugLine(GetWorld(), TraceStart, TraceEnd, bHit ? FColor::Green : FColor::Red, false, 2.0f, 0, 1.5f);
 	if (bHit)
 	{
 		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 15.0f, 12, FColor::Yellow, false, 2.0f);
@@ -59,7 +59,7 @@ void ATaserGun::Fire()
 	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[TASER] Miss (nothing hit)"));
-	}
+	}*/
 
 	// VFX 시작점은 총구(MuzzlePoint), 끝점은 트레이스 도착지점(히트면 히트, 아니면 최대거리)
 	const FVector FxStart = MuzzlePoint ? MuzzlePoint->GetComponentLocation() : TraceStart;
@@ -80,7 +80,7 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 	if (!TargetCharacter)
 	{
 		// [DEBUG-TASER] 맞은 대상이 ACharacterBase가 아님 - 확인 후 제거
-		UE_LOG(LogTemp, Warning, TEXT("[TASER] Hit but NOT ACharacterBase: %s"), *GetNameSafe(HitActor));
+		//UE_LOG(LogTemp, Warning, TEXT("[TASER] Hit but NOT ACharacterBase: %s"), *GetNameSafe(HitActor));
 		return;
 	}
 
@@ -88,7 +88,7 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 	if (!StatusComp)
 	{
 		// [DEBUG-TASER] StatusComponent 없음 - 확인 후 제거
-		UE_LOG(LogTemp, Warning, TEXT("[TASER] Target has NO StatusComponent: %s"), *GetNameSafe(HitActor));
+		//UE_LOG(LogTemp, Warning, TEXT("[TASER] Target has NO StatusComponent: %s"), *GetNameSafe(HitActor));
 		return;
 	}
 
@@ -99,7 +99,7 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 	if (!ElectricEventTag.IsValid())
 	{
 		// [DEBUG-TASER] Event.Reaction.Eletric 태그가 프로젝트에 정의 안 됨 - 확인 후 제거
-		UE_LOG(LogTemp, Warning, TEXT("[TASER] EventTag 'Event.Reaction.Eletric' is INVALID (not registered)"));
+		//UE_LOG(LogTemp, Warning, TEXT("[TASER] EventTag 'Event.Reaction.Eletric' is INVALID (not registered)"));
 		return;
 	}
 
@@ -111,12 +111,12 @@ void ATaserGun::ApplyWeaponHit_Implementation(AActor* HitActor, const FHitResult
 	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(TargetCharacter, ElectricEventTag, EventData);
 
 	// [DEBUG-TASER] 이벤트 전송 로그 + 화면 메시지 - 확인 후 제거
-	UE_LOG(LogTemp, Warning, TEXT("[TASER] ELECTRIC event sent to %s"), *GetNameSafe(TargetCharacter));
+	/*UE_LOG(LogTemp, Warning, TEXT("[TASER] ELECTRIC event sent to %s"), *GetNameSafe(TargetCharacter));
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan,
 			FString::Printf(TEXT("ELECTRIC event -> %s"), *GetNameSafe(TargetCharacter)));
-	}
+	}*/
 }
 
 // [TASER-005] 발사 이펙트 훅 - 모든 클라이언트에서 BP VFX 이벤트 재생
