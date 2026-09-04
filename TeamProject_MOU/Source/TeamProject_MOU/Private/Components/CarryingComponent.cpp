@@ -92,6 +92,12 @@ void UCarryingComponent::GrabOrDrop()
 		// Drop 로직
 		if (AItemBase* Item = Cast<AItemBase>(CarriedActor))
 		{
+			// 사용 중이라 지금 내려놓으면 안 되는 아이템(예: 비행 중 부메랑)은 거부
+			if (!Item->CanBeDropped())
+			{
+				return;
+			}
+
 			// 놓을 위치 (캐릭터 앞쪽 바닥 근처)
 			FVector DropLoc = GetOwner()->GetActorLocation() + GetOwner()->GetActorForwardVector() * 80.0f;
 			// 택배인 경우 운반자 리스트에서 본인 제거 (과적/속도 원상복구)
@@ -377,6 +383,12 @@ void UCarryingComponent::Throw()
 	{
 		if (AItemBase* Item = Cast<AItemBase>(CarriedActor))
 		{
+			// 사용 중이라 지금 던지면 안 되는 아이템(예: 비행 중 부메랑)은 거부
+			if (!Item->CanBeDropped())
+			{
+				return;
+			}
+
 			// [개선] 무거운 택배는 혼자 들든 둘이 들든 던질 수 없습니다.
 			if (APackageBase* Package = Cast<APackageBase>(Item))
 			{

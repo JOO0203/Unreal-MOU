@@ -177,6 +177,10 @@ protected:
 #pragma endregion
 
 #pragma region [GRAB] 소유권/생명주기
+	// 뻗기~당기기 시퀀스(bGrabArmed/bPulling/GrabbedTarget) 중에는 버리기/던지기를 막는다.
+	// 시퀀스가 끝나(대상이 당겨져 놓이거나 헛방 접힘 완료) 사용 중이 아니게 되면 다시 허용.
+	virtual bool CanBeDropped() const override;
+
 	// [GRAB-004] 놓을 때(G키) 잡고 있던 대상도 자동 해제
 	virtual void Drop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;
 

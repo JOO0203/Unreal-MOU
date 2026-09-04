@@ -2,6 +2,7 @@
 #include "Base/CharacterBase.h"
 #include "Base/BaseAttributeSet.h"
 #include "Components/StatusComponent.h"
+#include "Components/CarryingComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
@@ -52,6 +53,12 @@ void ABoomerang::Fire()
 	}
 
 	StartFlight();
+}
+
+// 비행 중(손에 없을 때)에는 내려놓기/던지기를 막는다. 손에 돌아와 Idle이 되면 다시 허용.
+bool ABoomerang::CanBeDropped() const
+{
+	return FlightState == EBoomerangState::Idle;
 }
 
 // [BOOMERANG-002] 비행 시작 (서버). 손에서 분리 → 물리 끄고 운동학 이동 준비 → 콜라이더 켜기.
@@ -135,7 +142,13 @@ void ABoomerang::Tick(float DeltaTime)
 
 	if (FlightState == EBoomerangState::Outbound)
 	{
-		// 앞으로 직진
+		//// 비행 방향을 매 프레임 수평(Z축)으로 회전시켜 원호 궤도를 만든다. (0이면 직진)
+		//if (!FMath::IsNearlyZero(CurveTurnRate))
+		//{
+		//	FlightDirection = FlightDirection.RotateAngleAxis(CurveTurnRate * DeltaTime, FVector::UpVector);
+		//}
+
+		// 휜 방향으로 전진
 		SetActorLocation(CurrentLoc + FlightDirection * FlightSpeed * DeltaTime);
 
 		// 최대 사거리 or 시간 초과 → 되돌아오기
@@ -273,6 +286,20 @@ void ABoomerang::CatchByOwner()
 	// (비행 중 파괴하면 궤적이 끊겨 어색하므로 회수 후 파괴로 처리)
 	if (bPendingDestroyOnCatch)
 	{
+		// 부메랑은 좌클릭 무기라 든 동안 CarryingComponent가 이 액터를 손 아이템(CarriedActor)으로 잡고 있다.
+		// 그냥 Destroy()만 하면 손 상태가 정리되지 않아 무게가 남고 드는 애니메이션이 유지된다.
+		// 파괴 전에 소유자의 CarryingComponent에 손 비우기를 통지해 무게·애니를 정상 복구시킨다.
+		if (LastOwner)
+		{
+			if (UCarryingComponent* Carry = LastOwner->FindComponentByClass<UCarryingComponent>())
+			{
+				if (Carry->GetCarriedActor() == this)
+				{
+					Carry->ClearCarriedItem();
+				}
+			}
+		}
+
 		Destroy();
 		return;
 	}
