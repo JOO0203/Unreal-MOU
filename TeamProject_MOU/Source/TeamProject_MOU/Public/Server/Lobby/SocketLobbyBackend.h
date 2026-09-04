@@ -50,13 +50,16 @@ public:
 	virtual void SendChat(EChatChannelBP Channel, const FString& Text) override;
 	virtual void SendSetDead(int64 UserId, bool bDead) override;
 
-	virtual void CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort) override;
+	virtual void CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort,
+	                        const FString& LanAddress) override;
 	virtual void RequestRoomList() override;
 	virtual void JoinRoom(int32 RoomId, const FString& RoomPassword) override;
 	virtual void LeaveRoom() override;
 	virtual void SetReady(bool bReady) override;
 	virtual void StartGame() override;
 	virtual void NotifyHostReady() override;
+	virtual void RequestHostProbe(int32 Port, uint32 Nonce) override;
+	virtual void ReportReachability(bool bReachable) override;
 	virtual void UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame) override;
 
 	// --- 친구 / 메신저 (v7) ---

@@ -69,7 +69,7 @@ void FEOSLobbyBackend::SendSetDead(int64, bool)
 	LogNotImplemented(TEXT("생사 상태 (자체 서버가 계속 담당한다)"));
 }
 
-void FEOSLobbyBackend::CreateRoom(const FString&, const FString&, int32)
+void FEOSLobbyBackend::CreateRoom(const FString&, const FString&, int32, const FString&)
 {
 	LogNotImplemented(TEXT("방 생성 (CreateSession)"));
 }
@@ -154,3 +154,9 @@ void FEOSLobbyBackend::RequestDmHistory(int64, int64)
 {
 	LogNotImplemented(TEXT("대화 기록 (★ EOS 에 보관 기능이 없다 - 위 주석 참고)"));
 }
+
+// 도달성 프로브 (v9) — EOS 백엔드에서는 의미가 없다.
+// EOS 는 릴레이/홀펀칭을 SDK 가 알아서 하므로 "공유기가 포워딩을 하는가" 를
+// 물을 필요 자체가 없다. 뼈대만 맞춰두고 아무것도 하지 않는다.
+void FEOSLobbyBackend::RequestHostProbe(int32, uint32) {}
+void FEOSLobbyBackend::ReportReachability(bool) {}

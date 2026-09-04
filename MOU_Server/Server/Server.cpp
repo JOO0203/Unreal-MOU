@@ -12,6 +12,7 @@
 #include "NatPortMapping.h"
 #include "Rooms.h"
 #include "Session.h"
+#include "UdpRelay.h"
 #include "Framing.h"
 
 #include <algorithm>
@@ -21,8 +22,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <memory>
+#include <mutex>
+#include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 using namespace MOU;
@@ -35,6 +40,23 @@ namespace
 	// 이 서버가 외부에 노출된 주소. --public-ip 인자나 UPnP 결과로 채워진다.
 	// 비어 있으면 치환을 하지 않는다(예전과 똑같이 동작한다).
 	std::string GPublicIp;
+
+	/** --relay 로 켰을 때만 만드는, 게임 패킷 비해석 UDP 릴레이. */
+	std::unique_ptr<UdpRelay> GRelay;
+	std::string GRelayPublicIp;
+	std::string GRelayLanIp;
+	std::atomic<uint64_t> GNextRelayRouteId{ 1 };
+
+	/** 한 참여자에게 줄 host/guest capability 는 반드시 분리한다. */
+	struct FRelayRouteAssignment
+	{
+		uint64_t        GuestUserId = 0;
+		RelayHostRoute  Host;
+		RelayGuestRoute Guest;
+	};
+
+	std::mutex GRelayRoutesMutex;
+	std::unordered_map<uint32_t, std::vector<FRelayRouteAssignment>> GRelayRoutesByRoom;
 
 	/**
 	 * 사설/루프백 대역인가.
@@ -81,17 +103,458 @@ namespace
 	 *   지원하지 않으면 그 조합만 실패한다. 전원이 LAN 안에 있는 상황이라면
 	 *   애초에 --public-ip 를 주지 않는 편이 낫다.
 	 */
-	std::string ResolveHostAddress(const std::string& PeerAddress)
+	/**
+	 * 사설 주소를 서버의 공인 IP 로 치환한다. bVerbose 가 거짓이면 조용히 한다.
+	 *
+	 * ★ 로그를 끄는 스위치가 필요한 이유: 이 함수는 방을 만들 때(드물다)와
+	 *   엔드포인트를 관측할 때(자주, 한 등록당 여러 번) 둘 다 쓴다.
+	 *   방 생성용 문구를 후자에서도 찍으면 "호스트가 서버와 같은 네트워크에 있다" 가
+	 *   엉뚱한 맥락에서 도배되어 실제로 오해를 샀다.
+	 */
+	std::string ResolveHostAddress(const std::string& PeerAddress, bool bVerbose = true)
 	{
 		if (GPublicIp.empty() || !IsPrivateAddress(PeerAddress))
 		{
 			return PeerAddress;
 		}
 
-		std::printf("[방 주소] 호스트가 서버와 같은 네트워크에 있다(%s). "
-		            "외부 참가자를 위해 %s 로 바꿔 기록한다.\n",
-		            PeerAddress.c_str(), GPublicIp.c_str());
+		if (bVerbose)
+		{
+			std::printf("[방 주소] 호스트가 서버와 같은 네트워크에 있다(%s). "
+			            "외부 참가자를 위해 %s 로 바꿔 기록한다.\n",
+			            PeerAddress.c_str(), GPublicIp.c_str());
+		}
 		return GPublicIp;
+	}
+
+	/** std::random_device 는 Windows/Linux 에서 OS 난수원을 사용한다. token 은 로그에 남기지 않는다. */
+	bool MakeRelayToken(FUdpRelayToken& OutToken)
+	{
+		try
+		{
+			std::random_device Random;
+			bool bAnyNonZero = false;
+			for (std::uint8_t& Byte : OutToken)
+			{
+				Byte = static_cast<std::uint8_t>(Random());
+				bAnyNonZero = bAnyNonZero || Byte != 0;
+			}
+			return bAnyNonZero;
+		}
+		catch (...)
+		{
+			return false;
+		}
+	}
+
+	/** RoomStart 의 방장 전용 경로 목록을 복사한다. */
+	std::vector<RelayHostRoute> GetHostRelayRoutes(uint32_t RoomId)
+	{
+		std::vector<RelayHostRoute> Result;
+		std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+		const auto It = GRelayRoutesByRoom.find(RoomId);
+		if (It == GRelayRoutesByRoom.end())
+		{
+			return Result;
+		}
+
+		Result.reserve(It->second.size());
+		for (const FRelayRouteAssignment& Assignment : It->second)
+		{
+			Result.push_back(Assignment.Host);
+		}
+		return Result;
+	}
+
+	/** RoomHostReady 를 개인화할 때 해당 참여자의 guest-facing 경로 하나를 얻는다. */
+	bool GetGuestRelayRoute(uint32_t RoomId, uint64_t GuestUserId, RelayGuestRoute& OutRoute)
+	{
+		OutRoute = {};
+		std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+		const auto It = GRelayRoutesByRoom.find(RoomId);
+		if (It == GRelayRoutesByRoom.end())
+		{
+			return false;
+		}
+
+		for (const FRelayRouteAssignment& Assignment : It->second)
+		{
+			if (Assignment.GuestUserId == GuestUserId)
+			{
+				OutRoute = Assignment.Guest;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void SetRelayAddress(RelayHostRoute& Route, const std::string& Address)
+	{
+		CopyFixedString(Route.Address, kMaxAddressLen, Address);
+	}
+
+	void SetRelayAddress(RelayGuestRoute& Route, const std::string& Address)
+	{
+		CopyFixedString(Route.Address, kMaxAddressLen, Address);
+	}
+
+	void ReleaseRelayRoutesForRoom(uint32_t RoomId)
+	{
+		if (RoomId == 0)
+		{
+			return;
+		}
+		{
+			std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+			GRelayRoutesByRoom.erase(RoomId);
+		}
+		if (GRelay)
+		{
+			GRelay->RemoveRoutesForRoom(RoomId);
+		}
+	}
+
+	void ReleaseRelayRouteForGuest(uint32_t RoomId, uint64_t GuestUserId)
+	{
+		uint64_t RouteId = 0;
+		{
+			std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+			const auto It = GRelayRoutesByRoom.find(RoomId);
+			if (It == GRelayRoutesByRoom.end())
+			{
+				return;
+			}
+			for (auto RouteIt = It->second.begin(); RouteIt != It->second.end(); ++RouteIt)
+			{
+				if (RouteIt->GuestUserId == GuestUserId)
+				{
+					RouteId = RouteIt->Host.RouteId;
+					It->second.erase(RouteIt);
+					break;
+				}
+			}
+			if (It->second.empty())
+			{
+				GRelayRoutesByRoom.erase(It);
+			}
+		}
+		if (RouteId != 0 && GRelay)
+		{
+			GRelay->RemoveRoute(RouteId);
+		}
+	}
+
+	/** 게임 시작 시 모든 참여자별 relay 포트 쌍과 서로 다른 capability 를 만든다. */
+	bool AllocateRelayRoutes(uint32_t RoomId, uint64_t HostUserId,
+	                         const std::vector<uint64_t>& Recipients)
+	{
+		if (!GRelay || !GRelay->IsRunning() || GRelayPublicIp.empty())
+		{
+			return false;
+		}
+
+		std::vector<FRelayRouteAssignment> Created;
+		Created.reserve(Recipients.size());
+		for (const uint64_t UserId : Recipients)
+		{
+			if (UserId == HostUserId)
+			{
+				continue;
+			}
+
+			FUdpRelayToken HostToken{};
+			FUdpRelayToken GuestToken{};
+			FUdpRelayPortPair Ports{};
+			const uint64_t RouteId = GNextRelayRouteId.fetch_add(1);
+			if (RouteId == 0 || !MakeRelayToken(HostToken) || !MakeRelayToken(GuestToken) ||
+				HostToken == GuestToken || !GRelay->CreateRoute(RouteId, HostToken, GuestToken, RoomId, Ports))
+			{
+				for (const FRelayRouteAssignment& Assignment : Created)
+				{
+					GRelay->RemoveRoute(Assignment.Host.RouteId);
+				}
+				return false;
+			}
+
+			FRelayRouteAssignment Assignment{};
+			Assignment.GuestUserId = UserId;
+			CopyFixedString(Assignment.Host.Address, kMaxAddressLen, GRelayPublicIp);
+			Assignment.Host.HostPort = Ports.HostPort;
+			Assignment.Host.RouteId = RouteId;
+			std::copy(HostToken.begin(), HostToken.end(), Assignment.Host.HostToken);
+
+			CopyFixedString(Assignment.Guest.Address, kMaxAddressLen, GRelayPublicIp);
+			Assignment.Guest.GuestPort = Ports.GuestPort;
+			Assignment.Guest.RouteId = RouteId;
+			std::copy(GuestToken.begin(), GuestToken.end(), Assignment.Guest.GuestToken);
+			Created.push_back(Assignment);
+		}
+
+		if (Created.empty())
+		{
+			return true;  // 혼자 시작한 방은 relay 경로가 필요 없다.
+		}
+
+		std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+		GRelayRoutesByRoom[RoomId] = std::move(Created);
+		return true;
+	}
+
+	/**
+	 * 도달성 프로브를 쏠 UDP 소켓. (v9)
+	 *
+	 * ★ 보내기 전용이다. bind 하지 않으므로 서버 쪽 공유기에 인바운드 포워딩을
+	 *   새로 넣을 필요가 없다. 응답은 UDP 가 아니라 호스트가 TCP 로 신고한다.
+	 *
+	 * 한 번 만들어 두고 계속 쓴다. 프로브마다 소켓을 새로 여는 것은 낭비고,
+	 * 짧은 시간에 여러 방이 만들어지면 소켓 고갈로 이어질 수 있다.
+	 */
+	SocketHandle GProbeSock = kInvalidSocket;
+
+	/** 호스트의 공인주소:포트 로 프로브 한 발. 성공하면 true. */
+	bool SendHostProbe(const std::string& Address, uint16_t Port, uint32_t Nonce)
+	{
+		if (GProbeSock == kInvalidSocket || Address.empty() || Port == 0)
+		{
+			return false;
+		}
+
+		sockaddr_in Dest{};
+		Dest.sin_family = AF_INET;
+		Dest.sin_port   = ::htons(Port);
+		if (::inet_pton(AF_INET, Address.c_str(), &Dest.sin_addr) != 1)
+		{
+			return false;
+		}
+
+		HostProbeDatagram Datagram{};
+		Datagram.Magic = kHostProbeMagic;
+		Datagram.Nonce = Nonce;
+
+		const int Sent = ::sendto(GProbeSock, reinterpret_cast<const char*>(&Datagram),
+		                          static_cast<int>(sizeof(Datagram)), 0,
+		                          reinterpret_cast<const sockaddr*>(&Dest), sizeof(Dest));
+		return Sent == static_cast<int>(sizeof(Datagram));
+	}
+
+	/**
+	 * 참여자가 보낸 등록 데이터그램을 처리한다. (v10)
+	 *
+	 * 이 함수의 존재 이유가 곧 홀펀칭의 전부다 — 방장은 참여자의 공인 게임
+	 * 엔드포인트를 알 방법이 없고(그 패킷 자체가 방장의 NAT 에서 막힌다),
+	 * 바깥에 있으면서 양쪽과 이미 이야기하고 있는 것은 이 서버뿐이다.
+	 *
+	 * ★ 주소는 **관측값**이다. 데이터그램 안에는 UserId 만 들어 있고 주소는 없다.
+	 *   그래도 UserId 는 위조할 수 있으므로, TCP 세션의 공인 IP 와 다르면 버린다.
+	 *   그러면 남을 엉뚱한 곳으로 punch 하게 만들 수 없다.
+	 */
+	void HandleClientEndpointDatagram(const ClientEndpointDatagram& Datagram,
+	                                  const sockaddr_in& From)
+	{
+		char AddrText[INET_ADDRSTRLEN] = {};
+		if (::inet_ntop(AF_INET, &From.sin_addr, AddrText, sizeof(AddrText)) == nullptr)
+		{
+			return;
+		}
+		// ★ 방 주소와 같은 규칙을 여기에도 건다.
+		//   서버와 같은 공유기 안에 있는 사람은 출발지가 사설 주소(대개 게이트웨이)로
+		//   보인다. 그 값을 그대로 punch 대상으로 넘기면 방장은 자기 LAN 의 엉뚱한
+		//   기기로 쏘게 되고, 구멍은 아무 데도 안 뚫린다.
+		//   실제로 Player1 의 엔드포인트가 192.168.35.1 로 관측되고 있었다.
+		// 방 주소와 같은 규칙. 조용히 한다 — 등록은 자주 오고, 방 생성용 문구를
+		// 여기서 찍으면 엉뚱한 맥락에서 도배된다.
+		const std::string SourceAddress = ResolveHostAddress(AddrText, /*bVerbose=*/false);
+		const uint16_t    SourcePort    = ::ntohs(From.sin_port);
+
+		SessionPtr Target;
+		GSessions.ForEach([&](const SessionPtr& Session)
+		{
+			if (Session->bAuthed && Session->UserId == Datagram.UserId)
+			{
+				Target = Session;
+			}
+		});
+
+		if (!Target)
+		{
+			std::printf("[엔드포인트] 모르는 UserId %llu 의 등록을 버린다 (%s:%u)\n",
+			            static_cast<unsigned long long>(Datagram.UserId),
+			            SourceAddress.c_str(), SourcePort);
+			return;
+		}
+
+		// ★ 위조 차단. 남의 UserId 를 적어 보내면 여기서 걸린다 —
+		//   그 사람의 TCP 연결은 다른 IP 에서 오고 있기 때문이다.
+		if (ResolveHostAddress(Target->PeerAddress, /*bVerbose=*/false) != SourceAddress)
+		{
+			std::printf("[거부] 엔드포인트 등록의 출발지가 세션과 다르다: %s (세션은 %s)\n",
+			            SourceAddress.c_str(), Target->PeerAddress.c_str());
+			return;
+		}
+
+		Target->GameEndpointAddress = SourceAddress;
+		Target->GameEndpointPort    = SourcePort;
+
+		// ★ 이 사람이 방장이면 방의 공인 후보를 관측값으로 덮는다. (v10)
+		//
+		//   방을 만들 때 적은 공인 후보는 UPnP 가 알려준 포트다. 그런데 홀펀칭으로
+		//   실제 뚫리는 구멍은 **동적 바인딩의 포트**이고, UPnP 정적 매핑이 그 번호를
+		//   점유하고 있으면 둘이 달라진다(실측: UPnP 있을 때 1035, 없을 때 7777).
+		//   참여자가 붙어야 하는 곳은 뚫린 쪽이다.
+		Rooms::UpdateHostEndpoint(Target->UserId, SourceAddress, SourcePort);
+
+		std::printf("[엔드포인트] %s(%llu) 의 게임 주소를 %s:%u 로 관측했다\n",
+		            Target->Name.c_str(),
+		            static_cast<unsigned long long>(Target->UserId),
+		            SourceAddress.c_str(), SourcePort);
+
+		ClientEndpointAckBody Ack{};
+		Ack.Nonce     = Datagram.Nonce;
+		Ack.Port      = SourcePort;
+		Ack.bObserved = 1;
+		CopyFixedString(Ack.Address, kMaxAddressLen, SourceAddress);
+		SendPacket(Target->Sock, EOpcode::ClientEndpointAck, &Ack, sizeof(Ack));
+	}
+
+	/**
+	 * 프로브 소켓으로 들어오는 UDP 를 계속 읽는다. 전용 스레드에서 돈다.
+	 *
+	 * 지금 들어오는 것은 참여자의 엔드포인트 등록 하나뿐이다.
+	 * (프로브 응답은 UDP 가 아니라 호스트가 TCP 로 신고한다 — 서버는 쏘기만 했다)
+	 */
+	void UdpReceiveLoop()
+	{
+		std::printf("[UDP] 엔드포인트 수신 스레드 시작\n");
+
+		while (GRunning)
+		{
+			char Buffer[512];
+			sockaddr_in From{};
+			socklen_t   FromLen = sizeof(From);
+
+			const int Read = ::recvfrom(GProbeSock, Buffer, static_cast<int>(sizeof(Buffer)), 0,
+			                            reinterpret_cast<sockaddr*>(&From), &FromLen);
+			if (Read < 0)
+			{
+				if (IsRecvTimeout(LastNetError()))
+				{
+					continue;   // 타임아웃은 정상이다. GRunning 을 다시 보라는 뜻일 뿐
+				}
+				if (!GRunning)
+				{
+					break;
+				}
+				continue;
+			}
+
+			if (Read < static_cast<int>(sizeof(ClientEndpointDatagram)))
+			{
+				continue;   // 우리 것이 아니다
+			}
+
+			ClientEndpointDatagram Datagram{};
+			std::memcpy(&Datagram, Buffer, sizeof(Datagram));
+			if (Datagram.Magic != kClientEndpointMagic)
+			{
+				continue;
+			}
+
+			HandleClientEndpointDatagram(Datagram, From);
+		}
+
+		std::printf("[UDP] 엔드포인트 수신 스레드 종료\n");
+	}
+
+	/** HostCandidate 하나를 채운다. 주소가 비었거나 너무 길면 아무것도 하지 않고 false. */
+	bool PushCandidate(std::vector<HostCandidate>& Out, const std::string& Address,
+	                   uint16_t Port, EHostAddrKind Kind)
+	{
+		if (Address.empty() || Address.size() >= kMaxAddressLen || Port == 0)
+		{
+			return false;
+		}
+		if (Out.size() >= kMaxHostCandidates)
+		{
+			return false;
+		}
+		// 같은 주소가 두 번 들어가는 것을 막는다. 방장이 서버와 같은 LAN 이면
+		// 공인 후보와 사설 후보가 같은 값이 될 수 있다.
+		for (const HostCandidate& C : Out)
+		{
+			if (Address == C.Address && Port == C.Port)
+			{
+				return false;
+			}
+		}
+
+		HostCandidate C{};
+		CopyFixedString(C.Address, kMaxAddressLen, Address);
+		C.Port = Port;
+		C.Kind = static_cast<uint8_t>(Kind);
+		Out.push_back(C);
+		return true;
+	}
+
+	/**
+	 * 방에 기록할 호스트 주소 후보들을 만든다. (v8)
+	 *
+	 * [왜 하나가 아니라 목록인가]
+	 *   v7 까지는 공인 주소 하나만 내려줬다. 그러면 **방장과 같은 공유기 안에 있는
+	 *   참가자**까지 공인 IP 로 나갔다 돌아오는 헤어핀 접속을 해야 한다.
+	 *   헤어핀을 지원하지 않는 공유기가 흔해서, 바로 옆자리 사람이 못 들어왔다.
+	 *   실측으로 확인한 문제다 — 같은 LAN 에서 사설 IP 로는 즉시 붙는데
+	 *   공인 IP 로는 핸드셰이크가 통째로 사라졌다.
+	 *
+	 * [무엇을 믿는가]
+	 *   1) 공인 후보 — accept() 에서 읽은 값. 클라이언트가 못 건드린다
+	 *   2) 사설 후보 — 클라이언트 신고값. **사설 대역일 때만** 받는다
+	 *
+	 *   2번을 그냥 믿으면 남의 공인 주소를 적어 접속을 몰아주는 장난이 가능하다.
+	 *   사설 대역으로 제한하면 최악이 "같은 LAN 안의 엉뚱한 기기" 까지고,
+	 *   받는 쪽도 자기 서브넷과 맞을 때만 그 후보를 쓴다.
+	 *
+	 * 순서가 곧 우선순위는 아니다 — 고르는 것은 받는 쪽이다.
+	 */
+	std::vector<HostCandidate> BuildHostCandidates(const std::string& PeerAddress,
+	                                               const std::string& ReportedLanAddress,
+	                                               uint16_t HostPort)
+	{
+		std::vector<HostCandidate> Candidates;
+
+		PushCandidate(Candidates, ResolveHostAddress(PeerAddress), HostPort, EHostAddrKind::Public);
+
+		if (!ReportedLanAddress.empty())
+		{
+			if (IsPrivateAddress(ReportedLanAddress))
+			{
+				PushCandidate(Candidates, ReportedLanAddress, HostPort, EHostAddrKind::Lan);
+			}
+			else
+			{
+				// 조용히 버리지 않고 남긴다. 공인 주소를 사설 자리에 넣어 보내는 것은
+				// 버그이거나 장난이고, 둘 다 알아야 한다.
+				std::printf("[거부] 사설이 아닌 주소를 LAN 후보로 신고했다: %s\n",
+				            ReportedLanAddress.c_str());
+			}
+		}
+
+		return Candidates;
+	}
+
+	/** 방의 후보 목록을 패킷 배열에 옮긴다. 반환값은 실제로 채운 개수. */
+	uint8_t FillCandidates(HostCandidate (&Dest)[kMaxHostCandidates],
+	                       const std::vector<HostCandidate>& Src)
+	{
+		uint8_t Count = 0;
+		for (const HostCandidate& C : Src)
+		{
+			if (Count >= kMaxHostCandidates)
+			{
+				break;
+			}
+			Dest[Count++] = C;
+		}
+		return Count;
 	}
 
 	// Ctrl+C 로 서버를 내릴 때 큐에 남은 채팅 로그를 마저 쓰고 나간다.
@@ -690,6 +1153,17 @@ namespace
 			return;   // 어느 방에도 없었다
 		}
 
+		// relay route 는 방 멤버십과 같은 수명이다. 방장이 나가면 모두, 참여자가
+		// 나가면 그 사람의 포트 쌍만 즉시 닫아 늦은 UDP가 다음 방에 섞이지 않게 한다.
+		if (bRoomClosed)
+		{
+			ReleaseRelayRoutesForRoom(RoomId);
+		}
+		else
+		{
+			ReleaseRelayRouteForGuest(RoomId, Session->UserId);
+		}
+
 		if (bRoomClosed)
 		{
 			std::printf("[방 삭제] #%u 방장 %s(%llu) 가 나갔다. 남은 %zu명에게 통보. 남은 방 %zu개\n",
@@ -745,22 +1219,34 @@ namespace
 		// 비밀번호는 널 종료가 없는 고정 4바이트다. 길이를 지정해 그대로 읽는다.
 		const std::string Password(Req.Password, kRoomPasswordLen);
 
-		// PeerAddress 를 그대로 쓰지 않고 한 번 거른다. 호스트가 서버와 같은
-		// 공유기 안이면 사설 IP 라서, 외부 참가자가 그 주소로는 못 온다.
-		const std::string HostAddress = ResolveHostAddress(Session->PeerAddress);
+		// 공인 주소는 서버가 관측하고, 사설 주소는 호스트가 신고한 값을 검사해서 받는다.
+		// 판단은 전부 BuildHostCandidates 안에 있다.
+		const std::string ReportedLan = ReadFixedString(Req.LanAddress, kMaxAddressLen);
+		const std::vector<HostCandidate> Candidates =
+			BuildHostCandidates(Session->PeerAddress, ReportedLan, Req.HostPort);
 
 		uint32_t NewRoomId = 0;
 		const ERoomResult R = Rooms::Create(
-			Session->UserId, Session->Name, HostAddress, Req.HostPort,
+			Session->UserId, Session->Name, Candidates, Session->bLanOnly,
 			Title, Req.bHasPassword != 0, Password, Req.MaxPlayers, NewRoomId);
 
 		if (R == ERoomResult::Success)
 		{
-			std::printf("[방 생성] #%u \"%s\" 방장=%s(%llu) 주소=%s:%u %s\n",
+			std::printf("[방 생성] #%u \"%s\" 방장=%s(%llu) %s\n",
 			            NewRoomId, Title.c_str(), Session->Name.c_str(),
 			            static_cast<unsigned long long>(Session->UserId),
-			            HostAddress.c_str(), Req.HostPort,
 			            Req.bHasPassword ? "[비번]" : "");
+			for (const HostCandidate& C : Candidates)
+			{
+				std::printf("[방 생성]   후보 %s:%u (%s)\n", C.Address, C.Port,
+				            C.Kind == static_cast<uint8_t>(EHostAddrKind::Lan) ? "LAN" : "공인");
+			}
+
+			// 프로브를 돌리지 않은 클라이언트도 있을 수 있다(구버전, 프로브 실패).
+			// 그때는 "모름" 이고, 방은 예전처럼 아무 제한 없이 동작한다.
+			std::printf("[방 생성]   외부 접속: %s\n",
+			            !Session->bHasReachabilityReport ? "확인 안 됨"
+			            : (Session->bLanOnly ? "**불가** (같은 LAN 전용 방)" : "가능"));
 		}
 		else
 		{
@@ -826,20 +1312,20 @@ namespace
 
 		const std::string Password(Req.Password, kRoomPasswordLen);
 
-		std::string HostAddress;
-		uint16_t    HostPort = 0;
+		std::vector<HostCandidate> Candidates;
+		bool bLanOnly = false;
 		const ERoomResult R = Rooms::Join(Req.RoomId, Session->UserId, Session->Name,
-		                                  Password, HostAddress, HostPort);
+		                                  Password, Candidates, bLanOnly);
 
 		Ack.RoomId = Req.RoomId;
 		if (R == ERoomResult::Success)
 		{
-			CopyFixedString(Ack.HostAddress, kMaxAddressLen, HostAddress);
-			Ack.HostPort = HostPort;
-			std::printf("[방 참여] #%u <- %s(%llu), 주소 %s:%u 전달\n",
+			Ack.CandidateCount = FillCandidates(Ack.Candidates, Candidates);
+			Ack.bLanOnly       = bLanOnly ? 1 : 0;
+			std::printf("[방 참여] #%u <- %s(%llu), 주소 후보 %u개 전달\n",
 			            Req.RoomId, Session->Name.c_str(),
 			            static_cast<unsigned long long>(Session->UserId),
-			            HostAddress.c_str(), HostPort);
+			            static_cast<unsigned>(Ack.CandidateCount));
 		}
 		else
 		{
@@ -927,12 +1413,12 @@ namespace
 		}
 
 		uint32_t    RoomId = 0;
-		std::string HostAddress;
-		uint16_t    HostPort = 0;
+		std::vector<HostCandidate> Candidates;
 		std::vector<uint64_t> Recipients;
 
+		bool bLanOnly = false;
 		const ERoomResult R = Rooms::StartGame(Session->UserId, RoomId,
-		                                       HostAddress, HostPort, Recipients);
+		                                       Candidates, bLanOnly, Recipients);
 		if (R != ERoomResult::Success)
 		{
 			std::printf("[거부] 게임 시작 실패: %s(%llu) (사유 %u)\n", Session->Name.c_str(),
@@ -940,15 +1426,101 @@ namespace
 			return true;
 		}
 
-		std::printf("[게임 시작] #%u 방장=%s, 호스트 %s:%u, 인원 %zu명\n",
-		            RoomId, Session->Name.c_str(), HostAddress.c_str(), HostPort, Recipients.size());
+		std::printf("[게임 시작] #%u 방장=%s, 주소 후보 %zu개, 인원 %zu명\n",
+		            RoomId, Session->Name.c_str(), Candidates.size(), Recipients.size());
 
 		RoomStartBody Start{};
-		Start.RoomId   = RoomId;
-		Start.HostPort = HostPort;
-		CopyFixedString(Start.HostAddress, kMaxAddressLen, HostAddress);
+		Start.RoomId         = RoomId;
+		Start.CandidateCount = FillCandidates(Start.Candidates, Candidates);
+		Start.bLanOnly       = bLanOnly ? 1 : 0;
 
-		SendToUsers(Recipients, EOpcode::RoomStart, &Start, sizeof(Start), nullptr, 0);
+		// ★ 홀펀칭 대상: 방장을 뺀 참여자들의 **관측된** 공인 게임 엔드포인트. (v10)
+		//   방장은 OpenLevel 직전에 이 주소들로 한 발씩 쏴서 자기 NAT 에 구멍을 낸다.
+		//   등록을 안 한 참여자는 여기 안 들어간다 — 그 사람은 예전처럼 붙어야 하고,
+		//   방장 네트워크가 인바운드를 받는 경우에만 성공한다.
+		{
+			uint8_t PunchCount = 0;
+			GSessions.ForEach([&](const SessionPtr& Member)
+			{
+				if (PunchCount >= kMaxPlayersInRoom || Member->UserId == Session->UserId)
+				{
+					return;
+				}
+				if (Member->GameEndpointPort == 0 || Member->GameEndpointAddress.empty())
+				{
+					return;
+				}
+				// 이 방의 멤버만. Recipients 에 방장도 들어 있어 위에서 걸렀다.
+				bool bInThisRoom = false;
+				for (const uint64_t Id : Recipients)
+				{
+					if (Id == Member->UserId) { bInThisRoom = true; break; }
+				}
+				if (!bInThisRoom)
+				{
+					return;
+				}
+
+				PeerEndpoint& Target = Start.PunchTargets[PunchCount++];
+				CopyFixedString(Target.Address, kMaxAddressLen, Member->GameEndpointAddress);
+				Target.Port = Member->GameEndpointPort;
+			});
+			Start.PunchTargetCount = PunchCount;
+
+			std::printf("[게임 시작]   홀펀칭 대상 %u명\n", static_cast<unsigned>(PunchCount));
+			for (uint8_t i = 0; i < PunchCount; ++i)
+			{
+				std::printf("[게임 시작]     %s:%u\n",
+				            Start.PunchTargets[i].Address, Start.PunchTargets[i].Port);
+			}
+		}
+
+
+		// 직접 후보는 전원에게 같지만, relay capability 는 절대로 브로드캐스트하지
+		// 않는다. 방장만 host-facing 경로 전부를 받고, 참여자 RoomStart 는 0으로 둔다.
+		const bool bRelayAllocated = AllocateRelayRoutes(RoomId, Session->UserId, Recipients);
+		if (bRelayAllocated)
+		{
+			std::vector<RelayHostRoute> HostRoutes = GetHostRelayRoutes(RoomId);
+			if (!GRelayLanIp.empty() && IsPrivateAddress(Session->PeerAddress))
+			{
+				for (RelayHostRoute& Route : HostRoutes)
+				{
+					SetRelayAddress(Route, GRelayLanIp);
+				}
+			}
+			Start.RelayRouteCount = static_cast<uint8_t>(std::min<std::size_t>(HostRoutes.size(), kMaxRelayRoutes));
+			for (uint8_t Index = 0; Index < Start.RelayRouteCount; ++Index)
+			{
+				Start.RelayRoutes[Index] = HostRoutes[Index];
+			}
+			if (Start.RelayRouteCount > 0)
+			{
+				std::printf("[릴레이] #%u 방장에 %u개 host-facing 경로를 전달했다.\n",
+				            RoomId, static_cast<unsigned>(Start.RelayRouteCount));
+			}
+		}
+		else if (GRelay && GRelay->IsRunning())
+		{
+			std::printf("[릴레이] #%u 경로 할당 실패. 이번 방은 직접 연결만 시도한다.\n", RoomId);
+		}
+
+		// 방장에게만 capability 가 채워진 body 를 보낸다.
+		SendPacket(Session->Sock, EOpcode::RoomStart, &Start, sizeof(Start));
+
+		// 나머지 멤버에게는 relay 필드가 모두 0인 같은 RoomStart 를 보낸다.
+		std::vector<uint64_t> GuestRecipients;
+		GuestRecipients.reserve(Recipients.size());
+		for (const uint64_t UserId : Recipients)
+		{
+			if (UserId != Session->UserId)
+			{
+				GuestRecipients.push_back(UserId);
+			}
+		}
+		Start.RelayRouteCount = 0;
+		std::memset(Start.RelayRoutes, 0, sizeof(Start.RelayRoutes));
+		SendToUsers(GuestRecipients, EOpcode::RoomStart, &Start, sizeof(Start), nullptr, 0);
 
 		// ★ 방이 InGame 이 됐으므로 이 방 사람들의 친구에게 "게임중" 을 알린다 (M4).
 		//   Recipients 는 방 멤버 전원이다 - 방장도 포함된다.
@@ -969,6 +1541,77 @@ namespace
 	 *   호스트는 이 시점에 이미 자기 맵에서 게임을 돌리고 있다. 성공/실패를 받아도
 	 *   할 수 있는 일이 없다. 거부 사유는 서버 콘솔에만 남긴다.
 	 */
+	/**
+	 * 호스트가 "내 공인주소:포트 로 UDP 를 한 발 쏴달라" 고 요청했다. (v9)
+	 *
+	 * 서버가 하는 일은 쏘는 것까지다. 그 패킷이 실제로 도착했는지는 호스트만 알고,
+	 * 결과는 RoomReachabilityReq 로 다시 올라온다.
+	 *
+	 * ★ 목적지 주소는 **세션의 피어 주소**를 쓴다. 클라이언트가 보낸 주소로 쏘면
+	 *   이 서버가 남에게 UDP 를 대신 쏴주는 도구가 된다.
+	 *   클라이언트가 정하는 것은 포트 하나뿐이다.
+	 */
+	bool HandleHostProbeReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		if (!Session->bAuthed || BodySize < sizeof(HostProbeReqBody))
+		{
+			return true;
+		}
+
+		HostProbeReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const bool bSent = SendHostProbe(Session->PeerAddress, Req.Port, Req.Nonce);
+
+		std::printf("[프로브] %s(%llu) 의 %s:%u 로 UDP 발사 %s\n",
+		            Session->Name.c_str(),
+		            static_cast<unsigned long long>(Session->UserId),
+		            Session->PeerAddress.c_str(), Req.Port,
+		            bSent ? "성공" : "실패");
+
+		HostProbeSentBody Ack{};
+		Ack.Nonce = Req.Nonce;
+		Ack.bSent = bSent ? 1 : 0;
+		return SendPacket(Session->Sock, EOpcode::HostProbeSent, &Ack, sizeof(Ack));
+	}
+
+	/** 호스트가 프로브 결과를 신고했다. 방에 표시만 하고 판정하지 않는다. (v9) */
+	bool HandleRoomReachabilityReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		if (!Session->bAuthed || BodySize < sizeof(RoomReachabilityReqBody))
+		{
+			return true;
+		}
+
+		RoomReachabilityReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+
+		const bool bReachable = (Req.bReachable != 0);
+
+		// ★ 세션에 먼저 적는다. 이것이 진실의 원본이다.
+		//
+		//   프로브는 **방을 만들기 전에** 돈다 — 그때만 게임 포트가 비어 있기 때문이다.
+		//   그래서 이 신고가 RoomCreateReq 보다 먼저 오는 것이 오히려 정상이다.
+		//   방에만 적으려 하면 "아직 방이 없다"(NotInRoom)로 버려지고, 정작 방에는
+		//   표시가 안 붙는다. 실제로 그렇게 조용히 버려지고 있었다.
+		Session->bLanOnly               = !bReachable;
+		Session->bHasReachabilityReport = true;
+
+		std::printf("[도달성] %s(%llu) 는 %s\n", Session->Name.c_str(),
+		            static_cast<unsigned long long>(Session->UserId),
+		            bReachable ? "외부에서 들어올 수 있다"
+		                       : "**같은 LAN 에서만** 들어올 수 있다 (공유기가 포워딩을 안 한다)");
+
+		// 이미 방이 있으면 그 방도 같이 갱신한다. 방을 만든 뒤 다시 확인한 경우다.
+		// 방이 없으면 위에 적어둔 값이 RoomCreateReq 에서 얹힌다 — 오류가 아니다.
+		uint32_t RoomId = 0;
+		if (Rooms::SetReachability(Session->UserId, bReachable, RoomId) == ERoomResult::Success)
+		{
+			std::printf("[도달성]   방 #%u 에 반영했다.\n", RoomId);
+		}
+		return true;
+	}
+
 	bool HandleRoomHostReadyReq(const SessionPtr& Session, const char*, uint32_t)
 	{
 		if (!Session->bAuthed)
@@ -977,12 +1620,12 @@ namespace
 		}
 
 		uint32_t    RoomId = 0;
-		std::string HostAddress;
-		uint16_t    HostPort = 0;
+		std::vector<HostCandidate> Candidates;
 		std::vector<uint64_t> Recipients;
 
+		bool bLanOnly = false;
 		const ERoomResult R = Rooms::MarkHostReady(Session->UserId, RoomId,
-		                                           HostAddress, HostPort, Recipients);
+		                                           Candidates, bLanOnly, Recipients);
 		if (R != ERoomResult::Success)
 		{
 			std::printf("[거부] 호스트 준비 신고 실패: %s(%llu) (사유 %u)\n", Session->Name.c_str(),
@@ -990,15 +1633,27 @@ namespace
 			return true;
 		}
 
-		std::printf("[호스트 준비] #%u 리슨서버 %s:%u 가 열렸다. 참여자 %zu명에게 출발 신호\n",
-		            RoomId, HostAddress.c_str(), HostPort, Recipients.size());
+		std::printf("[호스트 준비] #%u 리슨서버가 열렸다. 참여자 %zu명에게 출발 신호 (주소 후보 %zu개)\n",
+		            RoomId, Recipients.size(), Candidates.size());
 
-		RoomHostReadyBody Ready{};
-		Ready.RoomId   = RoomId;
-		Ready.HostPort = HostPort;
-		CopyFixedString(Ready.HostAddress, kMaxAddressLen, HostAddress);
-
-		SendToUsers(Recipients, EOpcode::RoomHostReady, &Ready, sizeof(Ready), nullptr, 0);
+		// GuestPort/token 은 참여자마다 다르므로, RoomHostReady 는 더 이상 하나를
+		// 브로드캐스트할 수 없다. direct 후보는 같고 Relay 만 개인화한다.
+		for (const uint64_t GuestUserId : Recipients)
+		{
+			RoomHostReadyBody Ready{};
+			Ready.RoomId         = RoomId;
+			Ready.CandidateCount = FillCandidates(Ready.Candidates, Candidates);
+			Ready.bLanOnly       = bLanOnly ? 1 : 0;
+			if (const SessionPtr Guest = FindAuthedSession(GuestUserId))
+			{
+				GetGuestRelayRoute(RoomId, GuestUserId, Ready.Relay);
+				if (!GRelayLanIp.empty() && IsPrivateAddress(Guest->PeerAddress))
+				{
+					SetRelayAddress(Ready.Relay, GRelayLanIp);
+				}
+				SendPacket(Guest->Sock, EOpcode::RoomHostReady, &Ready, sizeof(Ready));
+			}
+		}
 		return true;
 	}
 
@@ -1518,6 +2173,10 @@ namespace
 		case EOpcode::RoomReadyReq:    return HandleRoomReadyReq(Session, Data, Size);
 		case EOpcode::RoomStartReq:    return HandleRoomStartReq(Session, Data, Size);
 		case EOpcode::RoomHostReadyReq: return HandleRoomHostReadyReq(Session, Data, Size);
+
+		// --- 도달성 프로브 (v9) ---
+		case EOpcode::HostProbeReq:        return HandleHostProbeReq(Session, Data, Size);
+		case EOpcode::RoomReachabilityReq: return HandleRoomReachabilityReq(Session, Data, Size);
 		case EOpcode::ChatSend:  return HandleChatSend(Session, Data, Size);
 		case EOpcode::SetDead:   return HandleSetDead(Session, Data, Size);
 
@@ -1627,9 +2286,12 @@ int main(int argc, char** argv)
 	// MSVC 는 _IOLBF(줄 버퍼링)를 _IOFBF 와 동일하게 처리하므로 무버퍼로 둔다.
 	::setvbuf(stdout, nullptr, _IONBF, 0);
 
-	// 인자 파싱. --upnp / --public-ip 는 어디에 와도 되고,
+	// 인자 파싱. --upnp / --public-ip / --relay 는 어디에 와도 되고,
 	// 나머지는 순서대로 <port> [db경로] 다.
 	bool        bUseUpnp = false;
+	bool        bUseRelay = false;
+	uint16_t    RelayFirstPort = 10000;
+	uint16_t    RelayLastPort  = 10127;
 	const char* PortArg  = nullptr;
 	const char* DbArg    = nullptr;
 
@@ -1638,6 +2300,69 @@ int main(int argc, char** argv)
 		if (std::strcmp(argv[Index], "--upnp") == 0)
 		{
 			bUseUpnp = true;
+		}
+		else if (std::strcmp(argv[Index], "--relay") == 0)
+		{
+			bUseRelay = true;
+		}
+		else if (std::strncmp(argv[Index], "--relay-public-ip=", 18) == 0)
+		{
+			GRelayPublicIp = argv[Index] + 18;
+			bUseRelay = true;
+		}
+		else if (std::strcmp(argv[Index], "--relay-public-ip") == 0)
+		{
+			if (Index + 1 >= argc)
+			{
+				std::printf("[오류] --relay-public-ip 뒤에 주소가 없다.\n");
+				return 1;
+			}
+			GRelayPublicIp = argv[++Index];
+			bUseRelay = true;
+		}
+		else if (std::strncmp(argv[Index], "--relay-lan-ip=", 15) == 0)
+		{
+			GRelayLanIp = argv[Index] + 15;
+			bUseRelay = true;
+		}
+		else if (std::strcmp(argv[Index], "--relay-lan-ip") == 0)
+		{
+			if (Index + 1 >= argc)
+			{
+				std::printf("[오류] --relay-lan-ip 뒤에 주소가 없다.\n");
+				return 1;
+			}
+			GRelayLanIp = argv[++Index];
+			bUseRelay = true;
+		}
+		else if (std::strncmp(argv[Index], "--relay-ports=", 14) == 0 ||
+		         std::strcmp(argv[Index], "--relay-ports") == 0)
+		{
+			const char* Range = nullptr;
+			if (std::strncmp(argv[Index], "--relay-ports=", 14) == 0)
+			{
+				Range = argv[Index] + 14;
+			}
+			else if (Index + 1 < argc)
+			{
+				Range = argv[++Index];
+			}
+			if (Range == nullptr)
+			{
+				std::printf("[오류] --relay-ports 뒤에 10000-10127 형태의 범위가 필요하다.\n");
+				return 1;
+			}
+			unsigned First = 0, Last = 0;
+			char Trailing = '\0';
+			if (std::sscanf(Range, "%u-%u%c", &First, &Last, &Trailing) != 2 || First == 0 || Last > 65535 ||
+				First > Last || ((Last - First + 1) % 2) != 0)
+			{
+				std::printf("[오류] relay UDP 포트 범위 '%s' 가 잘못됐다. 짝수 개의 1-65535 범위를 써야 한다.\n", Range);
+				return 1;
+			}
+			RelayFirstPort = static_cast<uint16_t>(First);
+			RelayLastPort  = static_cast<uint16_t>(Last);
+			bUseRelay = true;
 		}
 		// --public-ip=1.2.3.4 와 --public-ip 1.2.3.4 를 둘 다 받는다.
 		// 붙여 쓰는 쪽만 지원하면 공백을 넣었을 때 그 값이 db경로로 먹혀
@@ -1678,10 +2403,21 @@ int main(int argc, char** argv)
 		            GPublicIp.c_str());
 		return 1;
 	}
+	if (!GRelayPublicIp.empty() && IsPrivateAddress(GRelayPublicIp))
+	{
+		std::printf("[오류] --relay-public-ip 에 사설 주소(%s)를 줬다. 공인 IP 를 줘야 한다.\n",
+		            GRelayPublicIp.c_str());
+		return 1;
+	}
+	if (!GRelayLanIp.empty() && !IsPrivateAddress(GRelayLanIp))
+	{
+		std::printf("[오류] --relay-lan-ip 는 서버 PC의 사설 LAN IPv4여야 한다: %s\n", GRelayLanIp.c_str());
+		return 1;
+	}
 
 	if (PortArg == nullptr)
 	{
-		std::printf("사용법: %s <port> [db경로] [--upnp] [--public-ip <주소>]\n", argv[0]);
+		std::printf("사용법: %s <port> [db경로] [--upnp] [--public-ip <주소>] [--relay]\n", argv[0]);
 		std::printf("  db경로를 생략하면 현재 디렉터리의 chat_log.db 를 쓴다.\n");
 		std::printf("  --upnp : 공유기(UPnP)에 이 포트를 자동으로 열어달라고 요청한다.\n");
 		std::printf("           다른 네트워크에서 접속시킬 때만 필요하다. 같은 공유기\n");
@@ -1689,6 +2425,12 @@ int main(int argc, char** argv)
 		std::printf("  --public-ip : 이 서버의 공인 IP. 방장이 서버와 같은 공유기 안에\n");
 		std::printf("           있을 때, 방의 호스트 주소로 사설 IP 대신 이 값을 기록한다.\n");
 		std::printf("           안 주면 --upnp 성공 시 알아낸 값을 자동으로 쓴다.\n");
+		std::printf("  --relay : 직접 UDP 연결 실패 시 사용할 자체 UDP relay 를 켠다.\n");
+		std::printf("           기본 범위는 10000-10127/UDP 이며, 공유기에 같은 범위를\n");
+		std::printf("           이 PC로 수동 포트포워딩해야 한다. --public-ip 를 재사용한다.\n");
+		std::printf("  --relay-public-ip <주소> : relay 전용 공인 IP 를 명시한다.\n");
+		std::printf("  --relay-lan-ip <주소> : 서버와 같은 LAN 참가자에게 줄 사설 relay 주소.\n");
+		std::printf("  --relay-ports <처음-끝> : 예: --relay-ports 10000-10127\n");
 		return 1;
 	}
 
@@ -1703,6 +2445,47 @@ int main(int argc, char** argv)
 	{
 		std::printf("socket() 실패: %d\n", LastNetError());
 		return 1;
+	}
+
+	// 도달성 프로브용 UDP 소켓. (v9)
+	// bind 하지 않는다 — 보내기만 하므로 OS 가 알아서 임시 포트를 잡는다.
+	// 실패해도 서버는 그대로 돈다. 프로브만 못 하게 될 뿐이고, 그때는 방이
+	// "모름(=예전처럼 동작)" 으로 남는다.
+	GProbeSock = ::socket(PF_INET, SOCK_DGRAM, 0);
+	if (GProbeSock == kInvalidSocket)
+	{
+		std::printf("[경고] 프로브용 UDP 소켓을 못 만들었다(%d). 도달성 확인 없이 진행한다.\n",
+		            LastNetError());
+	}
+	else
+	{
+		// ★ v10 부터는 bind 한다. 보내기만 하던 소켓이 이제 **받기도** 해야 한다 —
+		//   참여자가 자기 게임 포트에서 등록 데이터그램을 쏘고, 서버는 그 출발지를
+		//   관측해 방장에게 알려준다. 그것이 홀펀칭의 유일한 단서다.
+		//
+		//   TCP 와 같은 번호를 쓴다. 프로토콜이 다르므로 충돌하지 않고,
+		//   팀이 외울 포트가 하나로 유지된다.
+		//
+		// ★★ 공유기에 **외부 UDP <port> -> 서버 PC** 포워딩이 필요하다.
+		//    TCP 만 열려 있으면 등록 데이터그램이 서버까지 오지 못하고,
+		//    그러면 홀펀칭이 통째로 동작하지 않는다.
+		sockaddr_in ProbeAddr{};
+		ProbeAddr.sin_family      = AF_INET;
+		ProbeAddr.sin_addr.s_addr = ::htonl(INADDR_ANY);
+		ProbeAddr.sin_port        = ::htons(static_cast<uint16_t>(std::atoi(PortArg)));
+
+		if (::bind(GProbeSock, reinterpret_cast<sockaddr*>(&ProbeAddr), sizeof(ProbeAddr)) != 0)
+		{
+			std::printf("[경고] UDP %s 를 열지 못했다(%d). 홀펀칭 없이 진행한다.\n",
+			            PortArg, LastNetError());
+		}
+		else
+		{
+			// 타임아웃이 있어야 종료할 때 recvfrom 에 갇히지 않는다.
+			SetRecvTimeout(GProbeSock, 500);
+			std::printf("[UDP] %s 에서 엔드포인트 등록을 받는다.\n", PortArg);
+			std::printf("      * 공유기에 '외부 UDP %s -> 이 PC' 포워딩이 있어야 한다.\n", PortArg);
+		}
 	}
 
 	sockaddr_in ServerAddr{};
@@ -1792,6 +2575,47 @@ int main(int argc, char** argv)
 		}
 	}
 
+	// relay 는 공인 주소와 **별도 UDP 포트 범위**가 있어야 한다. 기존 9000/UDP 는
+	// 엔드포인트 등록용 단일 소켓이라 여러 UE 참여자를 투명하게 중계할 수 없다.
+	if (bUseRelay)
+	{
+		if (GRelayPublicIp.empty())
+		{
+			GRelayPublicIp = GPublicIp;  // 보통은 로그인 서버와 같은 공인 IP 다.
+		}
+
+		if (GRelayPublicIp.empty() || IsPrivateAddress(GRelayPublicIp))
+		{
+			std::printf("[릴레이] 비활성: --relay-public-ip 또는 --public-ip 로 공인 주소를 줘야 한다.\n");
+		}
+		else
+		{
+			FUdpRelayConfig Config;
+			Config.FirstPort = RelayFirstPort;
+			Config.LastPort  = RelayLastPort;
+			GRelay = std::make_unique<UdpRelay>();
+			if (!GRelay->Start(Config))
+			{
+				std::printf("[릴레이] UDP %u-%u 를 열지 못했다. 직접 연결만 계속한다.\n",
+				            static_cast<unsigned>(RelayFirstPort), static_cast<unsigned>(RelayLastPort));
+				GRelay.reset();
+			}
+			else
+			{
+				std::printf("[릴레이] 활성: %s:%u-%u/UDP (참여자당 포트 2개)\n",
+				            GRelayPublicIp.c_str(), static_cast<unsigned>(RelayFirstPort),
+				            static_cast<unsigned>(RelayLastPort));
+				std::printf("[릴레이] ★ 공유기에 외부 UDP %u-%u -> 이 PC 를 수동 포트포워딩해야 한다.\n",
+				            static_cast<unsigned>(RelayFirstPort), static_cast<unsigned>(RelayLastPort));
+				if (!GRelayLanIp.empty())
+				{
+					std::printf("[릴레이] 서버와 같은 LAN 참가자에게는 %s 를 내려준다(헤어핀 회피).\n",
+					            GRelayLanIp.c_str());
+				}
+			}
+		}
+	}
+
 	// 방장이 서버와 같은 공유기 안에 있을 때 무엇으로 바꿔 기록할지.
 	// 이게 비어 있으면 예전 동작 그대로이고, 그 조합에서만 외부 참가자가
 	// 사설 주소를 받아 무한 로딩에 걸린다. 켤 때 분명히 보이게 찍어둔다.
@@ -1808,6 +2632,14 @@ int main(int argc, char** argv)
 	}
 
 	std::printf("=== MOU 서버 시작 (port %s) ===\n", PortArg);
+
+	// 엔드포인트 등록 수신. accept 루프와 독립적이라 별도 스레드가 맞다. (v10)
+	// GRunning 이 꺼지면 recvfrom 타임아웃(500ms) 다음 바퀴에 스스로 빠져나온다.
+	std::thread UdpThread;
+	if (GProbeSock != kInvalidSocket)
+	{
+		UdpThread = std::thread(UdpReceiveLoop);
+	}
 
 	while (GRunning)
 	{
@@ -1836,6 +2668,27 @@ int main(int argc, char** argv)
 		// 방을 만들 때 호스트 주소로 쓸 값이다. 여기서 한 번만 확정해둔다.
 		Session->PeerAddress = AddrText;
 		std::thread(ClientThread, Session).detach();
+	}
+
+	// UDP 스레드를 먼저 거둔다. 소켓을 닫기 전에 빠져나와야 이미 닫힌 핸들로
+	// recvfrom 을 부르는 일이 없다.
+	if (UdpThread.joinable())
+	{
+		UdpThread.join();
+	}
+	if (GProbeSock != kInvalidSocket)
+	{
+		CloseSocket(GProbeSock);
+		GProbeSock = kInvalidSocket;
+	}
+	if (GRelay)
+	{
+		GRelay->Stop();
+		GRelay.reset();
+	}
+	{
+		std::lock_guard<std::mutex> Lock(GRelayRoutesMutex);
+		GRelayRoutesByRoom.clear();
 	}
 
 	ChatLog::Stop();

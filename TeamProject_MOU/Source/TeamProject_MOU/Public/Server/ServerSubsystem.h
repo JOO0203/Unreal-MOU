@@ -105,6 +105,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDirectMessageReceived, const FMOU
 /** 대화 기록 도착. 오래된 것 -> 최신 순. bHasMore 면 위로 더 있다. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDmHistoryReceived, int64, PeerUserId, const TArray<FMOUDirectMessage>&, Messages, bool, bHasMore);
 
+/** 지금 진행 중인 ClientTravel 이 직접 후보인지 relay 폴백인지 구분한다. */
+enum class EMOUTravelTransport : uint8
+{
+	None,
+	Direct,
+	Relay,
+};
+
 /**
  * 서버 연결의 소유자.
  *
@@ -300,6 +308,179 @@ public:
 	 * 그대로 남는다.
 	 */
 	void ReleasePreloadedMap();
+
+	/**
+	 * 참여자가 이 주소로 떠난다고 알려둔다. 접속에 실패하면 이 값을 넣어
+	 * "어디에 못 붙었는지" 를 그대로 말해줄 수 있다.
+	 */
+	void NotifyTravelingTo(const FString& HostAddress, int32 HostPort);
+
+	/** 접속 실패 사유를 사람이 읽을 문장으로. UI 가 그대로 띄워도 되게 만든다. */
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnMOUTravelFailed, const FString& /*Reason*/);
+	FOnMOUTravelFailed OnTravelFailed;
+
+	// ─────────────────────────────────────────────────────────────────
+	// 여행 (2026-08-29: ULobbyWidgetBase 에서 여기로 옮겼다)
+	//
+	// [왜 옮겼나 — 위젯이 여행을 맡으면 안 되는 이유]
+	//   출발 신호(RoomHostReady)를 받는 주체가 UMG 위젯이었다. 구독이
+	//   NativeConstruct 에서 걸리고 NativeDestruct 에서 풀리므로, 게임이 시작될 때
+	//   BP 가 로비 위젯을 닫으면 **신호를 받을 사람이 사라진다.** 그러면 참여자는
+	//   영영 떠나지 않고 "이동합니다..." 상태로 굳는다.
+	//
+	//   게다가 신호는 캐시되지 않아서, 위젯을 다시 만들어도 복구되지 않았다.
+	//
+	//   방장 쪽 감시(PollListenServer)는 이미 이 서브시스템에 있다. 같은 이유였다 —
+	//   "방장은 곧 OpenLevel 로 맵을 갈아타므로 위젯이 감시를 맡으면 감시자가
+	//   사라진다"(아래 RoomStart 처리 주석). 참여자 쪽만 그 원칙이 안 지켜져 있었다.
+	//
+	// 위젯은 이제 **설정을 넘겨주고 화면을 그리는 일**만 한다.
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * 여행에 필요한 값을 서브시스템에 등록한다. 로비 위젯이 자기 설정을 넘긴다.
+	 *
+	 * 값의 주인은 여전히 WBP 다(디자이너가 거기서 고친다). 다만 **행동**은 여기서
+	 * 하므로, 위젯이 죽어도 이 값들은 남아 있어야 한다.
+	 *
+	 * @param InHostMapName  방장이 리슨서버로 열 맵. 비면 여행하지 않는다(BP 가 맡는다)
+	 * @param bInAutoTravel  참여자가 출발 신호를 받으면 자동으로 ClientTravel 할지
+	 * @param bInPreloadMap  참여자가 기다리는 동안 맵을 미리 올릴지
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void ConfigureTravel(const FString& InHostMapName, bool bInAutoTravel = true, bool bInPreloadMap = false);
+
+	/**
+	 * 방 비밀번호를 보관한다. 방장이면 URL 에 실어 리슨서버를 열고,
+	 * 참여자면 ClientTravel URL 에 실어 보낸다.
+	 *
+	 * 위젯이 들고 있으면 위젯과 함께 사라진다 — 그러면 여행 URL 에서 비밀번호가
+	 * 빠지고, 호스트의 PreLogin 이 검사하는 순간 거부된다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void SetRoomPassword(const FString& InRoomPassword);
+
+	/**
+	 * 참여자가 방장에게 붙는다. 보통은 출발 신호를 받을 때 자동으로 불린다.
+	 *
+	 * bAutoTravelOnGameStart 를 꺼두고 BP 가 연출을 넣은 뒤 직접 부를 수도 있다.
+	 * 아직 출발 신호를 못 받았으면 아무 일도 하지 않고 false 를 돌려준다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	bool TravelToHost();
+
+	/**
+	 * 출발 신호를 이미 받아 두었는가. 위젯이 새로 만들어졌을 때 상태를 복원하는 데 쓴다.
+	 *
+	 * ★ 이것이 캐시의 존재 이유다. 예전에는 신호가 브로드캐스트되고 버려져서,
+	 *   그 순간 듣고 있던 위젯이 없으면 정보가 통째로 사라졌다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool HasPendingHostReady() const { return PendingHostReady.bSuccess; }
+
+	/**
+	 * 이 PC 의 LAN IPv4. 방을 만들 때 사설 후보로 신고한다. (v8)
+	 * 못 찾으면 빈 문자열 — 그러면 공인 후보만 남고 v7 과 같이 동작한다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	static FString GetLocalLanAddress();
+
+	/**
+	 * 후보들 중 **내 네트워크에 맞는 것**을 고른다. (v8)
+	 *
+	 * [규칙]
+	 *   1) Lan 후보가 있고 그 주소가 내 어댑터 중 하나와 같은 /24 안이면 그것
+	 *   2) 아니면 Public 후보
+	 *   3) 둘 다 없으면 남은 아무 것
+	 *
+	 * [왜 /24 인가]
+	 *   넷마스크를 정확히 알아내는 경로가 플랫폼마다 다르고, 틀렸을 때의 손해가
+	 *   이득보다 크다. /24 는 가정용·사무실 공유기의 절대다수를 덮고,
+	 *   빗나가도 접속 실패 시 다음 후보로 넘어가므로 최악이 "예전과 같음" 이다.
+	 *
+	 * @param OutIndex 고른 후보의 인덱스. 실패 시 INDEX_NONE
+	 * @return 고른 후보. 유효하지 않으면 후보가 하나도 쓸만하지 않다는 뜻이다
+	 */
+	static FMOUHostCandidate ChooseHostCandidate(const TArray<FMOUHostCandidate>& Candidates, bool bHostLanOnly, int32& OutIndex);
+
+	/**
+	 * 마지막에 쓴 후보가 실패했을 때 다음 후보로 다시 붙어본다. (v8)
+	 *
+	 * ★ 이것이 후보 선택을 안전하게 만든다.
+	 *   /24 비교는 넷마스크를 모르고 하는 추측이라 빗나갈 수 있다. 폴백이 있으면
+	 *   빗나갔을 때 최악이 "예전과 같음(공인으로 시도)" 이고, 없으면 "예전보다 나쁨" 이다.
+	 *
+	 * @return 다시 시도했으면 true. 남은 후보가 없으면 false — 그때가 진짜 실패다
+	 */
+	bool TryNextHostCandidate();
+
+	// ─────────────────────────────────────────────────────────────────
+	// 도달성 프로브 (v9)
+	//
+	// [왜 필요한가 — 실측으로 확인한 것]
+	//   UPnP 가 "매핑 성공" 이라고 답해도 실제로 패킷이 들어온다는 보장이 없다.
+	//   한 공유기에서 매핑 Enabled=1, 리슨서버 바인드 정상, 방화벽 Allow 였는데도
+	//   외부에서 보낸 패킷이 **하나도** 도착하지 않았다. 규칙을 기록만 하고
+	//   NAT 테이블에 반영하지 않는 펌웨어이거나 ISP 가 인바운드 UDP 를 거른 것이다.
+	//
+	//   그 상태로 게임을 시작하면 참여자 전원이 죽은 주소로 달려가 1분 가까이
+	//   화면이 멈춘 뒤에야 실패한다. "열렸다" 를 믿지 말고 한 발 받아봐야 한다.
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * 외부에서 이 PC 의 게임 포트로 들어올 수 있는지 실제로 확인한다.
+	 *
+	 * 서버에게 "내 공인주소:이 포트로 UDP 한 발 쏴달라" 고 청하고, 그 패킷이
+	 * 도착하는지 본다. 결과는 OnReachabilityChecked 로 오고 서버에도 신고된다.
+	 *
+	 * ★ 리슨서버가 그 포트를 잡기 **전에** 불러야 한다. 방을 만드는 시점이
+	 *   적기다 — 그때는 로비 맵이라 넷드라이버가 없어서 포트가 비어 있다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void BeginReachabilityProbe(int32 Port = 7777);
+
+	/** 프로브 결과. bReachable 이 거짓이면 이 방은 같은 LAN 전용이다. */
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMOUReachabilityChecked, bool, bReachable, const FString&, Detail);
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby")
+	FOnMOUReachabilityChecked OnReachabilityChecked;
+
+	/** 프로브가 진행 중인가. 방 만들기 버튼이 이 값을 보고 기다린다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	bool IsProbingReachability() const { return bProbing; }
+
+	// ─────────────────────────────────────────────────────────────────
+	// UDP 홀펀칭 (v10)
+	//
+	// [왜 필요한가 — 실측으로 갈라낸 것]
+	//   참여자 쪽 공유기는 **port-restricted cone** 이다:
+	//     · 정적 포워딩(UPnP)으로 들어오는 미요청 인바운드  -> 차단
+	//     · 자기가 먼저 쏜 상대의 **같은 포트**에서 오는 것  -> 통과
+	//     · 같은 상대라도 **다른 포트**에서 오면            -> 차단 (10발 중 0발)
+	//
+	//   그래서 방장이 참여자의 정확한 공인 IP:포트로 미리 한 발 쏘면 그 구멍으로
+	//   접속이 들어온다. 릴레이가 필요 없다.
+	//
+	// [세 조각]
+	//   ① 게임 포트 확보    참여자도 예측 가능한 포트를 쓴다 (UMOUIpNetDriver)
+	//   ② 엔드포인트 등록   그 포트에서 서버로 한 발 -> 서버가 출발지를 관측
+	//   ③ 방장의 punch      RoomStart 로 받은 대상에게 OpenLevel 직전에 쏜다
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * 게임 포트를 확보하고 서버에 등록한다. 대기실에 들어갈 때 부른다.
+	 *
+	 * 확보한 포트는 UMOUIpNetDriver 에 넘겨져 ClientTravel 때 그대로 쓰인다.
+	 * 그래야 서버가 관측한 엔드포인트와 실제 접속 출발지가 같아진다.
+	 *
+	 * ★ BasePort 가 사용 중이면 다음 번호로 올라간다.
+	 *   한 PC 에서 인스턴스를 둘 띄우는 테스트가 이 폴백 없이는 깨진다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby")
+	void RegisterGameEndpoint(int32 BasePort = 7777);
+
+	/** 서버가 관측해 알려준 내 공인 엔드포인트. 등록 전이면 비어 있다. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby")
+	FString GetObservedEndpoint() const { return ObservedEndpoint; }
 
 	/**
 	 * 지금 쓰고 있는 백엔드 이름. "자체 서버(TCP)" / "EOS".
@@ -532,6 +713,55 @@ private:
 	/** 지금 이 프로세스가 리슨서버로 돌고 있는가. */
 	bool IsListenServerUp() const;
 
+	/**
+	 * 참여자가 출발 신호를 못 받은 채 너무 오래 기다리지 않는지 본다. (2026-08-29)
+	 *
+	 * 방장 쪽 PollListenServer 와 짝이다. 그쪽은 "내 서버가 떴는가" 를 보고,
+	 * 이쪽은 "방장이 끝내 못 열었는가" 를 본다. 둘 다 매 틱 돈다.
+	 */
+	void PollGuestHostReadyTimeout(float DeltaTime);
+
+	/** 직접/relay 접속이 엔진의 긴 타임아웃에 갇히지 않도록 별도 시간 제한을 적용한다. */
+	void PollTravelConnection(float DeltaTime);
+
+	/** PendingNetGame 또는 현재 World의 서버 연결이 실제로 열린 상태인가. */
+	bool IsTravelConnectionOpen() const;
+
+	/** 방장이 리슨서버를 연다. HostMapName 이 비어 있으면 아무것도 하지 않는다. */
+	void TravelAsHost();
+
+	/**
+	 * 리슨서버가 뜬 직후, 외부 참여자가 들어오려면 무엇이 더 필요한지 로그에 남긴다.
+	 * 값(이 PC 의 LAN IP, 실제 리슨 포트)까지 채워서 그대로 공유기에 옮겨 적을 수 있게 한다.
+	 */
+	void LogListenServerReachability() const;
+
+	/**
+	 * 참여자가 방장에게 붙다가 실패했을 때 **왜** 실패했는지 알린다. (2026-08-28)
+	 *
+	 * [왜 필요한가 — 침묵이 가장 비쌌다]
+	 *   여행이 실패해도 화면에는 "호스트 ...:7777 로 이동합니다..." 만 그대로
+	 *   남아 있었다. 접속을 시도 중인지, 이미 실패했는지, 주소가 틀린 건지
+	 *   포트가 안 열린 건지 구분할 방법이 전혀 없었다.
+	 *   실제로 이 침묵 때문에 며칠을 서버 코드에서 원인을 찾았는데,
+	 *   서버는 처음부터 정상이었고 막힌 곳은 방장 쪽 공유기였다.
+	 *
+	 *   엔진은 이미 실패를 알고 있다(ENetworkFailure). 그걸 받아 사람이 읽을
+	 *   수 있는 문장으로 바꿔주기만 하면 된다.
+	 */
+	void HandleNetworkFailure(UWorld* World, UNetDriver* NetDriver,
+	                          ENetworkFailure::Type FailureType, const FString& ErrorString);
+
+	/** 레벨 이동 자체가 실패한 경우(맵을 못 찾는 등). 위와 같은 이유로 필요하다. */
+	void HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& ErrorString);
+
+	/** 참여자가 방금 어디로 떠났는지. 실패 메시지에 주소를 같이 적으려고 들고 있다. */
+	FString PendingTravelAddress;
+
+	/** 구독 해제용. 안 떼면 서브시스템이 죽은 뒤에도 엔진이 호출한다. */
+	FDelegateHandle NetworkFailureHandle;
+	FDelegateHandle TravelFailureHandle;
+
 	void SetConnectionState(EChatConnectionState NewState, const FString& Detail = FString());
 
 	/** 보관해둔 로그인 요청을 실제로 전송한다. */
@@ -594,6 +824,133 @@ private:
 	/** 기다린 시간. UMOUServerSettings::HostReadyTimeoutSeconds 를 넘으면 포기한다. */
 	float ListenServerWaitSeconds = 0.f;
 
+	// ─── 여행 상태 (2026-08-29) ──────────────────────────────────────
+	// 전부 위젯이 아니라 여기 있다. 위젯은 레벨과 함께 죽는다.
+
+	/** 로비 위젯이 ConfigureTravel 로 넘겨준 값. */
+	FString HostMapName;
+	bool    bAutoTravelOnGameStart = true;
+	bool    bPreloadMapWhileWaiting = false;
+
+	/**
+	 * 방장이면 내가 정한 값, 참여자면 입장할 때 쓴 값. 여행 URL 에 실린다.
+	 *
+	 * 이름에 Travel 을 붙인 이유: CreateRoom / JoinRoom 의 매개변수 이름이
+	 * RoomPassword 라, 그냥 RoomPassword 로 두면 그 안에서 멤버를 가린다(C4458).
+	 * 쓰임도 다르다 — 저쪽은 로비 서버에 보내는 값이고 이것은 여행 URL 에 싣는 값이다.
+	 */
+	FString TravelRoomPassword;
+
+	/**
+	 * 받아둔 출발 신호. bSuccess 가 참이면 "지금 떠나도 된다" 는 뜻이다.
+	 *
+	 * 브로드캐스트하고 버리지 않고 여기 남긴다 — 그래야 그 순간 듣고 있던 위젯이
+	 * 없었어도, 나중에 만들어진 위젯이 HasPendingHostReady 로 상태를 복원할 수 있다.
+	 */
+	FMOURoomJoinResult PendingHostReady;
+
+	/** PendingHostReady.Candidates 중 마지막으로 시도한 인덱스. 폴백 탐색 시작점이다. */
+	int32 TriedCandidateIndex = INDEX_NONE;
+
+	/** 이미 시도한 후보. 전부 실패한 뒤 첫 후보로 영원히 순환하는 것을 막는다. */
+	TSet<int32> TriedCandidateIndices;
+
+	/**
+	 * 참여자가 RoomStart 를 받고 나서 흐른 시간. 출발 신호를 기다리는 중에만 센다.
+	 *
+	 * [왜 필요한가]
+	 *   방장의 리슨서버가 안 열리면 서버는 출발 신호를 **보내지 않는다**(죽은 주소로
+	 *   보내지 않으려고 일부러 그런다). 그런데 그러면 참여자에게는 아무것도 안 오고,
+	 *   화면은 "방장이 서버를 여는 중입니다..." 로 영원히 굳는다.
+	 *   기다림에는 끝이 있어야 한다.
+	 */
+	bool  bGuestWaitingForHostReady = false;
+	float GuestWaitSeconds = 0.f;
+
+	// ─── 도달성 프로브 상태 (v9) ─────────────────────────────────────
+	bool   bProbing = false;
+	uint32 ProbeNonce = 0;
+	int32  ProbePort = 0;
+	float  ProbeWaitSeconds = 0.f;
+	/** 서버가 "쐈다" 고 답했는가. 그때부터 시간을 센다. */
+	bool   bProbeDispatched = false;
+	/** HostProbeSent 를 기다리는 시간까지 포함한 전체 상한. */
+	float  ProbeTotalSeconds = 0.f;
+	/** UPnP 규칙 반영 지연과 UDP 유실에 대비한 재요청 간격/횟수. */
+	float  ProbeRetrySeconds = 0.f;
+	int32  ProbeRequestAttempts = 0;
+	/**
+	 * 게임 포트에 bind 된 UDP 소켓. 셋이 같이 쓴다. (v10 에서 프로브 전용 -> 공용)
+	 *
+	 *   · 도달성 프로브 : 서버가 쏜 확인 패킷을 받는다
+	 *   · 엔드포인트 등록: 여기서 서버로 쏴야 서버가 **이 포트**를 관측한다
+	 *   · 홀펀칭       : 여기서 쏴야 NAT 구멍이 **이 포트**에 뚫린다
+	 *
+	 * ★ 셋 다 같은 소켓이어야 하는 이유가 같다. 다른 소켓을 쓰면 검증·등록·개방이
+	 *   전부 엉뚱한 포트에 일어나고, 정작 게임이 쓸 포트는 아무것도 안 된 채 남는다.
+	 *
+	 * ★ 여행 직전에 반드시 닫는다. 열어둔 채 OpenLevel/ClientTravel 하면
+	 *   넷드라이버가 같은 포트를 잡지 못한다.
+	 */
+	class FSocket* GameSocket = nullptr;
+
+	/** 게임 포트를 확보한다. 이미 있으면 아무 일도 하지 않는다. 실패하면 false. */
+	bool EnsureGameSocket(int32 BasePort);
+
+	/** 게임 소켓을 닫는다. 여행 직전과 종료 시에 부른다. */
+	void CloseGameSocket();
+
+	/**
+	 * 마지막 프로브 결과. 방이 생긴 뒤 다시 신고하는 데 쓴다. (2026-08-29)
+	 *
+	 * [왜 보관해야 하는가 — 실제로 난 버그]
+	 *   프로브는 **방 만들기 창이 열릴 때** 시작한다(그때 게임 포트가 비어 있어서다).
+	 *   그런데 결과가 나오는 시점은 사용자가 제목을 다 치고 "만들기" 를 누르기
+	 *   전일 수도, 후일 수도 있다. 앞이면 서버에 방이 아직 없어서 신고가
+	 *   NotInRoom 으로 거부되고, 그 방은 도달성 표시 없이 남는다.
+	 *
+	 *   즉 **입력 속도에 따라 갈리는 레이스**였다. 빨리 치면 되고 천천히 치면 안 됐다.
+	 *   결과를 들고 있다가 RoomCreateAck 에서 한 번 더 보내면 순서와 무관해진다.
+	 */
+	bool bHasReachabilityResult = false;
+	bool bLastReachable = false;
+
+	// ─── 홀펀칭 상태 (v10) ──────────────────────────────────────────
+	/**
+	 * 확보한 게임 포트. 0 이면 확보하지 못했다(= 홀펀칭 없이 예전처럼 동작).
+	 *
+	 * ★ 프로브 소켓과 **같은 포트**여야 한다. 다른 포트로 확인하거나 punch 하면
+	 *   정작 리슨서버/클라이언트가 쓸 포트는 검증도 개방도 안 된 채 남는다.
+	 */
+	int32 ReservedGamePort = 0;
+
+	/** 서버가 관측해 알려준 내 공인 엔드포인트. 진단용 표시에 쓴다. */
+	FString ObservedEndpoint;
+
+	/** 방장이 punch 할 대상. RoomStart 로 받는다. */
+	TArray<FMOUHostCandidate> PunchTargets;
+
+	/**
+	 * 대상들에게 더미 UDP 를 몇 발 쏜다. OpenLevel 직전에 부른다.
+	 *
+	 * ★ 프로브 소켓(= 게임 포트에 bind 된 소켓)으로 쏴야 한다.
+	 *   다른 소켓으로 쏘면 NAT 에 뚫리는 구멍이 그 소켓의 포트에 생기고,
+	 *   정작 리슨서버가 쓸 포트는 그대로 막혀 있다.
+	 */
+	void PunchTowardPeers();
+
+	/** 기존 GameSocket으로 relay capability를 미리 등록해 NAT 매핑을 예열한다. */
+	void RegisterRelayRouteFromGameSocket(const FMOUGameRelayRoute& Route, bool bHost);
+
+	/** 실제 UE client socket 등록을 예약하고 guest-facing relay 포트로 떠난다. */
+	bool TryRelayFallback();
+
+	/** 프로브를 끝내고 결과를 알린다. 소켓을 닫는 유일한 경로다. */
+	void FinishReachabilityProbe(bool bReachable, const FString& Detail);
+
+	/** 매 틱 프로브 소켓을 들여다본다. 논블로킹이라 비용이 사실상 없다. */
+	void PollReachabilityProbe(float DeltaTime);
+
 	/**
 	 * 미리 올린 맵 패키지. UPROPERTY 참조가 GC 를 막는다.
 	 * AddToRoot 를 쓰지 않는 이유는 해제를 빠뜨렸을 때 맵이 영원히 남기 때문이다.
@@ -624,6 +981,16 @@ private:
 
 	/** 방을 떠났을 때 대기실 관련 상태를 한 번에 비운다. */
 	void ClearRoomState();
+
+	/** RoomStart 에서 받은 방장 전용 host-facing relay 경로들. */
+	TArray<FMOUGameRelayRoute> PendingHostRelayRoutes;
+
+	/** RoomHostReady 에서 받은 이 참여자 전용 guest-facing relay 경로. */
+	FMOUGameRelayRoute PendingGuestRelayRoute;
+
+	EMOUTravelTransport ActiveTravelTransport = EMOUTravelTransport::None;
+	bool bRelayFallbackTried = false;
+	float TravelAttemptSeconds = 0.f;
 
 	/** 내가 방장인 방 번호. RoomCreateAck 로 확정되고, 방을 닫거나 끊기면 0 이 된다. */
 	int32 MyRoomId = 0;

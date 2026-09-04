@@ -12,6 +12,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ChatProtocol.h"
 #include "LobbyTypes.generated.h"
 
 /**
@@ -154,10 +155,105 @@ struct FMOURoomMember
 };
 
 /**
+ * 호스트 주소가 어떤 성격인가. (v8)
+ * MOU::EHostAddrKind 와 값이 같아야 한다 — ChatFraming.h 가 static_assert 로 묶는다.
+ */
+UENUM(BlueprintType)
+enum class EMOUHostAddrKindBP : uint8
+{
+	Public = 0   UMETA(DisplayName = "공인"),
+	Lan    = 1   UMETA(DisplayName = "같은 LAN"),
+	Punch  = 2   UMETA(DisplayName = "홀펀칭"),
+};
+
+/**
+ * 호스트에게 가는 길 하나.
+ *
+ * 여러 개인 이유: 방장과 **같은 공유기 안에 있는 참가자**는 공인 IP 로 나갔다
+ * 돌아오는 헤어핀 접속을 해야 하는데, 그걸 지원하지 않는 공유기가 흔하다.
+ * 실측으로 확인했다 — 같은 LAN 에서 사설 IP 로는 즉시 붙는데 공인 IP 로는
+ * 핸드셰이크가 통째로 사라졌다. 사설 주소를 같이 내려주면 그 조합이 풀린다.
+ */
+USTRUCT(BlueprintType)
+struct FMOUHostCandidate
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	FString Address;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	int32 Port = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	EMOUHostAddrKindBP Kind = EMOUHostAddrKindBP::Public;
+
+	bool IsValid() const { return !Address.IsEmpty() && Port > 0; }
+
+	/**
+	 * ClientTravel 에 넣을 완성된 URL 을 만든다.
+	 *
+	 * 방 비밀번호는 URL 옵션으로 실어 보낸다.
+	 * 호스트의 GameMode::PreLogin 이 이 옵션을 검사해서 최종적으로 막는다.
+	 * (로비 서버의 검사는 UX 용이고, 진짜 관문은 호스트다.)
+	 */
+	FString MakeTravelURL(const FString& RoomPassword) const
+	{
+		FString URL = FString::Printf(TEXT("%s:%d"), *Address, Port);
+		if (!RoomPassword.IsEmpty())
+		{
+			URL += FString::Printf(TEXT("?RoomPassword=%s"), *RoomPassword);
+		}
+		return URL;
+	}
+
+	FString ToDisplayString() const
+	{
+		const TCHAR* KindText =
+			(Kind == EMOUHostAddrKindBP::Lan)   ? TEXT("LAN")   :
+			(Kind == EMOUHostAddrKindBP::Punch) ? TEXT("홀펀칭") : TEXT("공인");
+		return FString::Printf(TEXT("%s:%d(%s)"), *Address, Port, KindText);
+	}
+};
+
+/**
+ * 직접 연결이 끝내 실패했을 때만 쓰는 참여자 전용 UDP 릴레이 경로. (v11)
+ *
+ * 이 타입은 네이티브 전송 상태용이다. Token 은 블루프린트나 로그로 내보내지 않고,
+ * UE 넷드라이버가 실제 게임 소켓에서 relay 등록 데이터그램을 만들 때만 사용한다.
+ */
+struct FMOUGameRelayRoute
+{
+	FString Address;
+	int32   Port = 0;
+	uint64  RouteId = 0;
+	TArray<uint8> Token;
+
+	bool HasValidToken() const { return Token.Num() == static_cast<int32>(MOU::kRelayTokenBytes); }
+	bool IsValid() const { return !Address.IsEmpty() && Port > 0 && RouteId != 0 && HasValidToken(); }
+
+	/** 참여자가 relay 의 guest-facing 포트로 떠날 때 쓴다. Token 은 URL 에 절대 넣지 않는다. */
+	FString MakeGuestTravelURL(const FString& RoomPassword) const
+	{
+		FString URL = FString::Printf(TEXT("%s:%d"), *Address, Port);
+		if (!RoomPassword.IsEmpty())
+		{
+			URL += FString::Printf(TEXT("?RoomPassword=%s"), *RoomPassword);
+		}
+		return URL;
+	}
+
+	FString ToGuestDisplayString() const
+	{
+		return FString::Printf(TEXT("%s:%d(릴레이)"), *Address, Port);
+	}
+};
+
+/**
  * 방 참여 요청의 결과.
  *
- * bSuccess 일 때만 HostAddress/HostPort 가 채워진다.
- * 이 주소로 ClientTravel 하면 호스트의 리슨서버에 붙는다.
+ * bSuccess 일 때만 Candidates 가 채워진다.
+ * 어느 후보로 갈지는 **받는 쪽이** 정한다 — UServerSubsystem::ChooseHostCandidate.
  */
 USTRUCT(BlueprintType)
 struct FMOURoomJoinResult
@@ -170,30 +266,40 @@ struct FMOURoomJoinResult
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
 	int32 RoomId = 0;
 
-	/** 예: "192.168.0.10". 실패했으면 비어있다. */
+	/** 호스트에게 가는 길들. 순서는 우선순위가 아니다 — 고르는 것은 받는 쪽이다. */
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
-	FString HostAddress;
-
-	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
-	int32 HostPort = 0;
+	TArray<FMOUHostCandidate> Candidates;
 
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
 	EMOURoomResultBP Result = EMOURoomResultBP::Success;
 
 	/**
-	 * ClientTravel 에 넣을 완성된 URL 을 만든다.
+	 * 이 방은 같은 LAN 안에서만 들어올 수 있는가. (v9)
 	 *
-	 * 방 비밀번호는 URL 옵션으로 실어 보낸다.
-	 * 호스트의 GameMode::PreLogin 이 이 옵션을 검사해서 최종적으로 막는다.
-	 * (로비 서버의 검사는 UX 용이고, 진짜 관문은 호스트다.)
+	 * 방장이 도달성 프로브에 실패했다는 뜻이다 — UPnP 매핑은 됐지만 공유기가
+	 * 실제로 포워딩을 하지 않거나 ISP 가 인바운드 UDP 를 거른다.
+	 *
+	 * 이 값이 참인데 내가 공인 후보를 골랐다면 **접속은 반드시 실패한다.**
+	 * 그럴 때는 시도하지 말고 그 자리에서 사유를 보여주는 편이 낫다 —
+	 * 시도하면 핸드셰이크 타임아웃까지 1분 가까이 화면이 멈춘다.
 	 */
-	FString MakeTravelURL(const FString& RoomPassword) const
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	bool bLanOnly = false;
+
+	/** 로그와 화면에 쓸 요약. "218.153.186.240:7777(공인), 192.168.0.32:7777(LAN)" */
+	FString ToDisplayString() const
 	{
-		FString URL = FString::Printf(TEXT("%s:%d"), *HostAddress, HostPort);
-		if (!RoomPassword.IsEmpty())
+		if (Candidates.Num() == 0)
 		{
-			URL += FString::Printf(TEXT("?RoomPassword=%s"), *RoomPassword);
+			return TEXT("(주소 없음)");
 		}
-		return URL;
+
+		TArray<FString> Parts;
+		Parts.Reserve(Candidates.Num());
+		for (const FMOUHostCandidate& C : Candidates)
+		{
+			Parts.Add(C.ToDisplayString());
+		}
+		return FString::Join(Parts, TEXT(", "));
 	}
 };

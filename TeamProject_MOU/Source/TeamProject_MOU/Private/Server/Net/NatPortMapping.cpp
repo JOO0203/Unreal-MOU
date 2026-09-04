@@ -355,21 +355,60 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 		return ENatMapResult::NetworkError;
 	}
 
-	FSocketGuard Guard(Subsystem->CreateSocket(NAME_DGram, TEXT("MOU.UPnP.Ssdp"), FNetworkProtocolTypes::IPv4));
-	if (!Guard.Socket)
+	// ─────────────────────────────────────────────────────────────────
+	// ★ 어느 주소에 bind 하느냐가 이 함수의 성패를 가른다. (2026-08-28)
+	//
+	//   [무슨 일이 있었나]
+	//     원래 여기는 SetAnyAddress() — 즉 0.0.0.0 에 bind 했다. 그런데 공유기가
+	//     UPnP 를 멀쩡히 지원하는데도 "SSDP 응답 없음" 이 간헐적으로 났다.
+	//
+	//     같은 PC, 같은 순간에 bind 주소만 바꿔 실측한 결과다:
+	//       192.168.0.32 (인터페이스 IP) 에 bind  ->  공유기가 즉시 응답
+	//       0.0.0.0            에 bind            ->  응답이 아예 안 옴
+	//
+	//   [왜 그런가]
+	//     SSDP 는 **멀티캐스트로 보내고 유니캐스트로 받는다.** 우리는
+	//     239.255.255.250 으로 보냈는데 답은 192.168.0.1 에서 온다. 보낸 곳과
+	//     답한 곳이 다르다. 0.0.0.0 에 bind 하면 윈도우가 이 응답을 우리가 만든
+	//     흐름과 연결짓지 못하고 버린다. 인터페이스 IP 에 bind 하면 연결된다.
+	//
+	//     방화벽 규칙(UnrealEditor.exe 인바운드 Allow)이 이미 있어도 소용없다 —
+	//     규칙 이전에 흐름 매칭에서 떨어지기 때문이다. 이것이 "가끔 성공" 의 정체였다.
+	//
+	//   [왜 어댑터를 전부 도는가]
+	//     팀원 PC 마다 Hyper-V / VPN / VirtualBox 가상 어댑터가 있을 수 있고,
+	//     그 중 어느 것이 공유기로 가는 길인지 여기서는 모른다. 하나씩 보내보고
+	//     먼저 답이 오는 것을 쓴다. 대개 첫 번째에서 끝난다.
+	// ─────────────────────────────────────────────────────────────────
+	TArray<TSharedPtr<FInternetAddr>> BindCandidates;
 	{
-		return ENatMapResult::NetworkError;
-	}
+		TArray<TSharedPtr<FInternetAddr>> Adapters;
+		if (Subsystem->GetLocalAdapterAddresses(Adapters))
+		{
+			for (const TSharedPtr<FInternetAddr>& Adapter : Adapters)
+			{
+				if (Adapter.IsValid()
+					&& Adapter->GetProtocolType() == FNetworkProtocolTypes::IPv4
+					&& Adapter->IsValid()               // 0.0.0.0 은 걸러진다
+					&& !Adapter->ToString(false).StartsWith(TEXT("127.")))
+				{
+					BindCandidates.Add(Adapter);
+				}
+			}
+		}
 
-	Guard.Socket->SetNonBlocking(true);
-
-	// 응답은 우리가 보낸 포트로 유니캐스트로 돌아온다. 아무 포트나 받으면 된다.
-	TSharedRef<FInternetAddr> BindAddr = Subsystem->CreateInternetAddr();
-	BindAddr->SetAnyAddress();
-	BindAddr->SetPort(0);
-	if (!Guard.Socket->Bind(*BindAddr))
-	{
-		return ENatMapResult::NetworkError;
+		// 어댑터 열거가 실패하는 플랫폼/상황을 대비한 마지막 수단.
+		// 여기까지 오면 위 문제로 응답을 못 받을 가능성이 크지만, 아무것도
+		// 시도하지 않는 것보다는 낫다.
+		if (BindCandidates.Num() == 0)
+		{
+			TSharedRef<FInternetAddr> AnyAddr = Subsystem->CreateInternetAddr();
+			AnyAddr->SetAnyAddress();
+			BindCandidates.Add(AnyAddr);
+			UE_LOG(LogMOUServer, Warning,
+				TEXT("[NAT] 로컬 어댑터 목록을 얻지 못했다. 0.0.0.0 으로 시도한다 — ")
+				TEXT("윈도우에서는 이 경로로 SSDP 응답이 안 올 수 있다."));
+		}
 	}
 
 	TSharedRef<FInternetAddr> Destination = Subsystem->CreateInternetAddr();
@@ -388,72 +427,128 @@ ENatMapResult FNatPortMapping::SendSsdpMSearch(FString& OutLocationUrl, float Ti
 		TEXT("upnp:rootdevice"),
 	};
 
-	// ★ 세 개를 먼저 전부 쏘고, 그 다음에 한 번만 기다린다. (2026-08-26)
+	// ★ 대상을 하나씩 순서대로 던진다. (2026-08-28 원복)
 	//
-	//   예전에는 "쏘고 → TimeoutSeconds 기다리고 → 다음 것 쏘고" 를 반복했다.
-	//   그래서 UPnP 를 끈 공유기에서는 3 x 3초 = 9초를 꼬박 기다린 뒤에야
-	//   실패가 났다. 방 만들기 창이 그동안 "포트를 여는 중" 으로 멈춰 있었다.
+	//   [왜 원래대로 돌렸나]
+	//     8/26 에 "셋을 한꺼번에 쏘고 한 번만 기다린다" 로 바꿔 9초를 3초로 줄였다.
+	//     그런데 그 순차 구조는 속도를 대가로 **응답자의 우선순위**를 보장하고
+	//     있었다. upnp:rootdevice 는 LAN 의 모든 UPnP 기기(TV, 프린터, NAS,
+	//     윈도우 SSDP 서비스)가 답하는 반면, IGD 를 혼자 먼저 물어보면 공유기만
+	//     답한다. 한꺼번에 쏘면 먼저 답한 아무 기기가 공유기로 뽑힌다.
 	//
-	//   SSDP 응답은 어차피 비동기로 이 소켓 하나에 돌아온다. 요청을 직렬화할
-	//   이유가 없다 — 규격도 여러 M-SEARCH 를 연달아 보내는 것을 막지 않는다.
-	//   이렇게 바꾸면 최악이 9초에서 3초가 되고, 답하는 공유기는 첫 응답이
-	//   오는 즉시(보통 100ms 안쪽) 반환하므로 체감이 특히 크게 준다.
-	for (const TCHAR* SearchTarget : SearchTargets)
-	{
-		// MX 는 "이 초 안에 아무 때나 답하라" 는 뜻이다. 규격상 1~5.
-		const FString Request = FString::Printf(
-			TEXT("M-SEARCH * HTTP/1.1\r\n")
-			TEXT("HOST: %s:%d\r\n")
-			TEXT("MAN: \"ssdp:discover\"\r\n")
-			TEXT("MX: 1\r\n")
-			TEXT("ST: %s\r\n")
-			TEXT("\r\n"),
-			SsdpMulticastIp, SsdpMulticastPort, SearchTarget);
+	//     ST 를 보고 IGD 를 골라내는 방식으로도 고칠 수 있고 실제로 그렇게
+	//     고쳤었다. 하지만 이 경로는 **실기 검증이 어렵고**(내 PC 공유기는 UPnP 가
+	//     꺼져 있다) 이미 두 번 사고가 났다. 여기서 아낄 수 있는 것은 몇 초이고,
+	//     잃는 것은 "참여자가 아예 못 들어온다" 다. 교환 비율이 맞지 않는다.
+	//
+	//   [그래도 9초는 아니다]
+	//     원래 코드는 대상마다 3초씩 = 최악 9초였다. 대상당 대기를 1.5초로 잡는다.
+	//     MX 는 2 로 둔다 — 규격상 공유기는 0~MX초 사이 **임의 시점**에 답하므로,
+	//     MX 1 에 대기 1초는 경계에 걸린다(폴링 간격 100ms 를 빼면 실질 0.9초).
+	//     순서(= 정확성)는 그대로 두고 여유만 준다.
+	const float PerTargetSeconds = FMath::Max(TimeoutSeconds * 0.5f, 1.5f);
 
-		const FTCHARToUTF8 RequestUtf8(*Request);
-		int32 Sent = 0;
-		Guard.Socket->SendTo(reinterpret_cast<const uint8*>(RequestUtf8.Get()),
-		                     RequestUtf8.Length(), Sent, *Destination);
-	}
+	// 어댑터가 여러 개인 PC 에서 전체 시간이 늘어나는 것을 막는다.
+	// (어댑터 수 × 대상 수 × 대기) 가 그대로 곱해지면 방 만들기가 눈에 띄게 늦어진다.
+	const double OverallDeadline = FPlatformTime::Seconds() + FMath::Max(TimeoutSeconds, 3.0f) * 3.0;
 
-	// 세 요청 중 **어느 것에든** 먼저 답한 공유기를 쓴다.
 	TArray<uint8> Buffer;
 	Buffer.SetNumUninitialized(4096);
 
-	const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
-	while (FPlatformTime::Seconds() < Deadline)
+	for (const TSharedPtr<FInternetAddr>& Candidate : BindCandidates)
 	{
-		if (!Guard.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(100)))
+		if (FPlatformTime::Seconds() >= OverallDeadline)
+		{
+			break;
+		}
+
+		// 어댑터마다 소켓을 새로 만든다. bind 주소가 곧 "어느 길로 나갈 것인가" 다.
+		FSocketGuard Guard(Subsystem->CreateSocket(NAME_DGram, TEXT("MOU.UPnP.Ssdp"), FNetworkProtocolTypes::IPv4));
+		if (!Guard.Socket)
 		{
 			continue;
 		}
 
-		int32 Read = 0;
-		TSharedRef<FInternetAddr> From = Subsystem->CreateInternetAddr();
-		if (!Guard.Socket->RecvFrom(Buffer.GetData(), Buffer.Num(), Read, *From) || Read <= 0)
+		Guard.Socket->SetNonBlocking(true);
+
+		// 응답은 우리가 보낸 포트로 유니캐스트로 돌아온다. 포트는 아무거나 좋다.
+		TSharedRef<FInternetAddr> BindAddr = Candidate->Clone();
+		BindAddr->SetPort(0);
+		if (!Guard.Socket->Bind(*BindAddr))
 		{
+			UE_LOG(LogMOUServer, Verbose, TEXT("[NAT] %s 에 bind 하지 못했다. 다음 어댑터로."),
+				*Candidate->ToString(false));
 			continue;
 		}
 
-		const FString Response = Utf8ToString(Buffer.GetData(), Read);
+		UE_LOG(LogMOUServer, Verbose, TEXT("[NAT] %s 에서 SSDP 탐색을 시도한다."),
+			*Candidate->ToString(false));
 
-		TArray<FString> Lines;
-		Response.ParseIntoArrayLines(Lines);
-		for (const FString& Line : Lines)
+		for (const TCHAR* SearchTarget : SearchTargets)
 		{
-			if (Line.StartsWith(TEXT("LOCATION:"), ESearchCase::IgnoreCase))
+			if (FPlatformTime::Seconds() >= OverallDeadline)
 			{
-				OutLocationUrl = Line.Mid(9).TrimStartAndEnd();
-				if (!OutLocationUrl.IsEmpty())
+				break;
+			}
+
+			// MX 는 "이 초 안에 아무 때나 답하라" 는 뜻이다. 규격상 1~5.
+			const FString Request = FString::Printf(
+				TEXT("M-SEARCH * HTTP/1.1\r\n")
+				TEXT("HOST: %s:%d\r\n")
+				TEXT("MAN: \"ssdp:discover\"\r\n")
+				TEXT("MX: 2\r\n")
+				TEXT("ST: %s\r\n")
+				TEXT("\r\n"),
+				SsdpMulticastIp, SsdpMulticastPort, SearchTarget);
+
+			const FTCHARToUTF8 RequestUtf8(*Request);
+			int32 Sent = 0;
+			Guard.Socket->SendTo(reinterpret_cast<const uint8*>(RequestUtf8.Get()),
+			                     RequestUtf8.Length(), Sent, *Destination);
+
+			// 이 ST 에 대한 응답만 기다린다. 공유기가 여러 대면 먼저 답한 것을 쓴다.
+			const double Deadline = FMath::Min(
+				FPlatformTime::Seconds() + PerTargetSeconds, OverallDeadline);
+			while (FPlatformTime::Seconds() < Deadline)
+			{
+				if (!Guard.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(100)))
 				{
-					return ENatMapResult::Success;
+					continue;
+				}
+
+				int32 Read = 0;
+				TSharedRef<FInternetAddr> From = Subsystem->CreateInternetAddr();
+				if (!Guard.Socket->RecvFrom(Buffer.GetData(), Buffer.Num(), Read, *From) || Read <= 0)
+				{
+					continue;
+				}
+
+				const FString Response = Utf8ToString(Buffer.GetData(), Read);
+
+				TArray<FString> Lines;
+				Response.ParseIntoArrayLines(Lines);
+				for (const FString& Line : Lines)
+				{
+					if (Line.StartsWith(TEXT("LOCATION:"), ESearchCase::IgnoreCase))
+					{
+						OutLocationUrl = Line.Mid(9).TrimStartAndEnd();
+						if (!OutLocationUrl.IsEmpty())
+						{
+							UE_LOG(LogMOUServer, Log,
+								TEXT("[NAT] %s 로 공유기를 찾았다: %s  (%s 에서 보냄)"),
+								SearchTarget, *OutLocationUrl, *Candidate->ToString(false));
+							return ENatMapResult::Success;
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// 여기까지 왔으면 아무도 답하지 않았다.
+	// 여기까지 왔으면 어느 어댑터에서도 아무도 답하지 않았다.
 	// UPnP 를 껐거나 지원하지 않는 공유기다 — 실패가 아니라 "이 경로로는 못 간다" 는 뜻이다.
+	UE_LOG(LogMOUServer, Verbose, TEXT("[NAT] 어댑터 %d개에서 모두 응답이 없었다."),
+		BindCandidates.Num());
 	UE_LOG(LogMOUServer, Warning, TEXT("[NAT] SSDP 응답 없음. UPnP 미지원이거나 공유기에서 꺼져 있다."));
 	return ENatMapResult::NoGatewayFound;
 }
@@ -606,8 +701,16 @@ ENatMapResult FNatPortMapping::SendSoapAction(const FString& ActionName,
 	// ★ 본문(OutResponseBody)은 실패해도 채워서 돌려준다 — AddMapping 이 725 를
 	//   직접 보고 Lease 없이 재시도해야 하기 때문이다.
 	const int32 ErrorCode = FCString::Atoi(*ExtractXmlTag(OutResponseBody, TEXT("errorCode")));
-	UE_LOG(LogMOUServer, Warning, TEXT("[NAT] %s 실패. HTTP %d, UPnP 오류 %d"),
+
+	// ★ 713/714 는 "그 자리에 매핑이 없다" 는 **정상 답변**이지 실패가 아니다.
+	//   ListMappings 는 목록의 끝을 713/714 로 알게 되므로, 목록을 한 번 읽을 때마다
+	//   경고가 반드시 한 줄 찍힌다. 그러면 멀쩡한 조회가 고장난 것처럼 보인다.
+	//   (DeleteMapping 도 이미 714 를 성공으로 취급한다)
+	const bool bNoSuchEntry = (ErrorCode == 713 || ErrorCode == 714);
+	UE_CLOG(!bNoSuchEntry, LogMOUServer, Warning, TEXT("[NAT] %s 실패. HTTP %d, UPnP 오류 %d"),
 	       *ActionName, StatusCode, ErrorCode);
+	UE_CLOG(bNoSuchEntry, LogMOUServer, Verbose, TEXT("[NAT] %s: 해당 매핑 없음 (UPnP %d)"),
+	       *ActionName, ErrorCode);
 
 	switch (ErrorCode)
 	{
@@ -736,6 +839,7 @@ ENatMapResult FNatPortMapping::AddMapping(uint16 InternalPort,
 	OutHandle.bUdp         = bUdp;
 	OutHandle.ControlUrl   = ControlUrl;
 	OutHandle.ServiceType  = ServiceType;
+	OutHandle.Description  = Description;
 
 	UE_LOG(LogMOUServer, Log, TEXT("[NAT] 매핑 성공: 외부 %u -> %s:%u (%s)"),
 	       static_cast<uint32>(DesiredExternalPort), *LocalIp,
@@ -757,9 +861,14 @@ ENatMapResult FNatPortMapping::RefreshMaping(const FNatMappingHandle& Handle, ui
 
 	// UPnP 에는 갱신 액션이 따로 없다. 같은 인자로 AddPortMapping 을 다시 부르면
 	// 기존 항목을 덮어쓰는 것이 규격이다.
+	//
+	// ★ 설명을 핸들에서 가져와야 한다. 여기서 다른 문자열을 쓰면 갱신할 때마다
+	//   공유기 목록의 설명이 바뀌고, 설명으로 소유자를 가리는 청소 로직이
+	//   그 항목을 남의 것으로 보고 영영 안 지운다.
 	FNatMappingHandle Unused;
 	return AddMapping(Handle.InternalPort, Handle.ExternalPort, Handle.bUdp,
-	                  TEXT("MOU"), LeaseSeconds, Unused);
+	                  Handle.Description.IsEmpty() ? MOUNat::MappingDescription : *Handle.Description,
+	                  LeaseSeconds, Unused);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -805,6 +914,144 @@ ENatMapResult FNatPortMapping::DeleteMapping(const FNatMappingHandle& Handle)
 
 	UE_LOG(LogMOUServer, Log, TEXT("[NAT] 매핑 해제: 외부 %u"), static_cast<uint32>(Handle.ExternalPort));
 	return ENatMapResult::Success;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 6단계 — 조회 / 청소 (2026-08-28)
+//
+// [왜 만들었나]
+//   공용 네트워크라 공유기 관리페이지에 못 들어간다. 그런데 게임이 크래시로 죽으면
+//   DeleteMapping 이 안 불려 매핑이 남고, 다음 실행은 718(PortConflict)을 받아
+//   7778, 7779... 로 밀려간다. 밀린 포트로 방이 광고되면 아무도 못 들어온다.
+//
+//   UPnP 규격에 조회 액션이 있다는 것이 답이다. 관리자 로그인이 필요 없고,
+//   공유기가 우리에게 매핑 테이블을 그대로 읽어준다.
+// ─────────────────────────────────────────────────────────────────────
+
+ENatMapResult FNatPortMapping::QueryMappingEntry(const FString& ActionName,
+                                                 const FString& ArgsXml,
+                                                 FNatMappingEntry& OutEntry,
+                                                 bool& bOutEndOfList)
+{
+	OutEntry       = FNatMappingEntry();
+	bOutEndOfList  = false;
+
+	FString Response;
+	const ENatMapResult Result = SendSoapAction(ActionName, ArgsXml, Response);
+
+	if (Result != ENatMapResult::Success)
+	{
+		// 713 SpecifiedArrayIndexInvalid / 714 NoSuchEntryInArray.
+		// 목록을 끝까지 읽었다는 뜻이다. 실패로 올리면 호출자가 오류로 착각한다.
+		const int32 ErrorCode = FCString::Atoi(*ExtractXmlTag(Response, TEXT("errorCode")));
+		if (ErrorCode == 713 || ErrorCode == 714)
+		{
+			bOutEndOfList = true;
+			return ENatMapResult::Success;
+		}
+		return Result;
+	}
+
+	// GetGeneric 은 외부 포트/프로토콜까지 돌려주고, GetSpecific 은 그 둘이 입력이라
+	// 응답에 없다. 없으면 비워두고 호출자가 채운다.
+	const FString ExternalText = ExtractXmlTag(Response, TEXT("NewExternalPort"));
+	const FString ProtocolText = ExtractXmlTag(Response, TEXT("NewProtocol"));
+
+	OutEntry.ExternalPort   = static_cast<uint16>(FCString::Atoi(*ExternalText));
+	OutEntry.InternalPort   = static_cast<uint16>(FCString::Atoi(*ExtractXmlTag(Response, TEXT("NewInternalPort"))));
+	OutEntry.InternalClient = ExtractXmlTag(Response, TEXT("NewInternalClient"));
+	OutEntry.Description    = ExtractXmlTag(Response, TEXT("NewPortMappingDescription"));
+	OutEntry.LeaseSeconds   = static_cast<uint32>(FCString::Atoi(*ExtractXmlTag(Response, TEXT("NewLeaseDuration"))));
+	OutEntry.bEnabled       = ExtractXmlTag(Response, TEXT("NewEnabled")) != TEXT("0");
+	OutEntry.bUdp           = !ProtocolText.Equals(TEXT("TCP"), ESearchCase::IgnoreCase);
+
+	return ENatMapResult::Success;
+}
+
+ENatMapResult FNatPortMapping::ListMappings(TArray<FNatMappingEntry>& OutEntries, int32 MaxEntries)
+{
+	OutEntries.Reset();
+
+	if (ControlUrl.IsEmpty())
+	{
+		return ENatMapResult::NoGatewayFound;
+	}
+
+	for (int32 Index = 0; Index < MaxEntries; ++Index)
+	{
+		const FString Args = FString::Printf(
+			TEXT("<NewPortMappingIndex>%d</NewPortMappingIndex>"), Index);
+
+		FNatMappingEntry Entry;
+		bool bEndOfList = false;
+		const ENatMapResult Result =
+			QueryMappingEntry(TEXT("GetGenericPortMappingEntry"), Args, Entry, bEndOfList);
+
+		if (bEndOfList)
+		{
+			return ENatMapResult::Success;   // 정상 종료. 여기까지가 전부다
+		}
+		if (Result != ENatMapResult::Success)
+		{
+			// 중간에 끊겨도 지금까지 읽은 것은 그대로 돌려준다.
+			// 부분 목록이라도 있는 편이 아무것도 없는 것보다 낫다.
+			return Result;
+		}
+
+		OutEntries.Add(MoveTemp(Entry));
+	}
+
+	UE_LOG(LogMOUServer, Warning,
+	       TEXT("[NAT] 매핑이 %d개를 넘는다. 목록을 여기서 끊는다."), MaxEntries);
+	return ENatMapResult::Success;
+}
+
+ENatMapResult FNatPortMapping::GetMappingFor(uint16 ExternalPort, bool bUdp,
+                                             FNatMappingEntry& OutEntry, bool& bOutFound)
+{
+	OutEntry  = FNatMappingEntry();
+	bOutFound = false;
+
+	if (ControlUrl.IsEmpty())
+	{
+		return ENatMapResult::NoGatewayFound;
+	}
+
+	const FString Args = FString::Printf(
+		TEXT("<NewRemoteHost></NewRemoteHost>")
+		TEXT("<NewExternalPort>%u</NewExternalPort>")
+		TEXT("<NewProtocol>%s</NewProtocol>"),
+		static_cast<uint32>(ExternalPort),
+		bUdp ? TEXT("UDP") : TEXT("TCP"));
+
+	bool bEndOfList = false;
+	const ENatMapResult Result =
+		QueryMappingEntry(TEXT("GetSpecificPortMappingEntry"), Args, OutEntry, bEndOfList);
+
+	if (Result != ENatMapResult::Success)
+	{
+		return Result;
+	}
+	if (bEndOfList)
+	{
+		return ENatMapResult::Success;   // 그 포트에는 매핑이 없다. 오류가 아니다
+	}
+
+	// GetSpecific 응답에는 외부 포트와 프로토콜이 없다. 물어본 값으로 채운다.
+	OutEntry.ExternalPort = ExternalPort;
+	OutEntry.bUdp         = bUdp;
+	bOutFound             = true;
+	return ENatMapResult::Success;
+}
+
+ENatMapResult FNatPortMapping::DeleteMappingByPort(uint16 ExternalPort, bool bUdp)
+{
+	// ControlUrl/ServiceType 은 비워둔다 — DeleteMapping 의 TGuardValue 가
+	// 비어 있으면 현재 값을 그대로 쓴다.
+	FNatMappingHandle Temp;
+	Temp.ExternalPort = ExternalPort;
+	Temp.bUdp         = bUdp;
+	return DeleteMapping(Temp);
 }
 
 // ─────────────────────────────────────────────────────────────────────
