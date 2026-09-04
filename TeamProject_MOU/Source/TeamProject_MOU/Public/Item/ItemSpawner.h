@@ -29,6 +29,12 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	/** BeginPlay 직후에는 스트리밍된 맵 메쉬의 콜리전이 아직 준비되지 않을 수 있어 자동 스폰을 지연합니다. */
+	UFUNCTION()
+	void SpawnConfiguredItem();
+
+	FTimerHandle AutoSpawnTimerHandle;
+
 #pragma region [SPAWNER] 설정값
 	// 아이템 데이터 테이블 (행 구조 = FItemSpawnRow)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner")
@@ -41,6 +47,10 @@ protected:
 	// BeginPlay에 RowToSpawn을 자동 스폰할지 여부 (레벨 배치형일 때 true)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner")
 	bool bAutoSpawnOnBeginPlay = true;
+
+	// 레벨 진입 직후 바닥 콜리전이 준비될 시간을 확보합니다. 0이면 다음 틱에 스폰합니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner", meta = (ClampMin = "0.0", Units = "s"))
+	float AutoSpawnDelay = 0.5f;
 
 	// 확률 스폰 슬롯: 배열 크기 = 슬롯 개수, 각 칸에 DT_Item 행 이름 지정.
 	// 스폰 시 이 중 한 칸을 균등 확률(1/N)로 뽑는다. 빈 칸(None)이 뽑히면 아무것도 안 나옴(꽝).
