@@ -92,6 +92,11 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EMOUFriendResultBP::InvalidFormat)  == static_cast<uint8>(MOU::EFriendResult::InvalidFormat),  "EMOUFriendResultBP::InvalidFormat 이 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EMOUFriendResultBP::DbError)        == static_cast<uint8>(MOU::EFriendResult::DbError),        "EMOUFriendResultBP::DbError 가 서버 정의와 다르다");
 
+	// 호스트 주소 후보의 성격 (v8). 값이 어긋나면 LAN 후보를 공인으로 착각한다.
+	static_assert(static_cast<uint8>(EMOUHostAddrKindBP::Public) == static_cast<uint8>(MOU::EHostAddrKind::Public), "EMOUHostAddrKindBP::Public 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOUHostAddrKindBP::Lan)    == static_cast<uint8>(MOU::EHostAddrKind::Lan),    "EMOUHostAddrKindBP::Lan 이 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EMOUHostAddrKindBP::Punch)  == static_cast<uint8>(MOU::EHostAddrKind::Punch),  "EMOUHostAddrKindBP::Punch 가 서버 정의와 다르다");
+
 	/** TryExtractPacket 의 결과. 서버 MOU::EFrameResult 와 같은 의미다. */
 	enum class EFrameResult : uint8
 	{
@@ -156,6 +161,22 @@ namespace MOUChat
 	 * 서버의 ReadFixedString 과 짝을 이룬다.
 	 */
 	FString ReadFixedString(const char* Src, int32 MaxSize);
+
+	/**
+	 * 패킷의 HostCandidate 배열을 BP 구조체 배열로 옮긴다. (v8)
+	 *
+	 * RoomJoinAck / RoomStart / RoomHostReady 셋이 같은 배열을 실어 보내므로
+	 * 여기 한 곳에만 둔다. 셋 중 하나만 고치는 실수가 나오지 않게 하기 위해서다.
+	 *
+	 * 주소가 비었거나 포트가 0 인 항목은 버린다 — 서버가 CandidateCount 를
+	 * 잘못 보내도 쓰레기 주소로 여행하지 않는다.
+	 */
+	void ReadHostCandidates(const MOU::HostCandidate* Src, int32 Count,
+		TArray<FMOUHostCandidate>& OutCandidates);
+
+	/** v11 relay wire 경로를 네이티브 전송 상태로 옮긴다. Token 은 UI에 노출하지 않는다. */
+	FMOUGameRelayRoute ReadRelayHostRoute(const MOU::RelayHostRoute& Src);
+	FMOUGameRelayRoute ReadRelayGuestRoute(const MOU::RelayGuestRoute& Src);
 
 	/** 길이가 명시된 UTF-8 바이트열(ChatBroadcast 뒤에 붙는 본문)을 FString 으로 변환한다. */
 	FString Utf8ToString(const uint8* Src, int32 Len);

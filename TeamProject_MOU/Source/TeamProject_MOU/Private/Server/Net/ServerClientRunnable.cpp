@@ -410,9 +410,9 @@ void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const 
 		Event.Type             = EServerClientEventType::RoomJoinAck;
 		Event.Join.bSuccess    = (Ack.bSuccess != 0);
 		Event.Join.RoomId      = static_cast<int32>(Ack.RoomId);
-		Event.Join.HostPort    = static_cast<int32>(Ack.HostPort);
 		Event.Join.Result      = static_cast<EMOURoomResultBP>(Ack.Result);
-		Event.Join.HostAddress = MOUChat::ReadFixedString(Ack.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
+		MOUChat::ReadHostCandidates(Ack.Candidates, Ack.CandidateCount, Event.Join.Candidates);
+		Event.Join.bLanOnly    = (Ack.bLanOnly != 0);
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}
@@ -501,8 +501,36 @@ void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const 
 		Event.RoomId           = static_cast<int32>(Start.RoomId);
 		Event.Join.bSuccess    = true;
 		Event.Join.RoomId      = static_cast<int32>(Start.RoomId);
-		Event.Join.HostPort    = static_cast<int32>(Start.HostPort);
-		Event.Join.HostAddress = MOUChat::ReadFixedString(Start.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
+		MOUChat::ReadHostCandidates(Start.Candidates, Start.CandidateCount, Event.Join.Candidates);
+
+		// 홀펀칭 대상 (v10). 방장에게만 의미가 있고 참여자는 무시한다.
+		Event.PunchTargets.Reset();
+		{
+			const int32 SafeCount = FMath::Min<int32>(Start.PunchTargetCount, MOU::kMaxPlayersInRoom);
+			for (int32 i = 0; i < SafeCount; ++i)
+			{
+				FMOUHostCandidate Peer;
+				Peer.Address = MOUChat::ReadFixedString(Start.PunchTargets[i].Address, static_cast<int32>(MOU::kMaxAddressLen));
+				Peer.Port    = static_cast<int32>(Start.PunchTargets[i].Port);
+				if (Peer.IsValid())
+				{
+					Event.PunchTargets.Add(MoveTemp(Peer));
+				}
+			}
+		}
+
+		// relay host-facing 경로는 방장에게만 내려온다. 다른 참여자는 Count=0 이다.
+		Event.HostRelayRoutes.Reset();
+		const int32 RelayCount = FMath::Min<int32>(Start.RelayRouteCount, MOU::kMaxRelayRoutes);
+		for (int32 i = 0; i < RelayCount; ++i)
+		{
+			FMOUGameRelayRoute Route = MOUChat::ReadRelayHostRoute(Start.RelayRoutes[i]);
+			if (Route.IsValid())
+			{
+				Event.HostRelayRoutes.Add(MoveTemp(Route));
+			}
+		}
+		Event.Join.bLanOnly    = (Start.bLanOnly != 0);
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}
@@ -524,8 +552,49 @@ void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const 
 		Event.RoomId           = static_cast<int32>(Ready.RoomId);
 		Event.Join.bSuccess    = true;
 		Event.Join.RoomId      = static_cast<int32>(Ready.RoomId);
-		Event.Join.HostPort    = static_cast<int32>(Ready.HostPort);
-		Event.Join.HostAddress = MOUChat::ReadFixedString(Ready.HostAddress, static_cast<int32>(MOU::kMaxAddressLen));
+		MOUChat::ReadHostCandidates(Ready.Candidates, Ready.CandidateCount, Event.Join.Candidates);
+		Event.Join.bLanOnly    = (Ready.bLanOnly != 0);
+		Event.GuestRelayRoute  = MOUChat::ReadRelayGuestRoute(Ready.Relay);
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
+	case MOU::EOpcode::ClientEndpointAck:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::ClientEndpointAckBody)))
+		{
+			break;
+		}
+
+		MOU::ClientEndpointAckBody Ack{};
+		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
+
+		FServerClientEvent Event;
+		Event.Type       = EServerClientEventType::ClientEndpointAck;
+		Event.ProbeNonce = Ack.Nonce;
+		Event.bProbeSent = (Ack.bObserved != 0);
+		Event.Detail     = FString::Printf(TEXT("%s:%d"),
+			*MOUChat::ReadFixedString(Ack.Address, static_cast<int32>(MOU::kMaxAddressLen)),
+			static_cast<int32>(Ack.Port));
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
+
+	case MOU::EOpcode::HostProbeSent:
+	{
+		if (Body.Num() < static_cast<int32>(sizeof(MOU::HostProbeSentBody)))
+		{
+			UE_LOG(LogMOUServer, Warning, TEXT("HostProbeSent 크기가 부족하다 (%d바이트)"), Body.Num());
+			break;
+		}
+
+		MOU::HostProbeSentBody Sent{};
+		FMemory::Memcpy(&Sent, Body.GetData(), sizeof(Sent));
+
+		FServerClientEvent Event;
+		Event.Type       = EServerClientEventType::HostProbeSent;
+		Event.ProbeNonce = Sent.Nonce;
+		Event.bProbeSent = (Sent.bSent != 0);
 		InboundEvents.Enqueue(MoveTemp(Event));
 		break;
 	}

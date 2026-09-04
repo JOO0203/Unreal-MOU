@@ -66,6 +66,7 @@ void URoomCreateWidgetBase::NativeConstruct()
 		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomCreated.AddDynamic(this, &URoomCreateWidgetBase::HandleRoomCreated);
+			Chat->OnReachabilityChecked.AddDynamic(this, &URoomCreateWidgetBase::HandleReachabilityChecked);
 			bSubscribed = true;
 		}
 	}
@@ -92,6 +93,10 @@ void URoomCreateWidgetBase::NativeConstruct()
 	// ★ 창이 열리는 지금 포트 열기를 시작한다. 사용자가 제목을 입력하는 몇 초가
 	//   SSDP 탐색 + SOAP 왕복 시간과 겹쳐서, "방 만들기" 를 누를 때쯤이면 대개 끝나 있다.
 	//   실패해도 방 만들기는 그대로 진행된다 (헤더의 bOpenPortOnShow 주석 참고).
+	// UPnP 를 이제부터 돌릴 것인가. 돌린다면 도달성 프로브는 그것이 끝난 뒤에 해야 한다 —
+	// 매핑이 생기기 전에 확인하면 당연히 실패하고, 그 거짓 음성이 방을 LAN 전용으로 막는다.
+	bool bWillRunUpnp = false;
+
 	if (bOpenPortOnShow)
 	{
 		if (UNatPortMappingSubsystem* Nat = GetNatSubsystem())
@@ -106,6 +111,31 @@ void URoomCreateWidgetBase::NativeConstruct()
 			if (Nat->GetMappedExternalPort() == 0 && !Nat->IsMappingInProgress())
 			{
 				Nat->BeginPortMapping(HostPort);
+				// 설정에서 UPnP를 꺼 둔 경우 BeginPortMapping은 즉시 돌아온다.
+				// 그때도 true로 두면 수동 포트포워딩 사용자가 도달성 프로브를 영영
+				// 시작하지 못하므로, 실제로 워커가 시작됐는지만 다시 읽는다.
+				bWillRunUpnp = Nat->IsMappingInProgress();
+			}
+			else if (Nat->IsMappingInProgress())
+			{
+				bWillRunUpnp = true;
+			}
+		}
+	}
+
+	// ★ UPnP 를 안 돌리는 경로에서도 도달성은 확인해야 한다. (v9)
+	//
+	//   프로브를 HandleNatMappingFinished 에만 걸어두면, 설정으로 UPnP 를 껐거나
+	//   (bUseUpnpPortMapping=False) 매핑이 이미 있는 경우에는 **한 번도 돌지 않는다.**
+	//   수동 포워딩으로 운영하는 팀이 정확히 그 경로를 탄다 — 확인이 가장 필요한
+	//   사람들이 확인을 못 받는 셈이다.
+	if (!bWillRunUpnp)
+	{
+		if (UServerSubsystem* Server = GetServerSubsystem())
+		{
+			if (!Server->IsProbingReachability())
+			{
+				Server->BeginReachabilityProbe(HostPort);
 			}
 		}
 	}
@@ -119,6 +149,7 @@ void URoomCreateWidgetBase::NativeDestruct()
 		if (UServerSubsystem* Chat = GetServerSubsystem())
 		{
 			Chat->OnRoomCreated.RemoveDynamic(this, &URoomCreateWidgetBase::HandleRoomCreated);
+			Chat->OnReachabilityChecked.RemoveDynamic(this, &URoomCreateWidgetBase::HandleReachabilityChecked);
 		}
 		bSubscribed = false;
 	}
@@ -313,6 +344,16 @@ void URoomCreateWidgetBase::TryCreateRoom()
 		}
 	}
 
+	// 포트 매핑이 끝났더라도 실제 외부 패킷 확인이 진행 중이면 그 결과까지 기다린다.
+	// ReportReachability가 CreateRoom보다 먼저 같은 TCP 큐에 들어가야 서버가 방 생성
+	// 로그부터 정확한 외부 접속 상태를 표시할 수 있다.
+	if (Chat->IsProbingReachability())
+	{
+		bCreateWaitingForProbe = true;
+		SetMessage(TEXT("외부 접속 가능 여부를 확인하는 중입니다..."), false);
+		return;
+	}
+
 	SubmitCreateRoom();
 }
 
@@ -357,10 +398,33 @@ UNatPortMappingSubsystem* URoomCreateWidgetBase::GetNatSubsystem() const
 
 void URoomCreateWidgetBase::HandleNatMappingFinished(EMOUNatResultBP Result, int32 ExternalPort, const FString& ExternalIp)
 {
+	// ★ 매핑이 끝났으니 이제 **실제로 들어오는지** 확인한다. (v9)
+	//
+	//   UPnP 가 성공을 보고해도 패킷이 들어온다는 보장이 없다 — 규칙을 기록만 하고
+	//   NAT 테이블에 반영하지 않는 공유기가 있다. 실측으로 확인한 문제다.
+	//   여기가 확인하기 가장 좋은 시점이다: 로비 맵이라 게임 포트가 비어 있고,
+	//   사용자는 아직 방 제목을 입력하는 중이라 몇 초를 써도 티가 나지 않는다.
+	if (UServerSubsystem* Server = GetServerSubsystem())
+	{
+		if (!Server->IsProbingReachability())
+		{
+			Server->BeginReachabilityProbe(HostPort);
+		}
+	}
+
 	// 사용자가 이미 "방 만들기" 를 눌러 기다리고 있었다면, 지금이 보낼 때다.
 	if (bCreateWaitingForNat)
 	{
 		bCreateWaitingForNat = false;
+		if (UServerSubsystem* Server = GetServerSubsystem())
+		{
+			if (Server->IsProbingReachability())
+			{
+				bCreateWaitingForProbe = true;
+				SetMessage(TEXT("포트 매핑 완료. 실제 외부 접속을 확인하는 중입니다..."), false);
+				return;
+			}
+		}
 		SubmitCreateRoom();
 		return;
 	}
@@ -382,6 +446,21 @@ void URoomCreateWidgetBase::HandleNatMappingFinished(EMOUNatResultBP Result, int
 	}
 }
 
+void URoomCreateWidgetBase::HandleReachabilityChecked(bool bReachable, const FString& Detail)
+{
+	if (!bCreateWaitingForProbe)
+	{
+		return;
+	}
+
+	bCreateWaitingForProbe = false;
+	SetMessage(bReachable
+		? TEXT("외부 접속 확인 완료. 방을 만듭니다...")
+		: FString::Printf(TEXT("직접 연결 확인 실패(%s). 릴레이 폴백을 포함해 방을 만듭니다..."), *Detail),
+		false);
+	SubmitCreateRoom();
+}
+
 void URoomCreateWidgetBase::CancelCreate()
 {
 	// ★ 호스트가 되기를 그만뒀으므로 열어둔 포트를 닫는다.
@@ -392,6 +471,7 @@ void URoomCreateWidgetBase::CancelCreate()
 	}
 
 	bCreateWaitingForNat = false;
+	bCreateWaitingForProbe = false;
 
 	OnRoomCreateCancelled.ExecuteIfBound();
 	RemoveFromParent();

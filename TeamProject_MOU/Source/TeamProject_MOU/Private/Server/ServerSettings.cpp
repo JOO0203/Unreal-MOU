@@ -41,6 +41,9 @@ UMOUServerSettings::UMOUServerSettings()
 	// 60초. 큰 맵을 저사양 PC 에서 여는 최악의 경우를 넉넉히 덮는 값이다.
 	// 정상적인 경우 이 값은 쓰이지 않는다 — 리슨서버가 뜨는 즉시 신호가 나간다.
 	, HostReadyTimeoutSeconds(60.f)
+	// 기본이 true 인 이유는 헤더 주석 참고 — 끄면 다른 네트워크 방장의 7777 을
+	// 아무도 열어주지 않아 참여자가 못 들어온다.
+	, bUseUpnpPortMapping(true)
 {
 }
 
@@ -62,7 +65,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 	if (OutHost.IsEmpty())
 	{
 		OutHost = kFallbackHost;
-		Source = TEXT("기본값");
+		Source  = TEXT("기본값");
 	}
 	if (!IsValidPort(OutPort))
 	{
@@ -84,7 +87,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 			if (!HostPart.IsEmpty())
 			{
 				OutHost = HostPart;
-				Source = TEXT("실행 인자 -MOUServer");
+				Source  = TEXT("실행 인자 -MOUServer");
 			}
 			const int32 ParsedPort = FCString::Atoi(*PortPart);
 			if (IsValidPort(ParsedPort))
@@ -95,7 +98,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		else if (!Combined.IsEmpty())
 		{
 			OutHost = Combined;
-			Source = TEXT("실행 인자 -MOUServer");
+			Source  = TEXT("실행 인자 -MOUServer");
 		}
 	}
 
@@ -106,7 +109,7 @@ void UMOUServerSettings::ResolveEndpoint(FString& OutHost, int32& OutPort, FStri
 		if (!HostSwitch.IsEmpty())
 		{
 			OutHost = HostSwitch;
-			Source = TEXT("실행 인자 -MOUChatHost");
+			Source  = TEXT("실행 인자 -MOUChatHost");
 		}
 	}
 
@@ -168,6 +171,19 @@ float UMOUServerSettings::GetHostReadyTimeoutSeconds()
 	// ini 를 손으로 고치다 0 이나 음수가 들어가면 시작하자마자 시간 초과가 된다.
 	// 그런 값은 설정이 아니라 사고이므로 무시한다.
 	return (Configured > 0.f) ? Configured : 60.f;
+}
+
+bool UMOUServerSettings::ShouldUseUpnp()
+{
+	// 실행 인자가 설정 파일을 이긴다. 주소·백엔드와 같은 규칙이다 —
+	// "내 PC 에서 이번 한 번만" 을 파일을 건드리지 않고 할 수 있어야 한다.
+	FString Override;
+	if (FParse::Value(FCommandLine::Get(), TEXT("MOUUseUpnp="), Override))
+	{
+		return Override != TEXT("0") && !Override.Equals(TEXT("false"), ESearchCase::IgnoreCase);
+	}
+
+	return GetDefault<UMOUServerSettings>()->bUseUpnpPortMapping;
 }
 
 FString UMOUServerSettings::GetResolvedServerHost()
