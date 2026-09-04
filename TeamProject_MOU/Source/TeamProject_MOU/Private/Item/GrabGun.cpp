@@ -98,6 +98,14 @@ void AGrabGun::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 총몸(body_shell)이 커서 플레이어가 그 위에 올라타는 문제 방지:
+	// ItemBase::BeginPlay가 강제한 ECC_Pawn=Block을 Ignore로 덮어 캐릭터가 총을 관통하게 한다.
+	// (바닥/벽 WorldStatic Block은 그대로라 그랩건은 정상적으로 땅에 안착한다)
+	if (MeshComponent)
+	{
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+
 	// 셀 보장 (CellCount만큼) + 시작은 완전히 접힌 포즈
 	RebuildCells();
 	CurrentExtendAlpha = 0.0f;
@@ -771,7 +779,25 @@ void AGrabGun::ApplyLocalInputLock(bool bLock)
 	}
 	PC->SetIgnoreMoveInput(bLock);
 	PC->SetIgnoreLookInput(bLock);
+
+	// 그래버 사용 중엔 점프도 막는다. GA_Jump는 LocalPredicted라 소유 클라가 먼저 CanJump()를
+	// 검사하므로, 로컬 CharacterMovement의 점프 허용을 끄면 예측 점프까지 차단된다.
+	// (해제 시 true 복원 — 과적/기절 등 다른 차단은 태그 기반이라 이 값과 무관하게 유지된다)
+	if (ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerPawn))
+	{
+		if (UCharacterMovementComponent* Move = OwnerCharacter->GetCharacterMovement())
+		{
+			Move->SetJumpAllowed(!bLock);
+		}
+	}
+
 	bLocalInputLockApplied = bLock;
+}
+
+// 뻗기~당기기 시퀀스 중에는 버리기/던지기를 막는다 (사용 중엔 손에서 못 뗌).
+bool AGrabGun::CanBeDropped() const
+{
+	return !(bGrabArmed || bPulling || GrabbedTarget != nullptr);
 }
 
 // [GRAB-004] 그래버 자체를 내려놓을 때 잡고 있던 대상도 해제
