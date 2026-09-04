@@ -185,6 +185,10 @@ private:
 	UFUNCTION()
 	void HandleNatMappingFinished(EMOUNatResultBP Result, int32 ExternalPort, const FString& ExternalIp);
 
+	/** 실제 외부 UDP 도달성 확인이 끝났다. 방 생성 대기 중이면 여기서 이어간다. */
+	UFUNCTION()
+	void HandleReachabilityChecked(bool bReachable, const FString& Detail);
+
 	// --- 내부 -------------------------------------------------------------
 
 	void BuildDefaultLayout();
@@ -222,6 +226,9 @@ private:
 	 * 잠시 뒤 공유기가 다른 외부 포트를 열어줘도 방 정보는 이미 틀린 값으로 나가 있다.
 	 */
 	bool bCreateWaitingForNat = false;
+
+	/** 사용자가 방 만들기를 눌렀지만 외부 도달성 프로브가 아직 진행 중인가. */
+	bool bCreateWaitingForProbe = false;
 
 	/** 검사를 통과한 방 제목. 매핑을 기다리는 동안 들고 있어야 한다. */
 	FString SubmittedTitle;

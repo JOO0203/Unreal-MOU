@@ -165,12 +165,22 @@ public:
 	 *   서버가 맵 이름을 내려주지 않아도 되는 이유다. (맵을 방마다 다르게 고르게
 	 *   되면 그때는 프로토콜에 맵 이름을 실어야 하고, 이 최적화도 그 값을 써야 한다.)
 	 *
+	 * [★ 기본이 false 인 이유 (2026-08-28)]
+	 *   참여자 여행 경로에 손을 대는 최적화인데 **실기로 검증되지 않았다.**
+	 *   맵 패키지를 LoadPackageAsync 로 미리 올리는 것이 ClientTravel 의 LoadMap 과
+	 *   어떻게 맞물리는지는 엔진 버전과 맵 구성을 타므로, 접속 문제를 쫓는 동안
+	 *   변수를 하나라도 줄이려고 꺼둔다.
+	 *
+	 *   켜서 시험할 때는 **접속이 확실히 되는 상태에서** 켜고, LogMOUServer 에
+	 *   "맵 미리 올리기 완료" 가 찍힌 뒤 실제로 여행이 빨라지는지 본다.
+	 *   참여자만 못 넘어가는 증상이 다시 생기면 이것부터 끈다.
+	 *
 	 * [실패해도 안전하다]
 	 *   미리 올리기가 실패하거나 늦어도 여행은 그대로 진행된다. 이 기능은 순수하게
 	 *   "빨라지면 좋고 아니면 말고" 다. 그래서 실패를 오류로 취급하지 않는다.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
-	bool bPreloadMapWhileWaiting = true;
+	bool bPreloadMapWhileWaiting = false;
 
 	/** 방 만들기 / 참여하기 창이 열려 있는 동안 이 화면을 숨길지. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MOU|Lobby")
@@ -361,17 +371,21 @@ private:
 	void CloseChildWidgets();
 	void SetPanelVisible(bool bVisible);
 
-	/** 게임 시작 시 방장이 리슨서버를 연다. HostMapName 이 비어있으면 아무것도 하지 않는다. */
-	void TravelAsHost();
+	// ★ TravelAsHost / TravelAsClient / BeginPreloadHostMap 은 2026-08-29 에
+	//   UServerSubsystem 으로 옮겼다(각각 TravelAsHost / TravelToHost / BeginPreloadMap).
+	//
+	//   이 위젯은 게임이 시작되면 닫힐 수 있고, 닫히면 NativeDestruct 가 델리게이트를
+	//   해제한다. 그러면 출발 신호(OnRoomHostReady)를 받을 사람이 사라져 참여자가
+	//   영영 안 떠난다. 실제로 그 버그를 며칠 쫓았다.
+	//
+	//   아래 HostMapName / bAutoTravelOnGameStart / bPreloadMapWhileWaiting 은
+	//   그대로 남는다 — **값의 주인은 여전히 WBP 다.** NativeConstruct 에서
+	//   UServerSubsystem::ConfigureTravel 로 넘겨준다.
 
-	/** 게임 시작 시 참여자가 호스트에게 붙는다. */
-	void TravelAsClient(const FMOURoomJoinResult& Host, const FString& RoomPassword);
+	/** 접속/이동 실패 사유를 화면에 띄운다. UServerSubsystem::OnTravelFailed 구독. */
+	void HandleTravelFailed(const FString& Reason);
 
-	/**
-	 * 참여자가 기다리는 동안 HostMapName 을 비동기로 미리 올린다.
-	 * 이미 시작했으면 아무 일도 하지 않는다. 실패는 조용히 넘어간다.
-	 */
-	void BeginPreloadHostMap();
+	FDelegateHandle TravelFailedHandle;
 
 	UServerSubsystem* GetServerSubsystem() const;
 

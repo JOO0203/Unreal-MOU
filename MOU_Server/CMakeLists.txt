@@ -59,6 +59,8 @@ add_executable(Server
     # 언리얼 쪽에도 같은 이름의 파일이 있지만 여는 포트가 달라서 별개다
     # (여기는 Server.exe 의 9000/TCP, 저기는 리슨서버의 7777/UDP).
     Server/NatPortMapping.cpp
+    # 직접 P2P가 성립하지 않을 때만 쓰는, 게임 패킷 비해석 UDP relay.
+    Server/UdpRelay.cpp
 )
 target_include_directories(Server PRIVATE Server)
 target_link_libraries(Server PRIVATE mou_shared sqlite3)

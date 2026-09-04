@@ -167,3 +167,54 @@ namespace MOUChat
 		return FString(UTF8_TO_TCHAR(Temp.GetData()));
 	}
 }
+
+void MOUChat::ReadHostCandidates(const MOU::HostCandidate* Src, int32 Count,
+                                 TArray<FMOUHostCandidate>& OutCandidates)
+{
+	OutCandidates.Reset();
+
+	if (Src == nullptr || Count <= 0)
+	{
+		return;
+	}
+
+	// 서버가 보낸 개수를 그대로 믿지 않는다. 배열 크기를 넘으면 그 앞까지만 읽는다.
+	const int32 SafeCount = FMath::Min(Count, static_cast<int32>(MOU::kMaxHostCandidates));
+
+	for (int32 Index = 0; Index < SafeCount; ++Index)
+	{
+		const MOU::HostCandidate& In = Src[Index];
+
+		FMOUHostCandidate Out;
+		Out.Address = ReadFixedString(In.Address, static_cast<int32>(MOU::kMaxAddressLen));
+		Out.Port    = static_cast<int32>(In.Port);
+		Out.Kind    = static_cast<EMOUHostAddrKindBP>(In.Kind);
+
+		// 쓰레기 항목은 버린다. 이것이 없으면 빈 주소로 ClientTravel 을 시도하고,
+		// 실패 사유가 "주소가 이상하다" 가 아니라 엉뚱한 네트워크 오류로 나온다.
+		if (Out.IsValid())
+		{
+			OutCandidates.Add(MoveTemp(Out));
+		}
+	}
+}
+
+FMOUGameRelayRoute MOUChat::ReadRelayHostRoute(const MOU::RelayHostRoute& Src)
+{
+	FMOUGameRelayRoute Out;
+	Out.Address = ReadFixedString(Src.Address, static_cast<int32>(MOU::kMaxAddressLen));
+	Out.Port    = static_cast<int32>(Src.HostPort);
+	Out.RouteId = Src.RouteId;
+	Out.Token.Append(Src.HostToken, static_cast<int32>(MOU::kRelayTokenBytes));
+	return Out;
+}
+
+FMOUGameRelayRoute MOUChat::ReadRelayGuestRoute(const MOU::RelayGuestRoute& Src)
+{
+	FMOUGameRelayRoute Out;
+	Out.Address = ReadFixedString(Src.Address, static_cast<int32>(MOU::kMaxAddressLen));
+	Out.Port    = static_cast<int32>(Src.GuestPort);
+	Out.RouteId = Src.RouteId;
+	Out.Token.Append(Src.GuestToken, static_cast<int32>(MOU::kRelayTokenBytes));
+	return Out;
+}

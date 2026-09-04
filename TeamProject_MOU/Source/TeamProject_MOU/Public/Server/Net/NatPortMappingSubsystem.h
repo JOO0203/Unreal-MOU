@@ -86,17 +86,38 @@ public:
 	// --- 진입점 -------------------------------------------------------------
 
 	/**
+	 * 매핑에 걸어둘 기본 Lease 길이(초). (2026-08-28: 0 → 3600)
+	 *
+	 * [왜 영구 매핑을 그만뒀나]
+	 *   영구 매핑은 DeleteMapping 을 불러야만 사라진다. 그런데 게임이 크래시나
+	 *   강제 종료로 죽으면 그 호출이 아예 안 일어나고, 매핑이 공유기에 영원히 남는다.
+	 *   그 다음 실행은 718(PortConflict)을 받아 7778, 7779... 로 밀려가고,
+	 *   밀린 포트로 방이 광고되면 아무도 못 들어온다.
+	 *   공용 네트워크에서는 관리페이지에 못 들어가 손으로 지울 수도 없다.
+	 *
+	 *   Lease 를 걸어두면 **죽어도 최대 이 시간 뒤에 공유기가 알아서 지운다.**
+	 *   워커가 살아 있는 동안은 절반 지점(30분)마다 갱신하므로 게임 중에 끊기지 않는다.
+	 *
+	 * ★ Lease 를 지원하지 않는 공유기(UPnP 오류 725)는 AddMapping 이 영구 매핑으로
+	 *   자동 폴백한다. 그 경우를 대비해 FNatMappingRunnable::CleanupStaleMappings 가
+	 *   시작할 때 지난 판의 찌꺼기를 치운다. 두 방어가 서로를 보완한다.
+	 */
+	static constexpr int32 DefaultLeaseSeconds = 3600;
+
+	/**
 	 * 공유기에 포트를 열어달라고 요청한다. 즉시 반환하고 실제 작업은 워커가 한다.
 	 * 결과는 OnNatMappingFinished 로 온다 (성공이든 실패든 반드시 한 번).
 	 *
 	 * @param InternalPort        리슨서버가 실제로 듣는 포트. 보통 7777
 	 * @param DesiredExternalPort 원하는 외부 포트. 0 이면 InternalPort 와 같게 시도한다.
 	 *                            이미 쓰이는 중이면 워커가 옆 번호로 알아서 옮긴다
-	 * @param LeaseSeconds        0 이면 영구 매핑. Lease 를 지원하지 않는 공유기가
-	 *                            흔해서 0 이 아니어도 결국 영구로 떨어질 수 있다
+	 * @param LeaseSeconds        0 이면 영구 매핑. 기본값은 DefaultLeaseSeconds 와
+	 *                            같은 3600 이다 — 0 을 넘기지 말 것. 이유는 위 상수 주석 참고.
+	 *                            (UHT 가 기본값으로 리터럴만 받아서 상수를 못 쓴다.
+	 *                             두 값이 어긋나지 않도록 아래 static_assert 로 묶어뒀다)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MOU|NAT")
-	void BeginPortMapping(int32 InternalPort = 7777, int32 DesiredExternalPort = 0, int32 LeaseSeconds = 0);
+	void BeginPortMapping(int32 InternalPort = 7777, int32 DesiredExternalPort = 0, int32 LeaseSeconds = 3600, bool bForce = false);
 
 	/**
 	 * 열어둔 포트를 닫는다. 방에서 나갈 때 부른다.

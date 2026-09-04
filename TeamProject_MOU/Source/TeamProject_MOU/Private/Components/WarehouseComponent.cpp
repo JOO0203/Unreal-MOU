@@ -2,10 +2,34 @@
 
 #include "Base/ItemBase.h"
 #include "Subsystems/WarehouseDataSubsystem.h"
+#include "Net/UnrealNetwork.h"
 
 UWarehouseComponent::UWarehouseComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);
+}
+
+void UWarehouseComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UWarehouseComponent, StoredItems);
+	DOREPLIFETIME(UWarehouseComponent, StoredItemInstances);
+}
+
+void UWarehouseComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	// Component replication also requires a replicated owner.
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		GetOwner()->SetReplicates(true);
+	}
+}
+
+void UWarehouseComponent::OnRep_StoredItems()
+{
+	OnWarehouseItemsChanged.Broadcast();
 }
 
 bool UWarehouseComponent::CanStoreItemClass(TSubclassOf<AItemBase> ItemClass) const
@@ -20,6 +44,7 @@ bool UWarehouseComponent::CanStoreItemInstance(const AItemBase* ItemInstance) co
 
 bool UWarehouseComponent::AddStoredItem(TSubclassOf<AItemBase> ItemClass, int32 Quantity)
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
 	if (!CanStoreItemClass(ItemClass) || Quantity <= 0)
 	{
 		return false;
@@ -49,6 +74,7 @@ bool UWarehouseComponent::AddStoredItemFromInstance(const AItemBase* ItemInstanc
 
 bool UWarehouseComponent::RemoveStoredItem(TSubclassOf<AItemBase> ItemClass, int32 Quantity)
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
 	if (!ItemClass || Quantity <= 0)
 	{
 		return false;
@@ -83,6 +109,7 @@ bool UWarehouseComponent::ContainsItem(TSubclassOf<AItemBase> ItemClass) const
 
 void UWarehouseComponent::ClearStoredItems()
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return;
 	StoredItems.Reset();
 	StoredItemInstances.Reset();
 	BroadcastWarehouseChanged();
@@ -114,6 +141,7 @@ TArray<FStoredItemInstanceData> UWarehouseComponent::BuildStoredItemInstanceData
 
 bool UWarehouseComponent::HandleActorEnteredWarehouse(AActor* OtherActor)
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
 	AItemBase* ItemInstance = Cast<AItemBase>(OtherActor);
 	if (!CanStoreItemInstance(ItemInstance) || StoredItemInstances.Contains(ItemInstance))
 	{
@@ -126,6 +154,7 @@ bool UWarehouseComponent::HandleActorEnteredWarehouse(AActor* OtherActor)
 
 bool UWarehouseComponent::HandleActorExitedWarehouse(AActor* OtherActor)
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
 	AItemBase* ItemInstance = Cast<AItemBase>(OtherActor);
 	if (!ItemInstance)
 	{
@@ -236,4 +265,8 @@ int32 UWarehouseComponent::FindStoredItemIndex(TSubclassOf<AItemBase> ItemClass)
 void UWarehouseComponent::BroadcastWarehouseChanged()
 {
 	OnWarehouseItemsChanged.Broadcast();
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		GetOwner()->ForceNetUpdate();
+	}
 }

@@ -356,12 +356,15 @@ namespace
 			"upnp:rootdevice",
 		};
 
-		// ★ 세 개를 먼저 전부 쏘고, 그 다음에 한 번만 기다린다. (2026-08-26)
-		//   예전에는 대상마다 3초씩 따로 기다려서, UPnP 를 끈 공유기에서는
-		//   9초를 꼬박 쓴 뒤에야 실패가 났다. 서버는 그동안 accept 루프에도
-		//   들어가지 못한다. SSDP 응답은 어차피 이 소켓 하나로 비동기로
-		//   돌아오므로 요청을 직렬화할 이유가 없다.
-		//   (언리얼 쪽 NatPortMapping.cpp 에도 같은 수정이 들어가 있다)
+		// ★ 대상을 하나씩 순서대로 던진다. (2026-08-28 원복)
+		//   8/26 에 한꺼번에 쏘도록 바꿨다가, 순차 구조가 보장하던 **응답자
+		//   우선순위**가 사라져 LAN 의 아무 UPnP 기기(TV/프린터/NAS)를 공유기로
+		//   착각하는 사고가 났다. 여기서 아끼는 것은 몇 초이고 잃는 것은 접속
+		//   자체라 교환이 맞지 않는다. 대신 MX 를 1 로 줄이고 대상당 대기를
+		//   1초로 잡아 최악 3초로 맞췄다(원래는 대상당 3초 = 최악 9초).
+		//   (언리얼 쪽 NatPortMapping.cpp 에 같은 판단이 적용돼 있다)
+		constexpr int64_t kPerTargetMs = 1000;
+
 		for (const char* SearchTarget : SearchTargets)
 		{
 			char Request[512];
@@ -376,39 +379,39 @@ namespace
 
 			::sendto(Guard.Sock, Request, Length, 0,
 			         reinterpret_cast<sockaddr*>(&Destination), sizeof(Destination));
-		}
 
-		// 세 요청 중 어느 것에든 먼저 답한 공유기를 쓴다.
-		const int64_t Deadline = NowMs() + 3000;
-		while (NowMs() < Deadline)
-		{
-			char        Buffer[4096];
-			sockaddr_in From{};
-			socklen_t   FromLen = sizeof(From);
-
-			const int Read = ::recvfrom(Guard.Sock, Buffer, sizeof(Buffer) - 1, 0,
-			                            reinterpret_cast<sockaddr*>(&From), &FromLen);
-			if (Read <= 0)
+			// 이 ST 에 대한 응답만 기다린다.
+			const int64_t Deadline = NowMs() + kPerTargetMs;
+			while (NowMs() < Deadline)
 			{
-				continue;   // 타임아웃. Deadline 까지 계속 기다린다
-			}
-			Buffer[Read] = '\0';
+				char        Buffer[4096];
+				sockaddr_in From{};
+				socklen_t   FromLen = sizeof(From);
 
-			const std::string Response(Buffer, static_cast<size_t>(Read));
-			const size_t      LocationPos = FindNoCase(Response, "location:");
-			if (LocationPos == std::string::npos)
-			{
-				continue;
-			}
+				const int Read = ::recvfrom(Guard.Sock, Buffer, sizeof(Buffer) - 1, 0,
+				                            reinterpret_cast<sockaddr*>(&From), &FromLen);
+				if (Read <= 0)
+				{
+					continue;   // 타임아웃. Deadline 까지 계속 기다린다
+				}
+				Buffer[Read] = '\0';
 
-			const size_t ValueStart = LocationPos + 9;
-			const size_t LineEnd    = Response.find("\r\n", ValueStart);
-			OutLocationUrl = Trim(Response.substr(ValueStart,
-				(LineEnd == std::string::npos) ? std::string::npos : LineEnd - ValueStart));
+				const std::string Response(Buffer, static_cast<size_t>(Read));
+				const size_t      LocationPos = FindNoCase(Response, "location:");
+				if (LocationPos == std::string::npos)
+				{
+					continue;
+				}
 
-			if (!OutLocationUrl.empty())
-			{
-				return EResult::Success;
+				const size_t ValueStart = LocationPos + 9;
+				const size_t LineEnd    = Response.find("\r\n", ValueStart);
+				OutLocationUrl = Trim(Response.substr(ValueStart,
+					(LineEnd == std::string::npos) ? std::string::npos : LineEnd - ValueStart));
+
+				if (!OutLocationUrl.empty())
+				{
+					return EResult::Success;
+				}
 			}
 		}
 

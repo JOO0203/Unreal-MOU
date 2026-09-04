@@ -557,7 +557,7 @@ void URoomListWidgetBase::HandleRoomJoinCompleted(const FMOURoomJoinResult& Resu
 		return;
 	}
 
-	SetStatus(FString::Printf(TEXT("참여 승인. 호스트 %s:%d"), *Result.HostAddress, Result.HostPort), false);
+	SetStatus(FString::Printf(TEXT("참여 승인. 호스트 %s"), *Result.ToDisplayString()), false);
 
 	PendingJoinRoomId = 0;
 	ShowPasswordPrompt(false);

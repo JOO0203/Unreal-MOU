@@ -17,13 +17,15 @@ class TEAMPROJECT_MOU_API UWarehouseComponent : public UActorComponent
 
 public:
 	UWarehouseComponent();
+	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// 창고에 들어온 아이템 수량 및 종류
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_StoredItems, Category = "Warehouse")
 	TArray<FStoredItemData> StoredItems;
 
 	// 현재 창고 영역 안에 있는 아이템
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Warehouse")
 	TArray<TObjectPtr<AItemBase>> StoredItemInstances;
 
 	// 창고 내용이 바뀌었을 때 UI나 외부 BP가 갱신할 수 있도록 알립니다.
@@ -70,7 +72,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warehouse|Persistence")
 	bool SaveStoredItemsToGameInstance();
 
-	// 게임 인스턴스 서브시스템에 저장된 창고 데이터 불.러오기	UFUNCTION(BlueprintCallable, Category = "Warehouse|Persistence")
+	// 게임 인스턴스 서브시스템에 저장된 창고 데이터를 불러옵니다.
+	UFUNCTION(BlueprintCallable, Category = "Warehouse|Persistence")
 	bool LoadStoredItemsFromGameInstance();
 
 	// 요청된 아이템 목록이 현재 창고 수량으로 가능한지 검사
@@ -78,6 +81,12 @@ public:
 	bool BuildDeliveryData(const TArray<FStoredItemData>& RequestedItems, FDeliveryData& OutDeliveryData) const;
 
 private:
+	friend class UWarehouseDataSubsystem;
+	bool bUsesSavedWarehouseData = false;
+
+	UFUNCTION()
+	void OnRep_StoredItems();
+
 	int32 FindStoredItemIndex(TSubclassOf<AItemBase> ItemClass) const;
 	void BroadcastWarehouseChanged();
 };

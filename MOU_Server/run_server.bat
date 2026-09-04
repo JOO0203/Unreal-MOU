@@ -16,6 +16,7 @@ cd /d "%~dp0"
 
 set "EXE=Server_Build\Server.exe"
 set "PORT=9000"
+set "RELAY_PORTS=10000-10127"
 
 if not exist "%EXE%" (
   echo [ERROR] %EXE% not found. Run build_server.bat first.
@@ -23,11 +24,11 @@ if not exist "%EXE%" (
   exit /b 1
 )
 
-REM Verify this is a post-NAT build. The old binary silently treats --upnp as
-REM the DB path and never prints [NAT], which is very hard to diagnose.
-"%EXE%" 2>&1 | findstr /C:"--upnp" >nul
+REM Verify this is a post-relay build. An old binary can start normally but
+REM silently ignores the relay flags, so catch that before opening a room.
+"%EXE%" 2>&1 | findstr /C:"--relay-ports" >nul
 if errorlevel 1 (
-  echo [ERROR] %EXE% is an old build without NAT support. Re-run build_server.bat.
+  echo [ERROR] %EXE% is an old build without UDP relay support. Re-run build_server.bat.
   pause
   exit /b 1
 )
@@ -71,7 +72,8 @@ if defined CFGHOST (
 
 echo.
 echo   [REQUIRED] Port forward on the router at !GWIP! :
-echo                external TCP %PORT%  -^>  !LANIP!:%PORT%
+echo                external TCP+UDP %PORT%  -^>  !LANIP!:%PORT%
+echo                external UDP %RELAY_PORTS%  -^>  !LANIP!:%RELAY_PORTS%
 echo.
 echo   [ALSO] If YOU host a game room from this PC, the listen server port
 echo          must be forwarded too, or remote players hang on "traveling to":
@@ -82,7 +84,7 @@ echo          run in the Unreal console:  MOU.Chat.SetServer 127.0.0.1 %PORT%
 echo ===================================================================
 echo.
 
-REM Extra args pass through, e.g.  run_server.bat --upnp
+REM Extra args pass through, e.g. run_server.bat --upnp.
 REM Use --upnp only if the router supports it; this router answered
 REM NoGatewayFound, so a manual port forward is required here.
 REM
@@ -90,12 +92,20 @@ REM --public-ip makes the server record the PUBLIC address for rooms hosted
 REM from inside this LAN. Without it the room stores a private address (or the
 REM gateway IP when the host hairpins in), and remote players hang forever on
 REM "traveling to <private ip>:7777".
+REM --relay is on by default. Direct UE connection and hole punching still run
+REM first; relay is used only when those paths fail. --relay-lan-ip gives
+REM players on this server's LAN a private relay address and avoids WAN hairpin.
 if defined PUBIP (
-  "%EXE%" %PORT% Server_Build\chat_log.db --public-ip %PUBIP% %*
+  if defined LANIP (
+    "%EXE%" %PORT% Server_Build\chat_log.db --public-ip !PUBIP! --relay --relay-lan-ip !LANIP! --relay-ports %RELAY_PORTS% %*
+  ) else (
+    echo [WARN] LAN IP lookup failed; relay LAN hairpin avoidance is disabled.
+    "%EXE%" %PORT% Server_Build\chat_log.db --public-ip !PUBIP! --relay --relay-ports %RELAY_PORTS% %*
+  )
 ) else (
   echo [WARN] Public IP lookup failed; starting without --public-ip.
-  echo        Rooms hosted from this LAN will advertise a private address.
-  "%EXE%" %PORT% Server_Build\chat_log.db %*
+  echo        Relay will remain disabled unless you pass --relay-public-ip manually.
+  "%EXE%" %PORT% Server_Build\chat_log.db --relay --relay-ports %RELAY_PORTS% %*
 )
 
 echo.

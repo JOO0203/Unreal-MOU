@@ -87,13 +87,16 @@ public:
 	//                      참여자는 OnSessionSettingsUpdated 에서 그 변화를 보고 떠난다.
 	//                      즉 v6 의 호스트 준비 신호는 EOS 에서도 그대로 필요하다 —
 	//                      리슨서버가 언제 열리는지는 어느 백엔드도 대신 알아줄 수 없다.
-	virtual void CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort) override;
+	virtual void CreateRoom(const FString& Title, const FString& RoomPassword, int32 HostPort,
+	                        const FString& LanAddress) override;
 	virtual void RequestRoomList() override;
 	virtual void JoinRoom(int32 RoomId, const FString& RoomPassword) override;
 	virtual void LeaveRoom() override;
 	virtual void SetReady(bool bReady) override;
 	virtual void StartGame() override;
 	virtual void NotifyHostReady() override;
+	virtual void RequestHostProbe(int32 Port, uint32 Nonce) override;
+	virtual void ReportReachability(bool bReachable) override;
 	virtual void UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame) override;
 
 	// --- 친구 / 메신저 (v7) ---

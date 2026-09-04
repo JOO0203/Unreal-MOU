@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Item/DeliveryData.h"
 #include "TeamProject_MOUPlayerController.generated.h"
 
 class UInputMappingContext;
@@ -12,6 +13,8 @@ class ULoginWidgetBase;
 class URadioStatusWidget;
 class UVoiceComponent;
 class UVoiceStatusWidget;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWarehouseDeliverySaveCompleted, bool, bSucceeded);
 
 /**
  *  Basic PlayerController class for a third person game
@@ -24,6 +27,17 @@ class ATeamProject_MOUPlayerController : public APlayerController
 
 public:
 	ATeamProject_MOUPlayerController();
+
+	// Call on the widget's owning controller, on either host or client.
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Warehouse|Delivery")
+	void ServerSaveWarehouseDelivery(const TArray<FStoredItemData>& RequestedItems);
+
+	// Result only; inventory replication can arrive before or after this event.
+	UPROPERTY(BlueprintAssignable, Category = "Warehouse|Delivery")
+	FOnWarehouseDeliverySaveCompleted OnWarehouseDeliverySaveCompleted;
+
+	UFUNCTION(Client, Reliable)
+	void ClientWarehouseDeliverySaveCompleted(bool bSucceeded);
 
 protected:
 	/**
