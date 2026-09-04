@@ -24,7 +24,7 @@ if not exist Server_Build mkdir Server_Build
 cl /nologo /std:c++17 /EHsc /utf-8 /O2 /DSQLITE_THREADSAFE=1 /DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_DQS=0 /DSQLITE_DEFAULT_MEMSTATUS=0 ^
   /Fe:Server_Build\Server.exe /Fo:Server_Build\ ^
   Server\Server.cpp Server\ChatLog.cpp Server\Accounts.cpp Server\Crypto.cpp Server\Rooms.cpp Server\Session.cpp ^
-  Server\Friends.cpp Server\DirectMessages.cpp Server\NatPortMapping.cpp ^
+  Server\Friends.cpp Server\DirectMessages.cpp Server\NatPortMapping.cpp Server\UdpRelay.cpp ^
   Shared\Framing.cpp ThirdParty\sqlite\sqlite3.c ^
   /IShared /IServer /IThirdParty\sqlite ^
   ws2_32.lib

@@ -298,11 +298,16 @@ namespace
 						std::memcpy(&Ack, Body.data(), sizeof(Ack));
 						if (Ack.bSuccess)
 						{
-							// 실제 게임에서는 이 주소로 ClientTravel 한다.
-							std::printf("[방 참여 성공] #%u -> 호스트 %s:%u 로 접속하면 된다\n",
-							            Ack.RoomId,
-							            ReadFixedString(Ack.HostAddress, kMaxAddressLen).c_str(),
-							            Ack.HostPort);
+							const uint8_t Count = Ack.CandidateCount <= kMaxHostCandidates
+								? Ack.CandidateCount : static_cast<uint8_t>(kMaxHostCandidates);
+							if (Count > 0)
+							{
+								const HostCandidate& Candidate = Ack.Candidates[0];
+								std::printf("[방 참여 성공] #%u -> 후보 %s:%u (총 %u개)\n",
+								            Ack.RoomId,
+								            ReadFixedString(Candidate.Address, kMaxAddressLen).c_str(), Candidate.Port,
+								            static_cast<unsigned>(Count));
+							}
 						}
 						else
 						{
@@ -319,10 +324,9 @@ namespace
 						std::memcpy(&Start, Body.data(), sizeof(Start));
 						// v6 부터 이 신호는 "떠나라" 가 아니다. 호스트가 리슨서버를 다 열고
 						// RoomHostReady 를 보내줄 때까지 기다린다.
-						std::printf("[게임 시작] #%u 호스트 %s:%u — 호스트가 서버를 여는 중이다\n",
-						            Start.RoomId,
-						            ReadFixedString(Start.HostAddress, kMaxAddressLen).c_str(),
-						            Start.HostPort);
+						std::printf("[게임 시작] #%u — 호스트가 서버를 여는 중이다 (후보 %u개, relay host 경로 %u개)\n",
+						            Start.RoomId, static_cast<unsigned>(Start.CandidateCount),
+						            static_cast<unsigned>(Start.RelayRouteCount));
 					}
 					break;
 
@@ -331,11 +335,22 @@ namespace
 					{
 						RoomHostReadyBody Ready{};
 						std::memcpy(&Ready, Body.data(), sizeof(Ready));
-						// 실제 게임에서는 여기서 ClientTravel 한다.
-						std::printf("[호스트 준비 완료] #%u -> 지금 %s:%u 로 접속하면 된다\n",
-						            Ready.RoomId,
-						            ReadFixedString(Ready.HostAddress, kMaxAddressLen).c_str(),
-						            Ready.HostPort);
+						const uint8_t Count = Ready.CandidateCount <= kMaxHostCandidates
+							? Ready.CandidateCount : static_cast<uint8_t>(kMaxHostCandidates);
+						if (Count > 0)
+						{
+							const HostCandidate& Candidate = Ready.Candidates[0];
+							std::printf("[호스트 준비 완료] #%u -> 지금 %s:%u 로 접속하면 된다",
+							            Ready.RoomId,
+							            ReadFixedString(Candidate.Address, kMaxAddressLen).c_str(), Candidate.Port);
+							if (Ready.Relay.GuestPort != 0)
+							{
+								std::printf(" (direct 실패시 relay %s:%u)",
+								            ReadFixedString(Ready.Relay.Address, kMaxAddressLen).c_str(),
+								            Ready.Relay.GuestPort);
+							}
+							std::printf("\n");
+						}
 					}
 					break;
 

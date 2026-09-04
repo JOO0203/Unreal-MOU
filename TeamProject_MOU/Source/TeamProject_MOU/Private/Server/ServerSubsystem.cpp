@@ -22,8 +22,16 @@
 #include "Server/ServerSettings.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/NetConnection.h"
 #include "Engine/NetDriver.h"
+#include "Engine/PendingNetGame.h"
+#include "SocketSubsystem.h"
+#include "Sockets.h"                          // FSocket (프로브·등록·홀펀칭이 직접 쓴다)
+#include "Server/Net/MOUIpNetDriver.h"        // 클라이언트 바인드 포트 고정 (v10)
+#include "IPAddress.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"   // ClientTravel (참여자 여행)
+#include "Kismet/GameplayStatics.h"           // OpenLevel (방장 여행)
 #include "HAL/IConsoleManager.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
@@ -33,6 +41,11 @@ DEFINE_LOG_CATEGORY(LogMOUServer);
 
 namespace
 {
+	// 에디터/비최적화 빌드는 UE의 InitialConnectTimeout 배율이 매우 커질 수 있다.
+	// MOU의 직접 우선 -> relay 정책은 짧고 명확한 자체 제한으로 전환한다.
+	constexpr float kDirectAttemptTimeoutSeconds = 8.f;
+	constexpr float kRelayAttemptTimeoutSeconds  = 15.f;
+
 	/**
 	 * 로그 표시용 채널 이름.
 	 * 서버 Server.cpp 의 ChannelName() 과 같은 문자열을 쓴다.
@@ -69,6 +82,14 @@ void UServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateUObject(this, &UServerSubsystem::Tick));
 
+	// 엔진의 접속/이동 실패를 받아 사람이 읽을 문장으로 바꿔 알린다.
+	// 이게 없으면 실패가 화면에 "이동합니다..." 로 그대로 남아 원인을 알 수 없다.
+	if (GEngine != nullptr)
+	{
+		NetworkFailureHandle = GEngine->OnNetworkFailure().AddUObject(this, &UServerSubsystem::HandleNetworkFailure);
+		TravelFailureHandle  = GEngine->OnTravelFailure().AddUObject(this, &UServerSubsystem::HandleTravelFailure);
+	}
+
 	UE_LOG(LogMOUServer, Log, TEXT("채팅 서브시스템 초기화 완료. 접속하려면 ConnectToChatServer 를 호출한다."));
 }
 
@@ -80,6 +101,13 @@ void UServerSubsystem::Deinitialize()
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
 		TickHandle.Reset();
+	}
+
+	// 엔진 델리게이트를 먼저 뗀다. 안 떼면 파괴된 서브시스템으로 호출이 들어온다.
+	if (GEngine != nullptr)
+	{
+		if (NetworkFailureHandle.IsValid()) { GEngine->OnNetworkFailure().Remove(NetworkFailureHandle); }
+		if (TravelFailureHandle.IsValid())  { GEngine->OnTravelFailure().Remove(TravelFailureHandle);  }
 	}
 
 	ShutdownClient();
@@ -105,6 +133,14 @@ void UServerSubsystem::ShutdownClient()
 	// 리슨서버 감시도 같이 끈다. 붙을 서버가 없는데 신호를 준비하고 있을 이유가 없다.
 	bWaitingForListenServer = false;
 	ListenServerWaitSeconds = 0.f;
+
+	// ★ 게임 포트 소켓을 반드시 놓아준다. 들고 있으면 다음에 리슨서버나
+	//   넷드라이버가 같은 포트를 못 연다.
+	if (bProbing)
+	{
+		FinishReachabilityProbe(false, TEXT("종료 중이라 확인을 중단했습니다."));
+	}
+	CloseGameSocket();
 
 	if (ConnectionState != EChatConnectionState::Disconnected)
 	{
@@ -151,7 +187,7 @@ void UServerSubsystem::ConnectToChatServer(const FString& InHost, int32 InPort)
 		UMOUServerSettings::ResolveEndpoint(ResolvedHost, ResolvedPort, &Source);
 
 		if (Host.IsEmpty()) { Host = ResolvedHost; }
-		if (Port <= 0) { Port = ResolvedPort; }
+		if (Port <= 0)      { Port = ResolvedPort; }
 
 		UE_LOG(LogMOUServer, Log, TEXT("접속 대상: %s:%d — 출처 %s"), *Host, Port, *Source);
 	}
@@ -239,9 +275,9 @@ void UServerSubsystem::Login(const FString& LoginId, const FString& Password, in
 {
 	// 요청은 항상 보관해둔다.
 	// 연결이 끊겼다가 자동 재접속했을 때 이 값으로 다시 로그인해야 하기 때문이다.
-	PendingLoginId = LoginId;
-	PendingPassword = Password;
-	PendingTeamId = TeamId;
+	PendingLoginId   = LoginId;
+	PendingPassword  = Password;
+	PendingTeamId    = TeamId;
 	bHasPendingLogin = true;
 
 	if (ConnectionState == EChatConnectionState::Connected
@@ -262,10 +298,10 @@ void UServerSubsystem::RegisterAccount(const FString& LoginId, const FString& Pa
 	// 연결 전에 불릴 수 있으므로 일단 보관한다.
 	// 지금 바로 EnqueuePacket 하면, 연결이 성사되는 순간 워커가 송신 큐를 비우면서
 	// 이 패킷까지 같이 버린다(그 비우기는 낡은 패킷이 LoginReq 를 앞지르는 것을 막는 장치다).
-	PendingRegisterId = LoginId;
+	PendingRegisterId       = LoginId;
 	PendingRegisterPassword = Password;
 	PendingRegisterNickname = Nickname;
-	bHasPendingRegister = true;
+	bHasPendingRegister     = true;
 
 	if (ConnectionState == EChatConnectionState::Connected
 		|| ConnectionState == EChatConnectionState::LoggedIn)
@@ -400,7 +436,12 @@ void UServerSubsystem::CreateRoom(const FString& Title, const FString& RoomPassw
 	// 전송 방식의 문제가 아니다. 백엔드가 바뀌어도 같은 규칙이어야 한다.
 	const FString EffectivePassword = IsValidRoomPassword(RoomPassword) ? RoomPassword : FString();
 
-	Backend->CreateRoom(Title, EffectivePassword, HostPort);
+	// 방에 광고하는 포트와 나중에 실제 listen socket 이 bind 할 포트를 하나로 맞춘다.
+	// 7777 이 이미 사용 중이면 EnsureGameSocket 이 7778 등으로 옮길 수 있는데, 예전에는
+	// 방 목록만 7777을 계속 가리켜 relay bootstrap과 직접 후보가 서로 어긋날 수 있었다.
+	RegisterGameEndpoint(HostPort);
+	const int32 AdvertisedPort = ReservedGamePort > 0 ? ReservedGamePort : HostPort;
+	Backend->CreateRoom(Title, EffectivePassword, AdvertisedPort, GetLocalLanAddress());
 }
 
 void UServerSubsystem::RequestRoomList()
@@ -617,7 +658,7 @@ bool UServerSubsystem::IsSelfReady() const
 
 void UServerSubsystem::ClearRoomState()
 {
-	MyRoomId = 0;
+	MyRoomId      = 0;
 	CurrentRoomId = 0;
 	RoomMembers.Reset();
 	bAllMembersReady = false;
@@ -627,6 +668,24 @@ void UServerSubsystem::ClearRoomState()
 	// "준비됐다" 가 나가고 서버가 NotStarted 로 거절한다.
 	bWaitingForListenServer = false;
 	ListenServerWaitSeconds = 0.f;
+
+	// 참여자 쪽도 같은 이유로 지운다. 안 지우면 방을 나간 뒤에도 타이머가 돌아
+	// 엉뚱한 화면에 "방장의 서버가 열리지 않았습니다" 가 뜬다.
+	bGuestWaitingForHostReady = false;
+	GuestWaitSeconds          = 0.f;
+
+	// ★ 받아둔 출발 신호도 버린다. 남겨두면 다음 방에서 TravelToHost 가
+	//   지난 방의 주소로 떠난다.
+	PendingHostReady = FMOURoomJoinResult();
+	TriedCandidateIndex = INDEX_NONE;
+	TriedCandidateIndices.Reset();
+	PendingHostRelayRoutes.Reset();
+	PendingGuestRelayRoute = FMOUGameRelayRoute();
+	ActiveTravelTransport = EMOUTravelTransport::None;
+	bRelayFallbackTried = false;
+	TravelAttemptSeconds = 0.f;
+	UMOUIpNetDriver::ClearPendingRelayRegistrations();
+	TravelRoomPassword.Reset();
 }
 
 void UServerSubsystem::UpdateRoomState(int32 RoomId, int32 CurrentPlayers, bool bInGame)
@@ -657,9 +716,12 @@ bool UServerSubsystem::Tick(float DeltaTime)
 		return true;   // false 를 돌려주면 틱이 영구 해제된다. 항상 true
 	}
 
-	// 0) 방장이면 내 리슨서버가 떴는지 확인한다.
+	// 0) 방장이면 내 리슨서버가 떴는지, 참여자면 너무 오래 기다리지 않는지 확인한다.
 	//    사건 처리보다 먼저 하는 이유는 없다. 서로 독립적이다.
 	PollListenServer(DeltaTime);
+	PollGuestHostReadyTimeout(DeltaTime);
+	PollReachabilityProbe(DeltaTime);
+	PollTravelConnection(DeltaTime);
 
 	// 1) 상태 변화 처리
 	FServerClientEvent Event;
@@ -754,7 +816,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 		case EServerClientEventType::RoomCreateAck:
 			if (Event.bRoomSuccess)
 			{
-				MyRoomId = Event.RoomId;
+				MyRoomId      = Event.RoomId;
 				CurrentRoomId = Event.RoomId;   // 방장도 그 방의 멤버다
 				UE_LOG(LogMOUServer, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
 			}
@@ -775,8 +837,8 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			if (Event.Join.bSuccess)
 			{
 				CurrentRoomId = Event.Join.RoomId;   // 대기실 입장. 방장은 아니다
-				UE_LOG(LogMOUServer, Log, TEXT("방 #%d 입장. 호스트는 %s:%d"),
-					Event.Join.RoomId, *Event.Join.HostAddress, Event.Join.HostPort);
+				UE_LOG(LogMOUServer, Log, TEXT("방 #%d 입장. 호스트 후보 %s"),
+					Event.Join.RoomId, *Event.Join.ToDisplayString());
 			}
 			else
 			{
@@ -791,7 +853,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			// 빠르게 나갔다 다른 방에 들어가면 실제로 이런 순서가 나온다.
 			if (Event.RoomId == CurrentRoomId)
 			{
-				RoomMembers = Event.Members;
+				RoomMembers      = Event.Members;
 				bAllMembersReady = Event.bAllReady;
 				UE_LOG(LogMOUServer, Verbose, TEXT("대기실 #%d 명단 %d명 (전원준비 %s)"),
 					Event.RoomId, RoomMembers.Num(), bAllMembersReady ? TEXT("O") : TEXT("X"));
@@ -811,8 +873,8 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			// "리슨서버를 연다" 와 "기다린다" 로 갈리는데, 그 판단 근거가
 			// 이미 여기 있으므로 UI 가 다시 따지게 하지 않는다.
 			const bool bIsHost = (MyRoomId != 0 && MyRoomId == Event.RoomId);
-			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 게임 시작. 호스트 %s:%d (나는 %s)"),
-				Event.RoomId, *Event.Join.HostAddress, Event.Join.HostPort,
+			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 게임 시작. 호스트 후보 %s (나는 %s)"),
+				Event.RoomId, *Event.Join.ToDisplayString(),
 				bIsHost ? TEXT("방장") : TEXT("참여자"));
 
 			if (bIsHost)
@@ -823,17 +885,102 @@ bool UServerSubsystem::Tick(float DeltaTime)
 				// 그 순간 로비 위젯은 파괴되므로, 위젯이 감시를 맡으면 감시자가 사라진다.
 				bWaitingForListenServer = true;
 				ListenServerWaitSeconds = 0.f;
+
+				// 방장이 punch 할 대상. OpenLevel 직전에 쓴다. (v10)
+				PunchTargets = Event.PunchTargets;
+				UE_CLOG(PunchTargets.Num() > 0, LogMOUServer, Log,
+					TEXT("[홀펀칭] 참여자 %d명의 주소를 받았다."), PunchTargets.Num());
+
+				// 각 참여자에 대한 host-facing relay capability. UI에는 내보내지 않고
+				// TravelAsHost -> 실제 listen socket bootstrap 에서만 쓴다.
+				PendingHostRelayRoutes = Event.HostRelayRoutes;
+				for (const FMOUGameRelayRoute& Route : PendingHostRelayRoutes)
+				{
+					RegisterRelayRouteFromGameSocket(Route, /*bHost=*/true);
+				}
+			}
+			else
+			{
+				// 참여자는 지금부터 출발 신호를 기다린다. 끝없이 기다리지는 않는다.
+				bGuestWaitingForHostReady = true;
+				GuestWaitSeconds          = 0.f;
+				PendingHostReady          = FMOURoomJoinResult();   // 지난 판의 값이 남아 있으면 안 된다
+				TriedCandidateIndex       = INDEX_NONE;
+				TriedCandidateIndices.Reset();
 			}
 
+			// ★ UI 보다 먼저 브로드캐스트하지 않는다. 위젯이 안내 문구를 띄우고
+			//   BP 훅이 돌 기회를 준 뒤에 실제 행동을 한다 — OpenLevel 이 시작되면
+			//   위젯은 곧 파괴되므로 순서를 뒤집으면 안내가 화면에 안 뜬다.
 			OnRoomGameStarted.Broadcast(Event.Join, bIsHost);
+
+			if (bIsHost)
+			{
+				TravelAsHost();
+			}
+			else if (bPreloadMapWhileWaiting)
+			{
+				// 참여자는 방장이 맵을 여는 동안 놀고 있다. 그 시간에 미리 올리면
+				// 두 로딩이 겹쳐져 실제 대기 시간이 크게 준다.
+				BeginPreloadMap(HostMapName);
+			}
 			break;
 		}
 
 		case EServerClientEventType::RoomHostReady:
+		{
 			// 참여자에게만 온다. 이제 붙어도 된다.
-			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 호스트 준비 완료. %s:%d 로 이동한다."),
-				Event.RoomId, *Event.Join.HostAddress, Event.Join.HostPort);
+			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 호스트 준비 완료. 후보 %s 로 이동한다."),
+				Event.RoomId, *Event.Join.ToDisplayString());
+
+			// ★ 브로드캐스트하고 버리지 않는다. 이 순간 로비 위젯이 이미 닫혀 있으면
+			//   예전에는 정보가 통째로 사라져서 참여자가 영영 못 떠났다.
+			PendingHostReady          = Event.Join;
+			TriedCandidateIndex       = INDEX_NONE;
+			TriedCandidateIndices.Reset();
+			PendingGuestRelayRoute    = Event.GuestRelayRoute;
+			bRelayFallbackTried       = false;
+			ActiveTravelTransport     = EMOUTravelTransport::None;
+			bGuestWaitingForHostReady = false;
+			GuestWaitSeconds          = 0.f;
+			RegisterRelayRouteFromGameSocket(PendingGuestRelayRoute, /*bHost=*/false);
+
 			OnRoomHostReady.Broadcast(Event.Join);
+
+			if (bAutoTravelOnGameStart)
+			{
+				TravelToHost();
+			}
+			break;
+		}
+
+		case EServerClientEventType::ClientEndpointAck:
+			// 서버가 내 공인 게임 엔드포인트를 관측했다. 방장이 punch 할 주소가 이것이다.
+			ObservedEndpoint = Event.Detail;
+			UE_LOG(LogMOUServer, Log, TEXT("[엔드포인트] 서버가 내 게임 주소를 %s 로 봤다."), *ObservedEndpoint);
+			break;
+
+		case EServerClientEventType::HostProbeSent:
+			// 서버가 쐈다. 지금부터 도착을 기다린다.
+			if (bProbing && Event.ProbeNonce == ProbeNonce)
+			{
+				if (Event.bProbeSent)
+				{
+					// 재시도 요청의 HostProbeSent가 올 때마다 시간을 0으로 만들면
+					// 실패 상한이 영원히 밀린다. 첫 발사 확인에서만 시작한다.
+					if (!bProbeDispatched)
+					{
+						bProbeDispatched = true;
+						ProbeWaitSeconds = 0.f;
+						ProbeRetrySeconds = 0.f;
+					}
+				}
+				else
+				{
+					// 서버가 쏘지 못했다. 기다려봐야 오지 않는다.
+					FinishReachabilityProbe(false, TEXT("서버가 확인용 패킷을 보내지 못했습니다."));
+				}
+			}
 			break;
 
 		case EServerClientEventType::Disconnected:
@@ -1041,6 +1188,20 @@ void UServerSubsystem::PollListenServer(float DeltaTime)
 			TEXT("리슨서버가 열렸다(%.1f초 소요). 참여자에게 출발 신호를 보낸다."),
 			ListenServerWaitSeconds);
 
+		// ★ 여기서 이 안내를 찍는 이유. (2026-08-28)
+		//
+		//   리슨서버가 떴다는 것은 **이 PC 안에서** 포트가 열렸다는 뜻일 뿐이다.
+		//   다른 네트워크의 참여자가 실제로 들어오려면 **이 PC 가 있는 네트워크의
+		//   공유기**가 그 포트를 이 PC 로 넘겨줘야 한다. 그 둘은 완전히 다른 문제인데,
+		//   화면에는 똑같이 "이동합니다" 만 뜨기 때문에 구분이 안 된다.
+		//
+		//   실제로 이것 때문에 하루를 썼다 — 서버 쪽 공유기에 포워딩을 넣어두고
+		//   "포워딩은 했다" 고 생각했지만, 참여자의 게임 트래픽은 서버를 아예
+		//   거치지 않고 방장에게 직접 온다. 열어야 할 공유기는 방장 쪽이었다.
+		//
+		//   그래서 무엇을 어디에 넣어야 하는지를 값까지 채워서 찍어둔다.
+		LogListenServerReachability();
+
 		ListenServerWaitSeconds = 0.f;
 		Backend->NotifyHostReady();
 		return;
@@ -1067,6 +1228,834 @@ void UServerSubsystem::PollListenServer(float DeltaTime)
 	}
 }
 
+
+void UServerSubsystem::PollGuestHostReadyTimeout(float DeltaTime)
+{
+	if (!bGuestWaitingForHostReady)
+	{
+		return;
+	}
+
+	GuestWaitSeconds += DeltaTime;
+
+	// 방장 쪽 상한에 여유를 더한다. 방장이 제 시간에 열면 그 즉시 신호가 오므로
+	// 이 값은 "대기 시간" 이 아니라 "이보다 오래면 뭔가 잘못된 것" 의 경계다.
+	// 여유가 없으면 방장이 상한 직전에 성공했을 때 참여자가 먼저 포기해버린다.
+	const float Timeout = UMOUServerSettings::GetHostReadyTimeoutSeconds() + 10.f;
+	if (GuestWaitSeconds < Timeout)
+	{
+		return;
+	}
+
+	bGuestWaitingForHostReady = false;
+	GuestWaitSeconds          = 0.f;
+
+	// ★ 여기가 없으면 화면이 "방장이 서버를 여는 중입니다..." 로 영원히 굳는다.
+	//   서버는 죽은 주소로 보내지 않으려고 일부러 신호를 안 보내는데(정당한 판단이다),
+	//   그 침묵이 참여자에게는 무한 로딩과 구분되지 않는다. 침묵도 결과다.
+	const FString Reason = FString::Printf(
+		TEXT("%.0f초 안에 방장의 서버가 열리지 않았습니다.\n")
+		TEXT("방장이 게임을 다시 시작하면 자동으로 이동합니다."),
+		Timeout);
+
+	UE_LOG(LogMOUServer, Warning, TEXT("[참여자] %s"), *Reason);
+	OnTravelFailed.Broadcast(Reason);
+}
+
+// ---------------------------------------------------------------------------
+// 여행 (2026-08-29: ULobbyWidgetBase 에서 옮겨왔다)
+//
+// 옮긴 이유는 헤더의 ConfigureTravel 위 주석에 적어뒀다. 요약하면
+// "출발 신호를 받는 주체가 위젯이면, 위젯이 닫히는 순간 아무도 안 떠난다".
+// ---------------------------------------------------------------------------
+
+void UServerSubsystem::ConfigureTravel(const FString& InHostMapName, bool bInAutoTravel, bool bInPreloadMap)
+{
+	HostMapName             = InHostMapName;
+	bAutoTravelOnGameStart  = bInAutoTravel;
+	bPreloadMapWhileWaiting = bInPreloadMap;
+
+	UE_LOG(LogMOUServer, Verbose,
+		TEXT("여행 설정: 맵='%s' 자동이동=%s 미리올리기=%s"),
+		*HostMapName,
+		bAutoTravelOnGameStart ? TEXT("O") : TEXT("X"),
+		bPreloadMapWhileWaiting ? TEXT("O") : TEXT("X"));
+}
+
+namespace
+{
+	/** "192.168.0.32" -> "192.168.0." (마지막 옥텟을 뗀 /24 접두사). 실패하면 빈 문자열. */
+	FString MakeSlash24Prefix(const FString& Ipv4)
+	{
+		int32 LastDot = INDEX_NONE;
+		if (!Ipv4.FindLastChar(TEXT('.'), LastDot) || LastDot <= 0)
+		{
+			return FString();
+		}
+		return Ipv4.Left(LastDot + 1);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 도달성 프로브 (v9)
+//
+// 흐름:
+//   BeginReachabilityProbe  프로브 소켓을 게임 포트에 bind, 서버에 "쏴달라"
+//   HostProbeSent 수신      서버가 쐈다. 여기서부터 센다
+//   PollReachabilityProbe   매 틱 논블로킹으로 들여다본다
+//   FinishReachabilityProbe 결과를 알리고 소켓을 닫는다
+//
+// ★ 소켓을 반드시 닫아야 한다. 열어둔 채 OpenLevel 하면 리슨서버가 같은 포트를
+//   잡지 못한다. 그래서 닫는 경로를 FinishReachabilityProbe 하나로 모았다.
+// ---------------------------------------------------------------------------
+
+bool UServerSubsystem::EnsureGameSocket(int32 BasePort)
+{
+	if (GameSocket != nullptr)
+	{
+		return true;   // 이미 확보했다
+	}
+	if (BasePort <= 0 || BasePort > 65535)
+	{
+		return false;
+	}
+
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr)
+	{
+		return false;
+	}
+
+	// ★ BasePort 가 막혀 있으면 다음 번호로 올라간다.
+	//
+	//   한 PC 에서 인스턴스를 둘 띄우는 테스트(같은 LAN 참여자 재현)가 이 폴백
+	//   없이는 통째로 깨진다 — 둘이 같은 포트를 잡을 수 없기 때문이다.
+	//   실제로 잡힌 번호를 서버에 등록하므로, 번호가 밀려도 홀펀칭은 그대로 된다.
+	constexpr int32 MaxAttempts = 8;
+
+	for (int32 Attempt = 0; Attempt < MaxAttempts; ++Attempt)
+	{
+		const int32 TryPort = BasePort + Attempt;
+
+		FSocket* Socket = Sockets->CreateSocket(NAME_DGram, TEXT("MOU.GamePort"), FNetworkProtocolTypes::IPv4);
+		if (Socket == nullptr)
+		{
+			return false;
+		}
+
+		Socket->SetNonBlocking(true);
+
+		// ★ SetReuseAddr 를 쓰지 않는다.
+		//   윈도우에서 SO_REUSEADDR 는 이미 쓰고 있는 UDP 포트에 두 번째 소켓이
+		//   끼어들 수 있게 만든다. 그러면 들어온 패킷이 둘 중 하나에만 가고,
+		//   프로브는 "안 왔다" 고 오판한다. 이미 쓰는 중이면 bind 를 실패시켜
+		//   다음 번호로 넘어가는 편이 정직하다.
+
+		TSharedRef<FInternetAddr> BindAddr = Sockets->CreateInternetAddr();
+		BindAddr->SetAnyAddress();
+		BindAddr->SetPort(TryPort);
+
+		if (Socket->Bind(*BindAddr))
+		{
+			GameSocket       = Socket;
+			ReservedGamePort = TryPort;
+
+			// 넷드라이버가 ClientTravel 때 같은 포트를 쓰게 한다.
+			// 이것이 없으면 서버가 관측한 엔드포인트와 실제 접속 출발지가 달라져
+			// 방장이 엉뚱한 곳에 punch 하게 된다.
+			UMOUIpNetDriver::SetDesiredClientPort(TryPort);
+
+			UE_LOG(LogMOUServer, Log, TEXT("[게임포트] %d 확보."), TryPort);
+			return true;
+		}
+
+		Sockets->DestroySocket(Socket);
+	}
+
+	UE_LOG(LogMOUServer, Warning,
+		TEXT("[게임포트] %d~%d 이 전부 사용 중이다. 홀펀칭 없이 진행한다."),
+		BasePort, BasePort + MaxAttempts - 1);
+	return false;
+}
+
+void UServerSubsystem::CloseGameSocket()
+{
+	if (GameSocket == nullptr)
+	{
+		return;
+	}
+
+	if (ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+	{
+		GameSocket->Close();
+		Sockets->DestroySocket(GameSocket);
+	}
+	GameSocket = nullptr;
+
+	UE_LOG(LogMOUServer, Log, TEXT("[게임포트] %d 를 놓아준다(넷드라이버가 쓸 차례)."), ReservedGamePort);
+}
+
+void UServerSubsystem::BeginReachabilityProbe(int32 Port)
+{
+	if (bProbing)
+	{
+		UE_LOG(LogMOUServer, Warning, TEXT("[프로브] 이미 진행 중이다."));
+		return;
+	}
+	if (!Backend.IsValid() || Port <= 0 || Port > 65535)
+	{
+		return;
+	}
+
+	if (!EnsureGameSocket(Port))
+	{
+		FinishReachabilityProbe(false,
+			FString::Printf(TEXT("포트 %d 부근을 열지 못했습니다. 다른 프로그램이 쓰고 있습니다."), Port));
+		return;
+	}
+
+	ProbePort         = ReservedGamePort;
+	// 0 은 "아직 없음" 과 구분이 안 되므로 피한다.
+	ProbeNonce        = FMath::Max(1u, static_cast<uint32>(FMath::Rand()) ^ static_cast<uint32>(FPlatformTime::Cycles()));
+	ProbeWaitSeconds  = 0.f;
+	ProbeTotalSeconds = 0.f;
+	ProbeRetrySeconds = 0.f;
+	ProbeRequestAttempts = 1;
+	bProbeDispatched  = false;
+	bProbing          = true;
+
+	UE_LOG(LogMOUServer, Log, TEXT("[프로브] 포트 %d 에서 대기 시작. 서버에 발사를 청한다(nonce %u)."),
+		Port, ProbeNonce);
+
+	Backend->RequestHostProbe(ReservedGamePort, ProbeNonce);
+}
+
+void UServerSubsystem::PollReachabilityProbe(float DeltaTime)
+{
+	if (!bProbing || GameSocket == nullptr)
+	{
+		return;
+	}
+
+	ProbeTotalSeconds += DeltaTime;
+	ProbeRetrySeconds += DeltaTime;
+
+	// AddPortMapping 성공 응답과 실제 NAT 규칙 적용 사이에 지연이 있는 공유기가 있다.
+	// UDP 한 발만으로 판정하면 PIE를 다시 켠 직후 결과가 흔들리므로 같은 nonce로
+	// 1초 간격 최대 5회 요청한다. 서버 응답은 작고 TCP 제어 패킷도 매우 작다.
+	if (ProbeRetrySeconds >= 1.f && ProbeRequestAttempts < 5 && Backend.IsValid())
+	{
+		ProbeRetrySeconds = 0.f;
+		++ProbeRequestAttempts;
+		Backend->RequestHostProbe(ReservedGamePort, ProbeNonce);
+		UE_LOG(LogMOUServer, Verbose, TEXT("[프로브] 외부 UDP 발사 재요청 %d/5"), ProbeRequestAttempts);
+	}
+
+	// 서버가 "쐈다" 고 답하기 전까지는 도착을 기대할 수 없다. 다만 그 답 자체가
+	// 안 올 수도 있으므로(연결이 끊겼다든지) 전체 상한을 따로 둔다.
+	if (!bProbeDispatched)
+	{
+		if (ProbeTotalSeconds >= 10.f)
+		{
+			FinishReachabilityProbe(false, TEXT("서버가 프로브 요청에 응답하지 않았습니다."));
+		}
+		return;
+	}
+
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr)
+	{
+		FinishReachabilityProbe(false, TEXT("소켓 시스템을 찾지 못했습니다."));
+		return;
+	}
+
+	// 논블로킹이라 안 왔으면 즉시 false 로 떨어진다. 매 틱 불러도 부담이 없다.
+	uint8 Buffer[64];
+	int32 Read = 0;
+	TSharedRef<FInternetAddr> From = Sockets->CreateInternetAddr();
+
+	while (GameSocket->RecvFrom(Buffer, sizeof(Buffer), Read, *From))
+	{
+		if (Read < static_cast<int32>(sizeof(MOU::HostProbeDatagram)))
+		{
+			continue;   // 우리 것이 아니다
+		}
+
+		MOU::HostProbeDatagram Datagram{};
+		FMemory::Memcpy(&Datagram, Buffer, sizeof(Datagram));
+
+		// ★ Magic 과 Nonce 를 둘 다 본다. 이 포트는 곧 게임 포트라 지나가던 다른
+		//   트래픽이 들어올 수 있고, 지난 판의 늦은 응답이 올 수도 있다.
+		if (Datagram.Magic != MOU::kHostProbeMagic || Datagram.Nonce != ProbeNonce)
+		{
+			continue;
+		}
+
+		FinishReachabilityProbe(true,
+			FString::Printf(TEXT("외부(%s)에서 보낸 패킷이 도착했습니다."), *From->ToString(false)));
+		return;
+	}
+
+	ProbeWaitSeconds += DeltaTime;
+
+	// 공유기 규칙 반영 지연을 포함해 7초 동안 여러 발을 모두 못 받으면 실패다.
+	if (ProbeWaitSeconds >= 7.f)
+	{
+		FinishReachabilityProbe(false,
+			TEXT("공유기가 외부 접속을 넘겨주지 않습니다. 같은 공유기 안의 인원만 참여할 수 있습니다."));
+	}
+}
+
+void UServerSubsystem::FinishReachabilityProbe(bool bReachable, const FString& Detail)
+{
+	// ★ v10 부터 소켓을 여기서 닫지 않는다.
+	//
+	//   게임 포트 소켓은 이제 셋이 공유한다(프로브 / 엔드포인트 등록 / 홀펀칭).
+	//   프로브가 끝났다고 닫아버리면 NAT 에 뚫어둔 구멍이 그 자리에서 사라지고,
+	//   등록해둔 엔드포인트도 무효가 된다. 닫는 것은 여행 직전 한 번뿐이다
+	//   (TravelAsHost / TravelToHost / Deinitialize -> CloseGameSocket).
+	bProbing          = false;
+	bProbeDispatched  = false;
+	ProbeWaitSeconds  = 0.f;
+	ProbeTotalSeconds = 0.f;
+	ProbeRetrySeconds = 0.f;
+	ProbeRequestAttempts = 0;
+	ProbeNonce        = 0;
+
+	UE_CLOG(bReachable, LogMOUServer, Log,
+		TEXT("[프로브] 외부에서 들어올 수 있다. %s"), *Detail);
+	UE_CLOG(!bReachable, LogMOUServer, Warning,
+		TEXT("[프로브] 외부에서 들어올 수 **없다**. %s"), *Detail);
+
+	// ★ 결과를 보관한다. 지금 신고가 거부돼도(방이 아직 없으면 NotInRoom)
+	//   RoomCreateAck 에서 다시 보낸다. 자세한 이유는 헤더의 bHasReachabilityResult 주석.
+	bHasReachabilityResult = true;
+	bLastReachable         = bReachable;
+
+	// 서버에도 알려서 방에 표시한다. 참여자가 그것을 보고 헛걸음을 피한다.
+	// 이미 방 안이면 이 한 번으로 끝나고, 아직 없으면 방이 생길 때 다시 간다.
+	if (Backend.IsValid())
+	{
+		Backend->ReportReachability(bReachable);
+	}
+
+	OnReachabilityChecked.Broadcast(bReachable, Detail);
+}
+
+// ---------------------------------------------------------------------------
+// UDP 홀펀칭 (v10)
+// ---------------------------------------------------------------------------
+
+void UServerSubsystem::RegisterGameEndpoint(int32 BasePort)
+{
+	// UserId 가 있어야 서버가 이 데이터그램을 어느 세션에 붙일지 안다.
+	if (!LoginResult.bSuccess || LoginResult.UserId == 0)
+	{
+		return;
+	}
+	if (!EnsureGameSocket(BasePort))
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[엔드포인트] 게임 포트를 확보하지 못해 등록을 건너뛴다. 홀펀칭 없이 진행한다."));
+		return;
+	}
+
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr || GameSocket == nullptr)
+	{
+		return;
+	}
+
+	FString ServerHost;
+	int32   ServerPort = 0;
+	UMOUServerSettings::ResolveEndpoint(ServerHost, ServerPort);
+
+	TSharedRef<FInternetAddr> Dest = Sockets->CreateInternetAddr();
+	bool bValid = false;
+	Dest->SetIp(*ServerHost, bValid);
+	Dest->SetPort(ServerPort);
+	if (!bValid)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[엔드포인트] 서버 주소 '%s' 를 IP 로 해석하지 못했다. 등록을 건너뛴다."), *ServerHost);
+		return;
+	}
+
+	// ★ 이 데이터그램의 목적은 내용 전달이 아니라 **출발지를 보이는 것**이다.
+	//   서버는 recvfrom 으로 공인 IP:포트를 관측해서 방장에게 알려준다.
+	//   그래서 주소를 싣지 않는다 — 실으면 위조할 수 있고, 관측값이면 못 한다.
+	MOU::ClientEndpointDatagram Datagram{};
+	Datagram.Magic  = MOU::kClientEndpointMagic;
+	Datagram.Nonce  = FMath::Max(1u, static_cast<uint32>(FMath::Rand()) ^ static_cast<uint32>(FPlatformTime::Cycles()));
+	Datagram.UserId = static_cast<uint64>(LoginResult.UserId);
+
+	// UDP 라 한 발은 사라질 수 있다. 세 발 쏘는 값이 재전송 로직보다 훨씬 싸다.
+	int32 Sent = 0;
+	for (int32 i = 0; i < 3; ++i)
+	{
+		GameSocket->SendTo(reinterpret_cast<const uint8*>(&Datagram), sizeof(Datagram), Sent, *Dest);
+	}
+
+	UE_LOG(LogMOUServer, Log,
+		TEXT("[엔드포인트] 포트 %d 에서 서버(%s:%d)로 등록 데이터그램을 보냈다."),
+		ReservedGamePort, *ServerHost, ServerPort);
+}
+
+void UServerSubsystem::PunchTowardPeers()
+{
+	if (PunchTargets.Num() == 0)
+	{
+		return;
+	}
+	if (GameSocket == nullptr)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[홀펀칭] 게임 소켓이 없어 punch 를 못 한다. 외부 참여자가 못 들어올 수 있다."));
+		return;
+	}
+
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr)
+	{
+		return;
+	}
+
+	// 내용은 아무래도 좋다. NAT 에 "이 상대와 이야기 중" 이라는 자국을 남기는 것이
+	// 전부다. 상대는 이것을 받지 못해도 상관없다 — 상대 NAT 이 막아도 우리 쪽
+	// 구멍은 이미 뚫렸고, 필요한 것은 그것뿐이다.
+	const MOU::HostProbeDatagram Payload{ MOU::kHostProbeMagic, 0 };
+
+	for (const FMOUHostCandidate& Target : PunchTargets)
+	{
+		if (!Target.IsValid())
+		{
+			continue;
+		}
+
+		TSharedRef<FInternetAddr> Dest = Sockets->CreateInternetAddr();
+		bool bValid = false;
+		Dest->SetIp(*Target.Address, bValid);
+		Dest->SetPort(Target.Port);
+		if (!bValid)
+		{
+			continue;
+		}
+
+		// 여러 발 쏘는 이유는 유실 대비와, 상대가 아직 소켓을 안 열었을 때를 위해서다.
+		int32 Sent = 0;
+		for (int32 i = 0; i < 5; ++i)
+		{
+			GameSocket->SendTo(reinterpret_cast<const uint8*>(&Payload), sizeof(Payload), Sent, *Dest);
+		}
+
+		UE_LOG(LogMOUServer, Log, TEXT("[홀펀칭] %s:%d 로 구멍을 뚫었다."),
+			*Target.Address, Target.Port);
+	}
+}
+
+void UServerSubsystem::RegisterRelayRouteFromGameSocket(const FMOUGameRelayRoute& Route, bool bHost)
+{
+	if (!Route.IsValid())
+	{
+		return;  // relay가 꺼졌거나 이 방에 배정된 경로가 없다.
+	}
+	if (GameSocket == nullptr)
+	{
+		UE_LOG(LogMOUServer, Verbose,
+			TEXT("[릴레이] 게임 소켓이 아직 없어 예열 등록은 건너뛴다. 실제 넷드라이버 소켓에서 다시 등록한다."));
+		return;
+	}
+
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr)
+	{
+		return;
+	}
+
+	TSharedRef<FInternetAddr> Destination = Sockets->CreateInternetAddr();
+	bool bValidAddress = false;
+	Destination->SetIp(*Route.Address, bValidAddress);
+	Destination->SetPort(Route.Port);
+	if (!bValidAddress)
+	{
+		UE_LOG(LogMOUServer, Warning, TEXT("[릴레이] 주소 '%s' 를 IP로 해석하지 못했다."), *Route.Address);
+		return;
+	}
+
+	const MOU::RelayRegistrationDatagram Datagram = MOU::MakeRelayRegistrationDatagram(
+		Route.RouteId, bHost ? MOU::ERelayPeerRole::Host : MOU::ERelayPeerRole::Guest,
+		Route.Token.GetData());
+	int32 Sent = 0;
+	for (int32 Attempt = 0; Attempt < 3; ++Attempt)
+	{
+		GameSocket->SendTo(reinterpret_cast<const uint8*>(&Datagram), sizeof(Datagram), Sent, *Destination);
+	}
+
+	UE_LOG(LogMOUServer, Log, TEXT("[릴레이] 게임 포트 %d 에서 %s 경로를 예열 등록했다: %s"),
+		ReservedGamePort, bHost ? TEXT("host") : TEXT("guest"), *Route.ToGuestDisplayString());
+}
+
+FString UServerSubsystem::GetLocalLanAddress()
+{
+	ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Sockets == nullptr)
+	{
+		return FString();
+	}
+
+	// GetLocalHostAddr 은 "대표" 주소 하나를 준다. 리슨서버가 실제로 바인드하는
+	// 인터페이스와 같은 값이라, LogListenServerReachability 가 찍는 값과도 일치한다.
+	bool bCanBindAll = false;
+	const TSharedPtr<FInternetAddr> Local = Sockets->GetLocalHostAddr(*GLog, bCanBindAll);
+	if (!Local.IsValid())
+	{
+		return FString();
+	}
+
+	const FString Address = Local->ToString(/*bAppendPort=*/false);
+
+	// 사설 대역이 아니면 신고하지 않는다. 어차피 서버가 걸러내고, 보내봐야
+	// "사설이 아닌 주소를 LAN 후보로 신고했다" 는 거부 로그만 남는다.
+	if (Address.StartsWith(TEXT("127.")) || Address.IsEmpty())
+	{
+		return FString();
+	}
+	return Address;
+}
+
+FMOUHostCandidate UServerSubsystem::ChooseHostCandidate(const TArray<FMOUHostCandidate>& Candidates, bool bHostLanOnly, int32& OutIndex)
+{
+	OutIndex = INDEX_NONE;
+
+	if (Candidates.Num() == 0)
+	{
+		return FMOUHostCandidate();
+	}
+
+	// 1순위: 나와 같은 /24 안에 있는 LAN 후보.
+	//
+	// ★ Kind 만 보고 고르지 않는다. 다른 사무실의 192.168.0.x 를 신고받을 수도 있고,
+	//   그 주소는 내 LAN 의 엉뚱한 기기를 가리킨다. 내 어댑터와 실제로 비교해야 한다.
+	TArray<FString> MyPrefixes;
+	if (ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+	{
+		TArray<TSharedPtr<FInternetAddr>> Adapters;
+		if (Sockets->GetLocalAdapterAddresses(Adapters))
+		{
+			for (const TSharedPtr<FInternetAddr>& Adapter : Adapters)
+			{
+				if (Adapter.IsValid() && Adapter->GetProtocolType() == FNetworkProtocolTypes::IPv4)
+				{
+					const FString Prefix = MakeSlash24Prefix(Adapter->ToString(false));
+					if (!Prefix.IsEmpty() && !Prefix.StartsWith(TEXT("127.")))
+					{
+						MyPrefixes.AddUnique(Prefix);
+					}
+				}
+			}
+		}
+	}
+
+	for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+	{
+		const FMOUHostCandidate& C = Candidates[Index];
+		if (C.Kind != EMOUHostAddrKindBP::Lan || !C.IsValid())
+		{
+			continue;
+		}
+		if (MyPrefixes.Contains(MakeSlash24Prefix(C.Address)))
+		{
+			UE_LOG(LogMOUServer, Log,
+				TEXT("[여행] 방장이 나와 같은 LAN 에 있다. %s 로 직접 붙는다(공유기를 거치지 않는다)."),
+				*C.ToDisplayString());
+			OutIndex = Index;
+			return C;
+		}
+	}
+
+	// 2·3순위: 공인 후보와 홀펀칭 후보. **어느 쪽을 먼저 볼지는 방의 상태가 정한다.**
+	//
+	//   bHostLanOnly=false : 방장이 정적으로 열려 있다(포워딩/UPnP). 그 길이 확실하다.
+	//                        Punch 는 구멍이 제때 뚫렸는지에 달려 있어 덜 확실하다.
+	//   bHostLanOnly=true  : 프로브가 "정적 인바운드는 죽었다" 고 판정했다.
+	//                        공인 후보를 먼저 시도하면 타임아웃을 통째로 버린다.
+	//
+	// ★ 이 순서를 고정으로 두면 반드시 한쪽이 깨진다.
+	//   실제로 관측 포트로 공인 후보를 **덮었다가** 수동 포워딩 방장(잘 되던 조합)을
+	//   깼다 — 그 포트에는 포워딩이 없어서 아무도 못 들어왔다.
+	//   두 길은 성격이 다르므로 둘 다 남기고, 고르는 기준만 상태에 맡긴다.
+	const EMOUHostAddrKindBP FirstKind  = bHostLanOnly ? EMOUHostAddrKindBP::Punch  : EMOUHostAddrKindBP::Public;
+	const EMOUHostAddrKindBP SecondKind = bHostLanOnly ? EMOUHostAddrKindBP::Public : EMOUHostAddrKindBP::Punch;
+
+	for (const EMOUHostAddrKindBP Wanted : { FirstKind, SecondKind })
+	{
+		for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+		{
+			if (Candidates[Index].Kind == Wanted && Candidates[Index].IsValid())
+			{
+				UE_LOG(LogMOUServer, Log, TEXT("[여행] %s 로 간다. (방장 정적 개방=%s)"),
+					*Candidates[Index].ToDisplayString(),
+					bHostLanOnly ? TEXT("없음") : TEXT("있음"));
+				OutIndex = Index;
+				return Candidates[Index];
+			}
+		}
+	}
+
+	// 마지막: 남은 아무 것. 여기까지 오는 것은 서버가 예상 밖의 조합을 보낸 경우다.
+	for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+	{
+		if (Candidates[Index].IsValid())
+		{
+			OutIndex = Index;
+			return Candidates[Index];
+		}
+	}
+
+	return FMOUHostCandidate();
+}
+
+void UServerSubsystem::SetRoomPassword(const FString& InRoomPassword)
+{
+	// 빈 값도 받는다 — 공개방으로 바뀌는 것이 정상적인 경우다.
+	TravelRoomPassword = IsValidRoomPassword(InRoomPassword) ? InRoomPassword : FString();
+}
+
+void UServerSubsystem::TravelAsHost()
+{
+	if (HostMapName.IsEmpty())
+	{
+		// 맵을 정하지 않았다면 여행은 게임 쪽(블루프린트/게임모드)의 몫이다.
+		UE_LOG(LogMOUServer, Log,
+			TEXT("게임 시작됨. HostMapName 이 비어 있어 레벨은 열지 않는다 — BP 가 연다면 정상이다."));
+		return;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	if (GI == nullptr)
+	{
+		return;
+	}
+
+	// ★ 프로브가 아직 돌고 있으면 그 소켓이 게임 포트를 잡고 있다.
+	//   그대로 OpenLevel 하면 리슨서버가 bind 에 실패하고, 그러면 참여자에게
+	//   출발 신호가 영영 안 나간다. 확인보다 게임 시작이 우선이므로 접는다.
+	//
+	//   보통은 방을 만든 뒤 전원이 준비할 때까지 시간이 충분해서 여기 걸리지 않는다.
+	//   혼자 만들고 바로 시작하는 경우에만 해당한다.
+	if (bProbing)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[프로브] 아직 확인 중인데 게임이 시작됐다. 포트를 놓아주려고 확인을 접는다."));
+		FinishReachabilityProbe(false, TEXT("게임이 먼저 시작되어 확인을 마치지 못했습니다."));
+	}
+
+	// 실제 listen socket 이 bind 된 직후 host capability 를 다시 보내게 예약한다.
+	// GameSocket 예열 뒤 close/rebind 사이에 NAT 매핑이 바뀌어도 이 등록이 진짜다.
+	TArray<FMOUPendingRelayRegistration> HostRegistrations;
+	for (const FMOUGameRelayRoute& Route : PendingHostRelayRoutes)
+	{
+		if (!Route.IsValid())
+		{
+			continue;
+		}
+		FMOUPendingRelayRegistration Registration;
+		Registration.Address = Route.Address;
+		Registration.Port    = Route.Port;
+		Registration.RouteId = Route.RouteId;
+		Registration.Token   = Route.Token;
+		HostRegistrations.Add(MoveTemp(Registration));
+	}
+	UMOUIpNetDriver::SetPendingHostRelayRegistrations(HostRegistrations);
+	UMOUIpNetDriver::SetDesiredListenPort(ReservedGamePort);
+
+	// ★ 순서가 중요하다: punch 를 **먼저**, 소켓 닫기를 그 다음.
+	//
+	//   punch 는 게임 포트에 bind 된 이 소켓에서 나가야 NAT 구멍이 그 포트에 뚫린다.
+	//   소켓을 먼저 닫으면 쏠 곳이 없고, 리슨서버가 연 소켓으로 나중에 쏘면
+	//   그때는 이미 참여자가 접속을 시도한 뒤다.
+	PunchTowardPeers();
+	CloseGameSocket();
+
+	// listen 옵션이 있어야 이 클라이언트가 리슨서버가 된다.
+	// RoomPassword 를 URL 에 같이 실어야 새 레벨의 GameMode 가 InitGame 에서
+	// 그 값을 읽어 보관하고, 나중에 PreLogin 에서 참여자를 검사할 수 있다.
+	FString Options = TEXT("listen");
+	if (!TravelRoomPassword.IsEmpty())
+	{
+		Options += FString::Printf(TEXT("?RoomPassword=%s"), *TravelRoomPassword);
+	}
+
+	UE_LOG(LogMOUServer, Log, TEXT("[방장] 리슨서버로 '%s' 를 연다."), *HostMapName);
+	UGameplayStatics::OpenLevel(GI, FName(*HostMapName), /*bAbsolute=*/true, Options);
+}
+
+bool UServerSubsystem::TravelToHost()
+{
+	if (!PendingHostReady.bSuccess)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[참여자] 아직 출발 신호를 못 받았다. 이동하지 않는다."));
+		return false;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	APlayerController* PC = GI ? GI->GetFirstLocalPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		// ★ 위젯의 GetOwningPlayer() 를 쓰지 않는 이유가 이것이다.
+		//   위젯이 없어도 여행은 되어야 한다. GameInstance 는 늘 살아 있다.
+		UE_LOG(LogMOUServer, Error,
+			TEXT("[참여자] 로컬 플레이어 컨트롤러가 없어 이동할 수 없다."));
+		return false;
+	}
+
+	int32 ChosenIndex = INDEX_NONE;
+	const FMOUHostCandidate Chosen = ChooseHostCandidate(PendingHostReady.Candidates, PendingHostReady.bLanOnly, ChosenIndex);
+	if (!Chosen.IsValid())
+	{
+		UE_LOG(LogMOUServer, Error, TEXT("[참여자] 쓸 수 있는 호스트 주소가 없다: %s"),
+			*PendingHostReady.ToDisplayString());
+		OnTravelFailed.Broadcast(TEXT("방장의 접속 주소를 받지 못했습니다."));
+		return false;
+	}
+
+	// ★ 방장이 도달성 프로브에 실패했는데 내가 공인 후보를 골랐다면, 예전에는
+	//   이 접속이 **반드시** 실패했다. 그래서 시도하지 않고 바로 사유를 띄웠다.
+	//
+	// [v10 에서 조건이 하나 붙었다]
+	//   홀펀칭은 바로 그 "미요청 인바운드가 막힌" 경우를 뚫는 기법이다.
+	//   내가 엔드포인트를 등록했다면 방장이 나에게 punch 했을 것이고, 그러면
+	//   막혀 있던 길이 열려 있을 수 있다. 그때는 시도해봐야 한다 —
+	//   여기서 막으면 5단계가 고치려는 경우를 4단계가 막아서는 꼴이 된다.
+	//   (실제로 그 충돌 때문에 punch 가 시도조차 안 됐다)
+	//
+	//   등록을 못 했으면 방장은 나에게 쏠 곳을 몰랐다는 뜻이므로 예전대로 즉시 실패한다.
+	const bool bMayHavePunchedHole = !ObservedEndpoint.IsEmpty();
+
+	if (PendingHostReady.bLanOnly && Chosen.Kind != EMOUHostAddrKindBP::Lan && !bMayHavePunchedHole)
+	{
+		if (TryRelayFallback())
+		{
+			UE_LOG(LogMOUServer, Log, TEXT("[참여자] 방장이 LAN 전용으로 판정되어 직접 후보 대신 relay로 이동한다."));
+			return true;
+		}
+
+		const FString Reason = TEXT(
+			"이 방은 같은 공유기 안에서만 참여할 수 있습니다.\n"
+			"방장 쪽 공유기가 외부 접속을 넘겨주지 않습니다.");
+		UE_LOG(LogMOUServer, Warning, TEXT("[참여자] %s"), *Reason);
+		OnTravelFailed.Broadcast(Reason);
+		return false;
+	}
+
+	// 실패하면 다음 후보로 넘어갈 수 있게 어디까지 써봤는지 남긴다.
+	TriedCandidateIndex = ChosenIndex;
+	TriedCandidateIndices.Reset();
+	TriedCandidateIndices.Add(ChosenIndex);
+	ActiveTravelTransport = EMOUTravelTransport::Direct;
+	bRelayFallbackTried = false;
+
+	UE_LOG(LogMOUServer, Log, TEXT("[참여자] 후보 %d개 중 %s 선택 (전체: %s)"),
+		PendingHostReady.Candidates.Num(), *Chosen.ToDisplayString(),
+		*PendingHostReady.ToDisplayString());
+
+	// ★ 넷드라이버가 같은 포트를 잡아야 한다. 우리가 들고 있으면 bind 가 실패하고,
+	//   그러면 엔진이 임시 포트로 떨어져 방장이 뚫어둔 구멍을 못 쓰게 된다.
+	//   (UMOUIpNetDriver 가 ReservedGamePort 를 쓰도록 이미 설정돼 있다)
+	CloseGameSocket();
+
+	// 어디로 떠나는지 남겨둔다. 접속에 실패하면 그 주소를 그대로 넣어
+	// "어디에 못 붙었는지" 를 말해줄 수 있다.
+	NotifyTravelingTo(Chosen.Address, Chosen.Port);
+
+	// MakeTravelURL 이 "IP:포트?RoomPassword=1234" 를 만들어준다.
+	PC->ClientTravel(Chosen.MakeTravelURL(TravelRoomPassword), ETravelType::TRAVEL_Absolute);
+	return true;
+}
+
+bool UServerSubsystem::TryNextHostCandidate()
+{
+	if (!PendingHostReady.bSuccess || PendingHostReady.Candidates.Num() <= 1)
+	{
+		return false;
+	}
+
+	// ChooseHostCandidate 가 LAN 항목을 골랐을 때 그보다 앞의 공인 항목도 반드시
+	// 한 번은 시도해야 한다. 끝에만 가는 옛 루프는 그 항목을 영영 건너뛰었다.
+	const int32 CandidateCount = PendingHostReady.Candidates.Num();
+	for (int32 Offset = 1; Offset < CandidateCount; ++Offset)
+	{
+		const int32 Index = (TriedCandidateIndex + Offset + CandidateCount) % CandidateCount;
+		const FMOUHostCandidate& Next = PendingHostReady.Candidates[Index];
+		if (!Next.IsValid() || TriedCandidateIndices.Contains(Index))
+		{
+			continue;
+		}
+
+		// 처음 선택되지 않은 LAN 후보는 이 PC의 어댑터와 같은 /24가 아니다.
+		// 다른 집의 192.168.x.x를 시도하며 시간을 버리거나 엉뚱한 장비에 보내지 않는다.
+		if (Next.Kind == EMOUHostAddrKindBP::Lan)
+		{
+			TriedCandidateIndices.Add(Index);
+			continue;
+		}
+
+		UGameInstance* GI = GetGameInstance();
+		APlayerController* PC = GI ? GI->GetFirstLocalPlayerController() : nullptr;
+		if (PC == nullptr)
+		{
+			return false;
+		}
+
+		TriedCandidateIndex = Index;
+		TriedCandidateIndices.Add(Index);
+
+		// ★ 이 폴백이 없으면 후보 선택이 한 번 빗나갈 때마다 접속이 통째로 실패한다.
+		//   /24 판정은 넷마스크를 모르고 하는 추측이라 빗나갈 수 있다. 빗나가도
+		//   결과가 "예전과 같음" 에 머물게 하는 것이 이 함수의 존재 이유다.
+		UE_LOG(LogMOUServer, Log, TEXT("[참여자] 다음 후보로 다시 시도한다: %s"),
+			*Next.ToDisplayString());
+
+		NotifyTravelingTo(Next.Address, Next.Port);
+		PC->ClientTravel(Next.MakeTravelURL(TravelRoomPassword), ETravelType::TRAVEL_Absolute);
+		return true;
+	}
+
+	return false;
+}
+
+bool UServerSubsystem::TryRelayFallback()
+{
+	if (bRelayFallbackTried || !PendingGuestRelayRoute.IsValid())
+	{
+		return false;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	APlayerController* PC = GI ? GI->GetFirstLocalPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		return false;
+	}
+
+	FMOUPendingRelayRegistration Registration;
+	Registration.Address = PendingGuestRelayRoute.Address;
+	Registration.Port    = PendingGuestRelayRoute.Port;
+	Registration.RouteId = PendingGuestRelayRoute.RouteId;
+	Registration.Token   = PendingGuestRelayRoute.Token;
+	UMOUIpNetDriver::SetPendingClientRelayRegistration(Registration);
+
+	bRelayFallbackTried = true;
+	ActiveTravelTransport = EMOUTravelTransport::Relay;
+	NotifyTravelingTo(PendingGuestRelayRoute.Address, PendingGuestRelayRoute.Port);
+
+	UE_LOG(LogMOUServer, Log, TEXT("[릴레이] 직접 후보가 실패해 %s 로 폴백한다."),
+		*PendingGuestRelayRoute.ToGuestDisplayString());
+	PC->ClientTravel(PendingGuestRelayRoute.MakeGuestTravelURL(TravelRoomPassword),
+		ETravelType::TRAVEL_Absolute);
+	return true;
+}
 
 // ---------------------------------------------------------------------------
 // 맵 미리 올리기 (2026-08-26)
@@ -1133,6 +2122,235 @@ void UServerSubsystem::ReleasePreloadedMap()
 {
 	PreloadedMapPackage = nullptr;
 	PreloadedMapName.Reset();
+}
+
+
+// ---------------------------------------------------------------------------
+// 접속 실패를 사람이 읽을 수 있게 (2026-08-28)
+//
+// 참여자가 방장에게 못 붙어도 화면에는 "이동합니다..." 만 남아 있었다.
+// 엔진은 이미 실패를 알고 있으므로(ENetworkFailure) 받아서 번역만 하면 된다.
+// ---------------------------------------------------------------------------
+
+void UServerSubsystem::NotifyTravelingTo(const FString& HostAddress, int32 HostPort)
+{
+	PendingTravelAddress = FString::Printf(TEXT("%s:%d"), *HostAddress, HostPort);
+	TravelAttemptSeconds = 0.f;
+
+	UE_LOG(LogMOUServer, Log, TEXT("[참여자] %s 로 접속을 시도한다."), *PendingTravelAddress);
+}
+
+bool UServerSubsystem::IsTravelConnectionOpen() const
+{
+	const UGameInstance* GI = GetGameInstance();
+	UWorld* World = GI ? GI->GetWorld() : nullptr;
+	if (World == nullptr)
+	{
+		return false;
+	}
+
+	auto IsDriverOpen = [](const UNetDriver* Driver)
+	{
+		return Driver != nullptr && Driver->ServerConnection != nullptr &&
+			Driver->ServerConnection->GetConnectionState() == USOCK_Open;
+	};
+
+	if (IsDriverOpen(World->GetNetDriver()))
+	{
+		return true;
+	}
+
+	// ClientTravel 중에는 NetDriver가 아직 현재 World에 붙지 않고
+	// PendingNetGame에 있다. 이것도 확인해야 느린 맵 로딩을 실패로 오판하지 않는다.
+	if (GEngine != nullptr)
+	{
+		if (const FWorldContext* Context = GEngine->GetWorldContextFromWorld(World))
+		{
+			return Context->PendingNetGame != nullptr &&
+				IsDriverOpen(Context->PendingNetGame->NetDriver);
+		}
+	}
+	return false;
+}
+
+void UServerSubsystem::PollTravelConnection(float DeltaTime)
+{
+	if (ActiveTravelTransport == EMOUTravelTransport::None)
+	{
+		TravelAttemptSeconds = 0.f;
+		return;
+	}
+
+	if (IsTravelConnectionOpen())
+	{
+		UE_LOG(LogMOUServer, Log, TEXT("[접속 성공] %s 경로로 서버 연결이 열렸다."),
+			ActiveTravelTransport == EMOUTravelTransport::Relay ? TEXT("릴레이") : TEXT("직접"));
+		PendingTravelAddress.Reset();
+		ActiveTravelTransport = EMOUTravelTransport::None;
+		TravelAttemptSeconds = 0.f;
+		return;
+	}
+
+	TravelAttemptSeconds += FMath::Max(0.f, DeltaTime);
+	const float Timeout = ActiveTravelTransport == EMOUTravelTransport::Relay
+		? kRelayAttemptTimeoutSeconds : kDirectAttemptTimeoutSeconds;
+	if (TravelAttemptSeconds < Timeout)
+	{
+		return;
+	}
+
+	if (ActiveTravelTransport == EMOUTravelTransport::Direct)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("[직접 연결] %.0f초 동안 handshake 응답이 없어 다음 경로로 전환한다: %s"),
+			Timeout, *PendingTravelAddress);
+		if (TryNextHostCandidate() || TryRelayFallback())
+		{
+			return;
+		}
+	}
+	else
+	{
+		UE_LOG(LogMOUServer, Error,
+			TEXT("[릴레이 실패] %.0f초 동안 handshake 응답이 없다: %s"),
+			Timeout, *PendingTravelAddress);
+	}
+
+	const FString Reason = ActiveTravelTransport == EMOUTravelTransport::Relay
+		? TEXT("직접 연결과 자체 UDP 릴레이 모두 응답하지 않았습니다. relay 포트포워딩과 방화벽을 확인하세요.")
+		: TEXT("방장의 직접 연결 후보와 자체 UDP 릴레이를 모두 사용할 수 없습니다.");
+	PendingTravelAddress.Reset();
+	ActiveTravelTransport = EMOUTravelTransport::None;
+	TravelAttemptSeconds = 0.f;
+	UMOUIpNetDriver::ClearPendingRelayRegistrations();
+	OnTravelFailed.Broadcast(Reason);
+}
+
+void UServerSubsystem::HandleNetworkFailure(UWorld* /*World*/, UNetDriver* /*NetDriver*/,
+                                            ENetworkFailure::Type FailureType,
+                                            const FString& ErrorString)
+{
+	const FString Target = PendingTravelAddress.IsEmpty()
+		? TEXT("호스트") : PendingTravelAddress;
+
+	FString Reason;
+
+	switch (FailureType)
+	{
+	case ENetworkFailure::ConnectionTimeout:
+	case ENetworkFailure::FailureReceived:
+	case ENetworkFailure::PendingConnectionFailure:
+		// 압도적으로 흔한 경우다. 주소는 맞는데 그 주소로 패킷이 안 들어가는 것.
+		// 무엇을 해야 하는지까지 적어야 화면만 보고도 해결할 수 있다.
+		Reason = FString::Printf(
+			TEXT("%s 에 접속하지 못했습니다.\n")
+			TEXT("방장 PC 가 있는 네트워크의 공유기에 'UDP 7777 -> 방장 PC' 포트포워딩이 필요합니다.\n")
+			TEXT("(로그인 서버 쪽 공유기 설정과는 다른 곳입니다)"),
+			*Target);
+		break;
+
+	case ENetworkFailure::OutdatedClient:
+	case ENetworkFailure::OutdatedServer:
+		Reason = TEXT("방장과 게임 버전이 다릅니다. 같은 빌드로 맞춰야 합니다.");
+		break;
+
+	default:
+		Reason = FString::Printf(TEXT("%s 접속 중 네트워크 오류가 났습니다: %s"),
+			*Target, *ErrorString);
+		break;
+	}
+
+	UE_LOG(LogMOUServer, Error, TEXT("[접속 실패] %s (엔진 사유: %d / %s)"),
+		*Reason, static_cast<int32>(FailureType), *ErrorString);
+
+	PendingTravelAddress.Reset();
+
+	// ★ relay 자체의 실패를 다시 direct 후보로 되돌리면 무한 루프가 된다.
+	// 직접 경로가 실패했을 때만 남은 직접 후보를 돌고, 그 뒤 relay를 정확히 한 번 쓴다.
+	if (ActiveTravelTransport == EMOUTravelTransport::Direct && TryNextHostCandidate())
+	{
+		return;
+	}
+	if (ActiveTravelTransport == EMOUTravelTransport::Direct && TryRelayFallback())
+	{
+		return;
+	}
+
+	if (ActiveTravelTransport == EMOUTravelTransport::Relay)
+	{
+		Reason += TEXT("\n직접 연결과 자체 UDP 릴레이 모두 연결되지 않았습니다. 서버 relay UDP 포트 범위의 포워딩과 방화벽을 확인하세요.");
+	}
+	ActiveTravelTransport = EMOUTravelTransport::None;
+	TravelAttemptSeconds = 0.f;
+
+	OnTravelFailed.Broadcast(Reason);
+}
+
+void UServerSubsystem::HandleTravelFailure(UWorld* /*World*/,
+                                           ETravelFailure::Type FailureType,
+                                           const FString& ErrorString)
+{
+	// 여기까지 오는 것은 대개 맵 문제다(이름이 틀렸거나 쿠킹에서 빠졌거나).
+	// 네트워크 실패와 구분해서 말해야 엉뚱한 곳을 뒤지지 않는다.
+	const FString Reason = FString::Printf(
+		TEXT("레벨 이동에 실패했습니다: %s\n맵 이름(HostMapName)이 맞는지 확인하세요."),
+		*ErrorString);
+
+	UE_LOG(LogMOUServer, Error, TEXT("[이동 실패] %s (사유 %d)"),
+		*Reason, static_cast<int32>(FailureType));
+
+	OnTravelFailed.Broadcast(Reason);
+	PendingTravelAddress.Reset();
+	ActiveTravelTransport = EMOUTravelTransport::None;
+	TravelAttemptSeconds = 0.f;
+	UMOUIpNetDriver::ClearPendingRelayRegistrations();
+}
+void UServerSubsystem::LogListenServerReachability() const
+{
+	// GetLocalAddr() 이 non-const 라 여기서도 const 를 걸지 않는다.
+	UWorld*     World     = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+	UNetDriver* NetDriver = World ? World->GetNetDriver() : nullptr;
+
+	// 리슨서버가 실제로 듣고 있는 포트. 설정값(7777)을 그대로 찍으면 거짓말이 될 수 있다 —
+	// PIE 나 실행 인자로 다른 포트가 잡히는 경우가 있기 때문이다.
+	int32 ListenPort = 0;
+	if (NetDriver != nullptr)
+	{
+		const TSharedPtr<const FInternetAddr> LocalAddr = NetDriver->GetLocalAddr();
+		if (LocalAddr.IsValid())
+		{
+			ListenPort = LocalAddr->GetPort();
+		}
+	}
+
+	// 이 PC 의 LAN IP. 공유기 설정 화면의 "내부 IP 주소" 칸에 그대로 넣을 값이다.
+	FString LanIp = TEXT("<이 PC 의 LAN IP>");
+	if (ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+	{
+		bool bCanBindAll = false;
+		const TSharedPtr<FInternetAddr> Local = Sockets->GetLocalHostAddr(*GLog, bCanBindAll);
+		if (Local.IsValid())
+		{
+			LanIp = Local->ToString(/*bAppendPort=*/false);
+		}
+	}
+
+	if (ListenPort <= 0)
+	{
+		UE_LOG(LogMOUServer, Warning,
+			TEXT("리슨서버 포트를 확인하지 못했다. 참여자가 못 들어오면 넷드라이버 상태를 먼저 볼 것."));
+		return;
+	}
+
+	UE_LOG(LogMOUServer, Log,
+		TEXT("[방장] 리슨서버가 %s:%d 에서 듣고 있다."), *LanIp, ListenPort);
+	UE_LOG(LogMOUServer, Log,
+		TEXT("[방장] 다른 네트워크의 참여자가 들어오려면 **이 PC 의 공유기**에 다음이 있어야 한다:"));
+	UE_LOG(LogMOUServer, Log,
+		TEXT("[방장]     외부 UDP %d  ->  %s : %d"), ListenPort, *LanIp, ListenPort);
+	UE_LOG(LogMOUServer, Log,
+		TEXT("[방장] 로그인 서버 쪽 공유기에 넣은 포워딩은 이 경로와 무관하다 — ")
+		TEXT("게임 트래픽은 서버를 거치지 않고 참여자가 여기로 직접 붙는다."));
 }
 void UServerSubsystem::SetConnectionState(EChatConnectionState NewState, const FString& Detail)
 {
@@ -1320,8 +2538,8 @@ namespace
 				if (UServerSubsystem* Chat = FindServerSubsystem(World))
 				{
 					const FString Title = Args.IsValidIndex(0) ? Args[0] : TEXT("테스트방");
-					const FString Pw = Args.IsValidIndex(1) ? Args[1] : FString();
-					const int32   Port = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 7777;
+					const FString Pw    = Args.IsValidIndex(1) ? Args[1] : FString();
+					const int32   Port  = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 7777;
 					Chat->CreateRoom(Title, Pw, Port);
 				}
 			}));
