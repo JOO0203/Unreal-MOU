@@ -203,6 +203,7 @@ void ATeamProject_MOUGameMode::FinalizeFailedSettlement(ELevelSettlementReason R
 
 void ATeamProject_MOUGameMode::EnrichSettlementData(FLevelSettlementData& Result) const
 {
+	TArray<FPlayerSettlementData> DeliveryPlayerResults;
 	if (DeliveryManager)
 	{
 		const FDeliveryProgress& Delivery = DeliveryManager->Progress;
@@ -210,9 +211,12 @@ void ATeamProject_MOUGameMode::EnrichSettlementData(FLevelSettlementData& Result
 		Result.DeliveredItemCount = Delivery.DeliveredItemCount;
 		Result.FailedDeliveryCount = Delivery.BrokenItemCount;
 		Result.DeliveredItems = Delivery.DeliveredItems;
-		Result.PlayerResults = Delivery.PlayerResults;
+		DeliveryPlayerResults = Delivery.PlayerResults;
 	}
 
+	// 정산 UI의 인원은 누적 기록이 아니라 현재 월드에 접속해 있는 플레이어를 기준으로 만든다.
+	// 배달 시점과 정산 시점 사이에 PlayerName이 바뀌어도 유효한 PlayerId가 같으면 동일인이다.
+	Result.PlayerResults.Reset();
 	Result.DeathCount = 0;
 	Result.KnockdownCount = 0;
 	for (TActorIterator<AMainCharacter> It(GetWorld()); It; ++It)
@@ -228,11 +232,22 @@ void ATeamProject_MOUGameMode::EnrichSettlementData(FLevelSettlementData& Result
 		int32 PlayerIndex = Result.PlayerResults.IndexOfByPredicate(
 			[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
 			{
-				return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
+				return PlayerId != INDEX_NONE
+					? Player.PlayerId == PlayerId
+					: Player.PlayerName == PlayerName;
 			});
 		if (PlayerIndex == INDEX_NONE)
 		{
-			FPlayerSettlementData Player;
+			const FPlayerSettlementData* DeliveryResult = DeliveryPlayerResults.FindByPredicate(
+				[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
+				{
+					return PlayerId != INDEX_NONE
+						? Player.PlayerId == PlayerId
+						: Player.PlayerName == PlayerName;
+				});
+			FPlayerSettlementData Player = DeliveryResult
+				? *DeliveryResult
+				: FPlayerSettlementData();
 			Player.PlayerId = PlayerId;
 			Player.PlayerName = PlayerName;
 			PlayerIndex = Result.PlayerResults.Add(MoveTemp(Player));
@@ -266,14 +281,11 @@ void ATeamProject_MOUGameMode::EnrichSettlementData(FLevelSettlementData& Result
 			int32 PlayerIndex = Result.PlayerResults.IndexOfByPredicate(
 				[&LootResult](const FPlayerSettlementData& Player)
 				{
-					return Player.PlayerId == LootResult.PlayerId
-						&& Player.PlayerName == LootResult.PlayerName;
+					return LootResult.PlayerId != INDEX_NONE
+						? Player.PlayerId == LootResult.PlayerId
+						: Player.PlayerName == LootResult.PlayerName;
 				});
-			if (PlayerIndex == INDEX_NONE)
-			{
-				PlayerIndex = Result.PlayerResults.Add(LootResult);
-			}
-			else
+			if (PlayerIndex != INDEX_NONE)
 			{
 				Result.PlayerResults[PlayerIndex].LootedItemCount = LootResult.LootedItemCount;
 				Result.PlayerResults[PlayerIndex].LootedItems = LootResult.LootedItems;

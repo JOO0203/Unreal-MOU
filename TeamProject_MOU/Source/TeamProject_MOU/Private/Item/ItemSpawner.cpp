@@ -4,6 +4,7 @@
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "TimerManager.h"
 
 AItemSpawner::AItemSpawner()
 {
@@ -15,6 +16,30 @@ void AItemSpawner::BeginPlay()
 	Super::BeginPlay();
 
 	// 레벨 배치형: 서버 권한에서만 자동 스폰
+	if (!HasAuthority() || !bAutoSpawnOnBeginPlay)
+	{
+		return;
+	}
+
+	// 스트리밍 레벨/레벨 인스턴스의 메쉬 콜리전이 등록되기 전에 물리 아이템이
+	// 생성되면 바닥을 통과할 수 있다. 최소한 다음 틱, 기본값으로는 0.5초 뒤에
+	// 자동 스폰하여 월드 초기화와 물리 씬 등록이 끝날 시간을 준다.
+	if (AutoSpawnDelay > 0.0f)
+	{
+		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			GetWorldTimerManager().SetTimer(
+				AutoSpawnTimerHandle, this, &AItemSpawner::SpawnConfiguredItem, AutoSpawnDelay, false);
+		}));
+	}
+	else
+	{
+		GetWorldTimerManager().SetTimerForNextTick(this, &AItemSpawner::SpawnConfiguredItem);
+	}
+}
+
+void AItemSpawner::SpawnConfiguredItem()
+{
 	if (!HasAuthority() || !bAutoSpawnOnBeginPlay)
 	{
 		return;
