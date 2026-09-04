@@ -11,6 +11,7 @@
 #include "Item/DeliveryData.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/MainCharacter.h"
+#include "GameFramework/PlayerState.h"
 
 ADeliveryManager::ADeliveryManager()
 {
@@ -232,6 +233,27 @@ bool ADeliveryManager::TryDeliverPackage(APackageBase* Package)
 			Package->CurrentDurability, Package->MaxDurability,
 			static_cast<int32>(Package->PackageType), Package->CurrentSpoilTime, Package->bIsBroken);
 		Progress.EarnedGold += DeliveryValue;
+		const int32 ExistingIndex = Progress.DeliveredItems.IndexOfByPredicate(
+			[Package](const FSettlementItemEntry& Entry)
+			{
+				return Entry.ItemClass == Package->GetClass();
+			});
+		if (ExistingIndex != INDEX_NONE)
+		{
+			++Progress.DeliveredItems[ExistingIndex].Quantity;
+			Progress.DeliveredItems[ExistingIndex].EarnedGold += DeliveryValue;
+		}
+		else
+		{
+			FSettlementItemEntry Entry;
+			Entry.ItemClass = Package->GetClass();
+			Entry.ItemName = Package->ItemName;
+			Entry.ItemIcon = Package->ItemIcon;
+			Entry.Quantity = 1;
+			Entry.EarnedGold = DeliveryValue;
+			Progress.DeliveredItems.Add(MoveTemp(Entry));
+		}
+		RecordPlayerDelivery(Package, DeliveryValue);
 		if (AProjectGameStateBase* GameState = GetWorld()->GetGameState<AProjectGameStateBase>())
 		{
 			GameState->AddGold(DeliveryValue);
@@ -246,6 +268,77 @@ bool ADeliveryManager::TryDeliverPackage(APackageBase* Package)
 	Package->Destroy();
 	BroadcastProgress();
 	return bDeliveredIntact;
+}
+
+void ADeliveryManager::RecordPlayerDelivery(APackageBase* Package, int32 DeliveryValue)
+{
+	if (!IsValid(Package)) return;
+
+	TSet<AMainCharacter*> Contributors;
+	for (AActor* Carrier : Package->CurrentCarriers)
+	{
+		if (AMainCharacter* Character = Cast<AMainCharacter>(Carrier))
+		{
+			Contributors.Add(Character);
+		}
+	}
+	if (AMainCharacter* LastOwnerCharacter = Cast<AMainCharacter>(Package->LastOwner))
+	{
+		Contributors.Add(LastOwnerCharacter);
+	}
+	for (TActorIterator<AMainCharacter> It(GetWorld()); It; ++It)
+	{
+		if (UCarryingComponent* Carrying = It->GetCarryingComponent();
+			Carrying && Carrying->GetCarriedActor() == Package)
+		{
+			Contributors.Add(*It);
+		}
+	}
+
+	for (AMainCharacter* Character : Contributors)
+	{
+		if (!IsValid(Character) || !Character->IsPlayerControlled()) continue;
+
+		const APlayerState* PlayerState = Character->GetPlayerState();
+		const int32 PlayerId = PlayerState ? PlayerState->GetPlayerId() : INDEX_NONE;
+		const FString PlayerName = PlayerState ? PlayerState->GetPlayerName() : Character->GetName();
+		int32 PlayerIndex = Progress.PlayerResults.IndexOfByPredicate(
+			[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
+			{
+				return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
+			});
+		if (PlayerIndex == INDEX_NONE)
+		{
+			FPlayerSettlementData Player;
+			Player.PlayerId = PlayerId;
+			Player.PlayerName = PlayerName;
+			PlayerIndex = Progress.PlayerResults.Add(MoveTemp(Player));
+		}
+
+		FPlayerSettlementData& Player = Progress.PlayerResults[PlayerIndex];
+		++Player.DeliveredItemCount;
+		Player.EarnedGold += DeliveryValue;
+		const int32 ItemIndex = Player.DeliveredItems.IndexOfByPredicate(
+			[Package](const FSettlementItemEntry& Entry)
+			{
+				return Entry.ItemClass == Package->GetClass();
+			});
+		if (ItemIndex != INDEX_NONE)
+		{
+			++Player.DeliveredItems[ItemIndex].Quantity;
+			Player.DeliveredItems[ItemIndex].EarnedGold += DeliveryValue;
+		}
+		else
+		{
+			FSettlementItemEntry Entry;
+			Entry.ItemClass = Package->GetClass();
+			Entry.ItemName = Package->ItemName;
+			Entry.ItemIcon = Package->ItemIcon;
+			Entry.Quantity = 1;
+			Entry.EarnedGold = DeliveryValue;
+			Player.DeliveredItems.Add(MoveTemp(Entry));
+		}
+	}
 }
 
 void ADeliveryManager::ClearPackageFromPlayerHands(APackageBase* Package)
