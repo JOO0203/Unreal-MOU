@@ -29,6 +29,11 @@ public class TeamProject_MOU : ModuleRules
             "Sockets",
             "Networking",
 
+            // MOU lake/river actors derive from classes provided by the Water plugin.
+            // Without the module dependency UBT does not expose the plugin's Public
+            // include directory, so WaterBodyLakeActor.h and related headers fail.
+            "Water",
+
             // UDP 홀펀칭 (v10) — UIpNetDriver 를 상속해 클라이언트 바인드 포트를 고정한다.
             // 기본 구현은 GetClientPort() 가 0(임시 포트)을 돌려주는데, 그러면 그 번호를
             // 아무도 미리 알 수 없어서 방장이 punch 할 대상을 정할 수 없다.
