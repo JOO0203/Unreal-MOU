@@ -42,6 +42,9 @@
 #include "Ability/GA_HitReaction.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "TeamProject_MOUPlayerController.h"
+#include "UI/ThrowChargeWidget.h"
+#include "UI/MOU_CharacterStatusHUD.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -283,6 +286,11 @@ void AMainCharacter::BeginPlay()
 				GetFollowCamera()->SetRelativeRotation(FirstPersonCameraRotation);
 			}
 		}
+	}
+
+	if (CarryingComponent)
+	{
+		CarryingComponent->OnThrowChargeChanged.AddDynamic(this, &AMainCharacter::HandleThrowChargeChanged);
 	}
 }
 
@@ -837,10 +845,12 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		EnhancedInputComponent->BindAction(GrabOrDropAction, ETriggerEvent::Started, this, &AMainCharacter::OnGrabOrDrop);
 	}
 
-	// Q키: 물건 던지기
+	// Q키: 물건 던지기 (홀드 차징 및 릴리즈 투척)
 	if (ThrowAction)
 	{
-		EnhancedInputComponent->BindAction(ThrowAction, ETriggerEvent::Started, this, &AMainCharacter::OnThrow);
+		EnhancedInputComponent->BindAction(ThrowAction, ETriggerEvent::Started, this, &AMainCharacter::OnThrowStarted);
+		EnhancedInputComponent->BindAction(ThrowAction, ETriggerEvent::Completed, this, &AMainCharacter::OnThrowReleased);
+		EnhancedInputComponent->BindAction(ThrowAction, ETriggerEvent::Canceled, this, &AMainCharacter::OnThrowCanceled);
 	}
 
 	// Shift키: 달리기
@@ -1164,6 +1174,7 @@ void AMainCharacter::OnGrabOrDrop()
 
 	if (CarryingComponent)
 	{
+		CarryingComponent->CancelThrowCharge();
 		bool bWasCarrying = CarryingComponent->IsCarrying();
 		CarryingComponent->GrabOrDrop();
 
@@ -1177,6 +1188,11 @@ void AMainCharacter::OnGrabOrDrop()
 
 void AMainCharacter::OnThrow()
 {
+	OnThrowReleased();
+}
+
+void AMainCharacter::OnThrowStarted()
+{
 	if (!CanAct() || bIsPushingMode)
 	{
 		return;
@@ -1187,22 +1203,136 @@ void AMainCharacter::OnThrow()
 		StopEmote();
 	}
 
-	if (AbilitySystemComponent)
+	if (CarryingComponent && CarryingComponent->IsCarrying())
 	{
-		if (ThrowAbilitySpecHandle.IsValid())
+		if (APackageBase* Package = Cast<APackageBase>(CarryingComponent->GetCarriedActor()))
 		{
-			AbilitySystemComponent->TryActivateAbility(ThrowAbilitySpecHandle);
+			if (Package->PackageType == EPackageType::Heavy)
+			{
+				return;
+			}
+		}
+
+		CarryingComponent->StartThrowCharge();
+	}
+}
+
+void AMainCharacter::OnThrowReleased()
+{
+	if (!CanAct() || bIsPushingMode)
+	{
+		if (CarryingComponent)
+		{
+			CarryingComponent->CancelThrowCharge();
+		}
+		return;
+	}
+
+	if (CurrentEmoteMontage != nullptr)
+	{
+		StopEmote();
+	}
+
+	if (CarryingComponent && CarryingComponent->IsCarrying())
+	{
+		if (APackageBase* Package = Cast<APackageBase>(CarryingComponent->GetCarriedActor()))
+		{
+			if (Package->PackageType == EPackageType::Heavy)
+			{
+				CarryingComponent->CancelThrowCharge();
+				return;
+			}
+		}
+
+		if (AbilitySystemComponent)
+		{
+			bool bActivated = false;
+			if (ThrowAbilitySpecHandle.IsValid())
+			{
+				bActivated = AbilitySystemComponent->TryActivateAbility(ThrowAbilitySpecHandle);
+			}
+			else
+			{
+				static const FGameplayTagContainer ThrowTagContainer(FGameplayTag::RequestGameplayTag(FName("Ability.Player.Throw")));
+				bActivated = AbilitySystemComponent->TryActivateAbilitiesByTag(ThrowTagContainer);
+			}
+
+			if (!bActivated)
+			{
+				CarryingComponent->FinishThrowCharge();
+			}
 		}
 		else
 		{
-			static const FGameplayTagContainer ThrowTagContainer(FGameplayTag::RequestGameplayTag(FName("Ability.Player.Throw")));
-			AbilitySystemComponent->TryActivateAbilitiesByTag(ThrowTagContainer);
+			CarryingComponent->FinishThrowCharge();
 		}
 	}
-	else if (CarryingComponent)
+	else if (CarryingComponent && CarryingComponent->IsChargingThrow())
 	{
-		CarryingComponent->Throw();
+		CarryingComponent->CancelThrowCharge();
 	}
+}
+
+void AMainCharacter::OnThrowCanceled()
+{
+	if (CarryingComponent)
+	{
+		CarryingComponent->CancelThrowCharge();
+	}
+}
+
+void AMainCharacter::HandleThrowChargeChanged(bool bIsCharging, float ChargeRatio)
+{
+	if (IsLocallyControlled())
+	{
+		UMOU_CharacterStatusHUD* StatusHUD = nullptr;
+		if (ATeamProject_MOUPlayerController* PC = Cast<ATeamProject_MOUPlayerController>(GetController()))
+		{
+			StatusHUD = PC->GetStatusHUDWidget();
+			if (!StatusHUD)
+			{
+				TArray<UUserWidget*> FoundWidgets;
+				UWidgetBlueprintLibrary::GetAllWidgetsOfClass(GetWorld(), FoundWidgets, UMOU_CharacterStatusHUD::StaticClass(), false);
+				if (FoundWidgets.Num() > 0)
+				{
+					StatusHUD = Cast<UMOU_CharacterStatusHUD>(FoundWidgets[0]);
+					if (StatusHUD)
+					{
+						PC->RegisterStatusHUDWidget(StatusHUD);
+					}
+				}
+			}
+		}
+
+		if (StatusHUD)
+		{
+			StatusHUD->UpdateThrowCharge(bIsCharging, ChargeRatio);
+		}
+		else
+		{
+			// StatusHUD가 없는 단독 테스트 환경을 위한 기존 독립 위젯 폴백
+			if (!ThrowChargeWidget && ThrowChargeWidgetClass)
+			{
+				ThrowChargeWidget = CreateWidget<UThrowChargeWidget>(GetWorld(), ThrowChargeWidgetClass);
+				if (ThrowChargeWidget)
+				{
+					ThrowChargeWidget->AddToViewport(50);
+					ThrowChargeWidget->SetVisibility(ESlateVisibility::Collapsed);
+				}
+			}
+
+			if (ThrowChargeWidget)
+			{
+				ThrowChargeWidget->SetChargingState(bIsCharging);
+				if (bIsCharging)
+				{
+					ThrowChargeWidget->UpdateCharge(ChargeRatio);
+				}
+			}
+		}
+	}
+
+	OnThrowChargeChanged_BP(bIsCharging, ChargeRatio);
 }
 
 void AMainCharacter::OnSprintStart()
@@ -2225,10 +2355,14 @@ void AMainCharacter::HandleHealthZero()
 
 	if (DownCount == 0 && !bIsGroggy)
 	{
-		// 부활 차징 중이었다면 취소
+		// 부활/던지기 차징 중이었다면 취소
 		if (bIsHoldingRevive)
 		{
 			CancelReviveHold();
+		}
+		if (CarryingComponent)
+		{
+			CarryingComponent->CancelThrowCharge();
 		}
 
 		if (AbilitySystemComponent && GroggyAbilitySpecHandle.IsValid())
@@ -2914,6 +3048,10 @@ void AMainCharacter::HandleHealthChanged(const FOnAttributeChangeData& Data)
 		{
 			CancelReviveHold();
 		}
+		if (CarryingComponent)
+		{
+			CarryingComponent->CancelThrowCharge();
+		}
 
 		if (!bIsDead && !bIsGroggy && Data.NewValue > 0.0f)
 		{
@@ -2930,6 +3068,10 @@ float AMainCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		if (bIsHoldingRevive)
 		{
 			CancelReviveHold();
+		}
+		if (CarryingComponent)
+		{
+			CarryingComponent->CancelThrowCharge();
 		}
 
 		if (!bIsDead && !bIsGroggy)

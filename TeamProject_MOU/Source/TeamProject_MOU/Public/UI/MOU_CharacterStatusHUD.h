@@ -9,6 +9,7 @@ class UProgressBar;
 class UTexture2D;
 class UWidget;
 class AMainCharacter;
+class UThrowChargeWidget;
 
 UENUM(BlueprintType)
 enum class ECharacterStatusState : uint8
@@ -52,6 +53,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI|Status")
 	AMainCharacter* GetBoundCharacter() const { return BoundCharacter.Get(); }
 
+	// 던지기 차징 UI 갱신 (차징 시작/진행/종료/취소)
+	UFUNCTION(BlueprintCallable, Category = "UI|Status")
+	void UpdateThrowCharge(bool bIsCharging, float ChargeRatio);
+
+	// 내부의 ThrowChargeWidget 인스턴스 반환
+	UFUNCTION(BlueprintPure, Category = "UI|Status")
+	UThrowChargeWidget* GetThrowChargeWidget();
+
 protected:
 	// -- UI Components --
 
@@ -63,6 +72,17 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	UImage* Image_CenterPortrait;
+
+	// UMG에 배치된 던지기 차징 위젯
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "UI|Status")
+	TObjectPtr<UThrowChargeWidget> ThrowChargeWidget;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "UI|Status")
+	TObjectPtr<UThrowChargeWidget> ThrowChargeWiget;
+
+	// 블루프린트에서 던지기 차징 연출을 직접 제어할 수 있는 이벤트
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Status")
+	void OnThrowChargeUpdated(bool bIsCharging, float ChargeRatio);
 
 	// -- Portrait Textures --
 

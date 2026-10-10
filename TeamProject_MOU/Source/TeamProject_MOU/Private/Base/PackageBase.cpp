@@ -34,14 +34,18 @@ void APackageBase::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	CurrentSpoilTime = MaxSpoilTime;
+	if (HasAuthority())
+	{
+		CurrentSpoilTime = MaxSpoilTime;
+	}
 	GroundSettleTimer = 0.0f;
 
-	if (MeshComponent)
-	{
-		MeshComponent->SetLinearDamping(1.5f);
-		MeshComponent->SetAngularDamping(2.0f);
-	}
+	DefaultLinearDamping = 1.5f;
+	DefaultAngularDamping = 2.0f;
+	ThrownLinearDamping = 0.05f;
+	ThrownAngularDamping = 0.1f;
+
+	RestoreDefaultDamping();
 }
 
 bool APackageBase::CanBePickedUpBy(AActor* PotentialPicker) const
@@ -311,11 +315,24 @@ void APackageBase::OnRep_CurrentCarriers()
 	// 클라이언트에서 운반자 목록이 변경될 때 수행할 로직 (필요시 추가)
 }
 
+void APackageBase::OnRep_CurrentDurability(float OldDurability)
+{
+	Super::OnRep_CurrentDurability(OldDurability);
+
+	if (CurrentDurability <= 0.0f && !bIsBroken)
+	{
+		bIsBroken = true;
+		OnPackageBroken();
+	}
+}
+
 void APackageBase::OnRep_bIsBroken()
 {
 	// 서버에서 bIsBroken이 true로 바뀌면 클라이언트에서 이 함수가 자동 호출됨
 	if (bIsBroken)
 	{
+		CurrentDurability = 0.0f;
+		OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
 		// 블루프린트에서 구현한 파손 메시 교체 / 파티클 등 연출 실행
 		OnPackageBroken();
 	}
@@ -433,6 +450,9 @@ void APackageBase::MulticastThrow_Implementation(FVector ThrowVelocity, AActor* 
 
 void APackageBase::MulticastSettleOnGround_Implementation()
 {
+	bWasThrown = false;
+	RestoreDefaultDamping();
+
 	if (MeshComponent)
 	{
 		MeshComponent->SetSimulatePhysics(false);
@@ -763,7 +783,13 @@ void APackageBase::DamagePackage(float DamageAmount)
 		return;
 	}
 	
-	CurrentDurability -= DamageAmount;
+	const float OldDurability = CurrentDurability;
+	CurrentDurability = FMath::Clamp(CurrentDurability - DamageAmount, 0.0f, MaxDurability);
+	
+	if (!FMath::IsNearlyEqual(OldDurability, CurrentDurability))
+	{
+		OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
+	}
 	
 	// 파손 처리
 	if (CurrentDurability <= 0.0f)

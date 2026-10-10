@@ -41,8 +41,12 @@ void AItemBase::PostInitializeComponents()
 void AItemBase::BeginPlay()
 {
 	Super::BeginPlay();
-	CurrentUseCount = MaxUseCount;
-	CurrentDurability = MaxDurability;
+
+	if (HasAuthority())
+	{
+		CurrentUseCount = MaxUseCount;
+		CurrentDurability = MaxDurability;
+	}
 
 	// 맵에 미리 배치된 아이템의 콜리전이 블루프린트 설정 등의 이유로 꼬이는 현상을 방지하기 위해,
 	// 게임 시작 시 서버와 클라이언트 모두 물리 시뮬레이션 및 폰(캐릭터) 블록 상태를 강제로 초기화합니다.
@@ -53,6 +57,8 @@ void AItemBase::BeginPlay()
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 		MeshComponent->SetNotifyRigidBodyCollision(true);
+		MeshComponent->SetLinearDamping(DefaultLinearDamping);
+		MeshComponent->SetAngularDamping(DefaultAngularDamping);
 		
 		// 에디터에 배치된 아이템이 바닥과 미세하게 겹쳐있을 경우, 캐릭터가 밟았을 때 파묻히는 물리 버그가 발생할 수 있습니다.
 		// 이를 방지하기 위해 위치를 살짝 위로 띄워 자연스럽게 떨어지도록 유도하고 물리 엔진을 깨웁니다.
@@ -69,8 +75,68 @@ void AItemBase::Tick(float DeltaTime)
 void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(AItemBase, CurrentDurability);
+	DOREPLIFETIME_CONDITION_NOTIFY(AItemBase, CurrentDurability, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(AItemBase, MaxDurability, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME(AItemBase, ItemIcon);
+}
+
+void AItemBase::OnRep_MaxDurability(float OldMaxDurability)
+{
+	OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
+}
+
+void AItemBase::OnRep_CurrentDurability(float OldDurability)
+{
+	OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
+}
+
+void AItemBase::SetCurrentDurability(float NewDurability)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const float Clamped = FMath::Clamp(NewDurability, 0.0f, MaxDurability);
+	if (!FMath::IsNearlyEqual(CurrentDurability, Clamped))
+	{
+		CurrentDurability = Clamped;
+		OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
+	}
+}
+
+void AItemBase::SetMaxDurability(float NewMaxDurability)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const float SafeMax = FMath::Max(1.0f, NewMaxDurability);
+	if (!FMath::IsNearlyEqual(MaxDurability, SafeMax))
+	{
+		MaxDurability = SafeMax;
+		if (CurrentDurability > MaxDurability)
+		{
+			CurrentDurability = MaxDurability;
+		}
+		OnDurabilityChanged.Broadcast(CurrentDurability, MaxDurability);
+	}
+}
+
+void AItemBase::ApplyDurabilityDamage(float DamageAmount)
+{
+	if (!HasAuthority() || DamageAmount <= 0.0f)
+	{
+		return;
+	}
+
+	SetCurrentDurability(CurrentDurability - DamageAmount);
+}
+
+float AItemBase::GetDurabilityPercent() const
+{
+	return (MaxDurability > 0.0f) ? FMath::Clamp(CurrentDurability / MaxDurability, 0.0f, 1.0f) : 0.0f;
 }
 
 void AItemBase::OnRep_ItemIcon()
@@ -150,11 +216,23 @@ void AItemBase::PickUp_Implementation(AActor* Picker)
 	// (추후 MainCharacter 및 Component에서 호출 처리 연동)
 }
 
+void AItemBase::RestoreDefaultDamping()
+{
+	if (MeshComponent)
+	{
+		MeshComponent->SetLinearDamping(DefaultLinearDamping);
+		MeshComponent->SetAngularDamping(DefaultAngularDamping);
+	}
+}
+
 void AItemBase::MulticastDrop_Implementation(FVector DropLocation, AActor* Dropper)
 {
 	SetActorLocation(DropLocation);
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	
+	bWasThrown = false;
+	RestoreDefaultDamping();
+
 	// 물리 재활성화
 	MeshComponent->SetSimulatePhysics(true);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -191,7 +269,21 @@ void AItemBase::MulticastThrow_Implementation(FVector ThrowVelocity, AActor* Thr
 	
 	MeshComponent->SetSimulatePhysics(true);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	MeshComponent->AddImpulse(ThrowVelocity, NAME_None, true);
+
+	// 투척 비행 중 공기 저항(Damping)을 최소화하여 역동적이고 시원한 포물선 비행 구현
+	MeshComponent->SetLinearDamping(ThrownLinearDamping);
+	MeshComponent->SetAngularDamping(ThrownAngularDamping);
+
+	// 이전 프레임의 잔여 속도를 리셋하고 의도한 투척 속도 적용
+	MeshComponent->SetPhysicsLinearVelocity(ThrowVelocity);
+
+	// 자연스러운 투척 회전 텀블링 부여
+	const FVector RandomTorque(
+		FMath::RandRange(-60.0f, 60.0f),
+		FMath::RandRange(-30.0f, 30.0f),
+		FMath::RandRange(-30.0f, 30.0f)
+	);
+	MeshComponent->SetPhysicsAngularVelocityInDegrees(RandomTorque);
 
 	MeshComponent->ClearMoveIgnoreActors();
 	
@@ -244,14 +336,16 @@ void AItemBase::OnItemHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
 		{
 			HandlePlayerHit(HitPlayer, ImpactSpeed);
 			bWasThrown = false;
+			RestoreDefaultDamping();
 		}
 		return;
 	}
 
-	// 지면이나 벽 등 다른 물체에 부딪쳐 멈추면 던져짐 상태 해제
-	if (ImpactSpeed < 80.0f)
+	// 지면이나 벽 등과 충돌 시 비행 상태 해제 및 안착 Damping 복원
+	if (bWasThrown)
 	{
 		bWasThrown = false;
+		RestoreDefaultDamping();
 	}
 }
 

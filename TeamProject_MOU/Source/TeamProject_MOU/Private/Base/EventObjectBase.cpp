@@ -19,10 +19,15 @@ AEventObjectBase::AEventObjectBase()
 	GroundTraceTolerance = 50.0f; // 실제 지지 접촉면만 감지하기 위한 하방 거리
 	bCanBeStoredInInventory = false;
 
+	DefaultLinearDamping = 1.0f;
+	DefaultAngularDamping = 1.5f;
+	ThrownLinearDamping = 0.05f;
+	ThrownAngularDamping = 0.1f;
+
 	if (MeshComponent)
 	{
-		MeshComponent->SetLinearDamping(1.0f);
-		MeshComponent->SetAngularDamping(1.5f);
+		MeshComponent->SetLinearDamping(DefaultLinearDamping);
+		MeshComponent->SetAngularDamping(DefaultAngularDamping);
 	}
 
 	// 지면/터널관 감지 전용 박스 컴포넌트 생성 (물리 충돌 없음, 뷰포트에서 기즈모로 조절 가능)
@@ -67,6 +72,7 @@ void AEventObjectBase::SetPhysicsSimulateEnabled(bool bEnablePhysics)
 			{
 				PrimComp->SetMassOverrideInKg(NAME_None, PhysicalMassInKg, true);
 			}
+			RestoreDefaultDamping();
 			PrimComp->WakeRigidBody();
 		}
 	}

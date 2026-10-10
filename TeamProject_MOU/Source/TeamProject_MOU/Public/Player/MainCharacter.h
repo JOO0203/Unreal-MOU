@@ -237,6 +237,20 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Player|UI")
 	void OnItemAimChanged(bool bIsAiming, AItemBase* TargetItem);
 
+	// 던지기 차징 진행률 UI 위젯 클래스
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<class UThrowChargeWidget> ThrowChargeWidgetClass;
+
+	// 던지기 차징 진행률 UI 위젯 인스턴스
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Player|UI")
+	TObjectPtr<class UThrowChargeWidget> ThrowChargeWidget;
+
+	UFUNCTION()
+	void HandleThrowChargeChanged(bool bIsCharging, float ChargeRatio);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Player|UI")
+	void OnThrowChargeChanged_BP(bool bIsCharging, float ChargeRatio);
+
 	// 부활 완료에 필요한 총 시간 반환 (GA_Revive의 ReviveDuration이 설정되어 있다면 우선 적용)
 	UFUNCTION(BlueprintPure, Category = "Player|Revive")
 	float GetRequiredReviveTime() const;
@@ -702,6 +716,9 @@ private:
 	void OnInteractEnd();
 	void OnGrabOrDrop();
 	void OnThrow();
+	void OnThrowStarted();
+	void OnThrowReleased();
+	void OnThrowCanceled();
 	void OnJumpStartInput();
 	void OnJumpEndInput();
 	void OnEmoteToggle();

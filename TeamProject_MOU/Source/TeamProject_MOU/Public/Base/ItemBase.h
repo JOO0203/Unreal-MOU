@@ -9,6 +9,8 @@
 class UStaticMeshComponent;
 class UTexture2D;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemDurabilityChanged, float, CurrentDurability, float, MaxDurability);
+
 UCLASS()
 class TEAMPROJECT_MOU_API AItemBase : public AActor, public IInteractableInterface
 {
@@ -60,11 +62,32 @@ public:
 	int32 CurrentUseCount = 1;
 
 	// 내구도 (주로 파괴 가능한 아이템 및 택배용)
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Status")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, ReplicatedUsing = OnRep_MaxDurability, Category = "Item|Status")
 	float MaxDurability = 100.0f;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Replicated, Category = "Item|Status")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, ReplicatedUsing = OnRep_CurrentDurability, Category = "Item|Status")
 	float CurrentDurability = 100.0f;
+
+	UPROPERTY(BlueprintAssignable, Category = "Item|Status")
+	FOnItemDurabilityChanged OnDurabilityChanged;
+
+	UFUNCTION()
+	virtual void OnRep_MaxDurability(float OldMaxDurability);
+
+	UFUNCTION()
+	virtual void OnRep_CurrentDurability(float OldDurability);
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Item|Status")
+	virtual void SetCurrentDurability(float NewDurability);
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Item|Status")
+	virtual void SetMaxDurability(float NewMaxDurability);
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Item|Status")
+	virtual void ApplyDurabilityDamage(float DamageAmount);
+
+	UFUNCTION(BlueprintPure, Category = "Item|Status")
+	float GetDurabilityPercent() const;
 
 	// 마지막으로 이 아이템을 소유했던 액터 (평판 추적 등)
 	UPROPERTY(BlueprintReadOnly, Category = "Item|Tracking")
@@ -77,6 +100,26 @@ public:
 	// 이 아이템을 마지막으로 던진 액터 (자폭 방지용)
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Item|Throw")
 	TWeakObjectPtr<AActor> LastThrower;
+
+	// 평상시(바닥 안착) 선형 감쇠
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Physics")
+	float DefaultLinearDamping = 0.1f;
+
+	// 평상시(바닥 안착) 회전 감쇠
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Physics")
+	float DefaultAngularDamping = 0.5f;
+
+	// 투척 비행 중 선형 감쇠 (공기 저항 최소화로 시원한 포물선 비행 구현)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Physics")
+	float ThrownLinearDamping = 0.05f;
+
+	// 투척 비행 중 회전 감쇠
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Physics")
+	float ThrownAngularDamping = 0.1f;
+
+	// 평상시 안착 감쇠값으로 복원
+	UFUNCTION(BlueprintCallable, Category = "Item|Physics")
+	virtual void RestoreDefaultDamping();
 
 protected:
 	virtual void PostInitializeComponents() override;

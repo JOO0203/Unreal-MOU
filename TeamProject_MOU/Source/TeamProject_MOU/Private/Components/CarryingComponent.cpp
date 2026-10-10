@@ -19,7 +19,18 @@
 
 UCarryingComponent::UCarryingComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = true;
+}
+
+void UCarryingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bIsChargingThrow)
+	{
+		UpdateThrowCharge(DeltaTime);
+	}
 }
 
 void UCarryingComponent::BeginPlay()
@@ -166,6 +177,7 @@ void UCarryingComponent::GrabOrDrop()
 			}
 		}
 
+		CancelThrowCharge();
 		CarriedActor = nullptr;
 		UpdateCharacterTotalWeight();
 		OnCarriedStateChanged.Broadcast(nullptr);
@@ -392,6 +404,12 @@ void UCarryingComponent::ServerGrabOrDrop_Implementation()
 
 void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 {
+	const float ForceToUse = bIsChargingThrow ? GetCurrentThrowForce() : DefaultThrowForce;
+	ThrowWithForce(CustomThrowDir, ForceToUse);
+}
+
+void UCarryingComponent::ThrowWithForce(const FVector& CustomThrowDir, float InThrowForce)
+{
 	// 1. 던지는 방향 계산 (입력값이 없으면 현재 소유자의 시선/조준 방향 사용)
 	FVector AimDir = CustomThrowDir;
 	if (AimDir.IsNearlyZero())
@@ -405,11 +423,18 @@ void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 			AimDir = GetOwner()->GetActorForwardVector();
 		}
 	}
-	AimDir.Normalize();
+
+	// [포물선 궤적 보정] 시선이 바닥을 향하더라도 최소한의 상향 아크를 보장하여 자연스럽고 시원하게 날아가도록 Z 보정
+	FVector ThrowDir = AimDir;
+	ThrowDir.Z = FMath::Max(ThrowDir.Z, 0.0f) + ThrowUpwardBias;
+	ThrowDir.Normalize();
+
+	const float FinalForce = FMath::Clamp(InThrowForce, MinThrowForce, MaxThrowForce);
 
 	if (!GetOwner()->HasAuthority())
 	{
-		ServerThrow(AimDir);
+		ServerThrowWithForce(ThrowDir, FinalForce);
+		CancelThrowCharge();
 		return;
 	}
 
@@ -420,6 +445,7 @@ void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 			// 사용 중이라 지금 던지면 안 되는 아이템(예: 비행 중 부메랑)은 거부
 			if (!Item->CanBeDropped())
 			{
+				CancelThrowCharge();
 				return;
 			}
 
@@ -429,6 +455,7 @@ void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 				if (Package->PackageType == EPackageType::Heavy)
 				{
 					UE_LOG(LogTemp, Warning, TEXT("무거운 택배는 던질 수 없습니다!"));
+					CancelThrowCharge();
 					return;
 				}
 				
@@ -436,14 +463,14 @@ void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 				Package->RemoveCarrier(GetOwner());
 			}
 			
-			// [개선] 캐릭터가 바라보는 시선(Aim) 방향으로 투척 속도 적용
-			FVector ThrowVel = AimDir * DefaultThrowForce;
+			// 조절된 힘이 적용된 투척 속도 적용
+			FVector ThrowVel = ThrowDir * FinalForce;
 			Item->Throw(ThrowVel, GetOwner());
 		}
 		else if (AMainCharacter* CharacterToThrow = Cast<AMainCharacter>(CarriedActor))
 		{
 			// 사람을 던지는 로직 (바라보는 방향으로 런치)
-			FVector ThrowVel = AimDir * DefaultThrowForce;
+			FVector ThrowVel = ThrowDir * FinalForce;
 			
 			CharacterToThrow->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 			
@@ -486,13 +513,93 @@ void UCarryingComponent::Throw(const FVector& CustomThrowDir)
 	
 	CarriedActor = nullptr;
 	UpdateCharacterTotalWeight();
+	CancelThrowCharge();
 	OnCarriedStateChanged.Broadcast(nullptr);
-	UE_LOG(LogTemp, Log, TEXT("물건을 바라보는 방향으로 던졌습니다."));
+	UE_LOG(LogTemp, Log, TEXT("물건을 힘 %f으로 던졌습니다."), FinalForce);
+}
+
+void UCarryingComponent::StartThrowCharge()
+{
+	if (!IsCarrying())
+	{
+		return;
+	}
+
+	// 무거운 택배는 던질 수 없으므로 차징 시작 안 함
+	if (APackageBase* Package = Cast<APackageBase>(CarriedActor))
+	{
+		if (Package->PackageType == EPackageType::Heavy)
+		{
+			return;
+		}
+	}
+
+	bIsChargingThrow = true;
+	CurrentThrowChargeTime = 0.0f;
+	OnThrowChargeChanged.Broadcast(true, 0.0f);
+}
+
+void UCarryingComponent::UpdateThrowCharge(float DeltaTime)
+{
+	if (!bIsChargingThrow || !IsCarrying())
+	{
+		if (bIsChargingThrow)
+		{
+			CancelThrowCharge();
+		}
+		return;
+	}
+
+	CurrentThrowChargeTime += DeltaTime;
+	const float Ratio = GetThrowChargeRatio();
+	OnThrowChargeChanged.Broadcast(true, Ratio);
+}
+
+void UCarryingComponent::FinishThrowCharge(const FVector& CustomThrowDir)
+{
+	if (!bIsChargingThrow)
+	{
+		Throw(CustomThrowDir);
+		return;
+	}
+
+	const float ForceToApply = GetCurrentThrowForce();
+	ThrowWithForce(CustomThrowDir, ForceToApply);
+}
+
+void UCarryingComponent::CancelThrowCharge()
+{
+	if (bIsChargingThrow)
+	{
+		bIsChargingThrow = false;
+		CurrentThrowChargeTime = 0.0f;
+		OnThrowChargeChanged.Broadcast(false, 0.0f);
+	}
+}
+
+float UCarryingComponent::GetThrowChargeRatio() const
+{
+	if (MaxChargeTime <= 0.0f)
+	{
+		return 1.0f;
+	}
+	return FMath::Clamp(CurrentThrowChargeTime / MaxChargeTime, 0.0f, 1.0f);
+}
+
+float UCarryingComponent::GetCurrentThrowForce() const
+{
+	const float Ratio = GetThrowChargeRatio();
+	return FMath::Lerp(MinThrowForce, MaxThrowForce, Ratio);
 }
 
 void UCarryingComponent::ServerThrow_Implementation(const FVector& InThrowDir)
 {
 	Throw(InThrowDir);
+}
+
+void UCarryingComponent::ServerThrowWithForce_Implementation(const FVector& InThrowDir, float InThrowForce)
+{
+	ThrowWithForce(InThrowDir, InThrowForce);
 }
 
 void UCarryingComponent::EquipItem(AActor* ItemToEquip)
@@ -592,6 +699,7 @@ void UCarryingComponent::ClearCarriedItem()
 
 void UCarryingComponent::MulticastClearCarriedItem_Implementation()
 {
+	CancelThrowCharge();
 	CarriedActor = nullptr;
 
 	if (GetOwner()->HasAuthority())

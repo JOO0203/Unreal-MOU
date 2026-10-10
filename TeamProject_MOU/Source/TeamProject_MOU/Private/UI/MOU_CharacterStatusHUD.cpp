@@ -1,4 +1,6 @@
 #include "UI/MOU_CharacterStatusHUD.h"
+#include "UI/ThrowChargeWidget.h"
+#include "Blueprint/WidgetTree.h"
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Engine/Texture2D.h"
@@ -13,6 +15,12 @@ void UMOU_CharacterStatusHUD::NativeConstruct()
 
 	// Initial State Update
 	SetPortraitTextureByState(ECharacterStatusState::Happy);
+
+	// 던지기 차징 위젯 초기 비활성화
+	if (UThrowChargeWidget* TargetWidget = GetThrowChargeWidget())
+	{
+		TargetWidget->SetChargingState(false);
+	}
 }
 
 void UMOU_CharacterStatusHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -188,4 +196,49 @@ void UMOU_CharacterStatusHUD::SetPortraitTextureByState(ECharacterStatusState Ne
 	{
 		Image_CenterPortrait->SetBrushFromTexture(TargetPortrait);
 	}
+}
+
+UThrowChargeWidget* UMOU_CharacterStatusHUD::GetThrowChargeWidget()
+{
+	if (ThrowChargeWidget)
+	{
+		return ThrowChargeWidget;
+	}
+
+	if (ThrowChargeWiget)
+	{
+		ThrowChargeWidget = ThrowChargeWiget;
+		return ThrowChargeWidget;
+	}
+
+	if (WidgetTree)
+	{
+		WidgetTree->ForEachWidget([this](UWidget* Widget)
+		{
+			if (!ThrowChargeWidget)
+			{
+				if (UThrowChargeWidget* Found = Cast<UThrowChargeWidget>(Widget))
+				{
+					ThrowChargeWidget = Found;
+				}
+			}
+		});
+	}
+
+	return ThrowChargeWidget;
+}
+
+void UMOU_CharacterStatusHUD::UpdateThrowCharge(bool bIsCharging, float ChargeRatio)
+{
+	UThrowChargeWidget* TargetWidget = GetThrowChargeWidget();
+	if (TargetWidget)
+	{
+		TargetWidget->SetChargingState(bIsCharging);
+		if (bIsCharging)
+		{
+			TargetWidget->UpdateCharge(ChargeRatio);
+		}
+	}
+
+	OnThrowChargeUpdated(bIsCharging, ChargeRatio);
 }

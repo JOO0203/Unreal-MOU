@@ -36,7 +36,10 @@ void AWeaponItemBase::BeginPlay()
 	Super::BeginPlay();
 
 	// 내구도를 최대치로 초기화 (ItemBase의 CurrentDurability/MaxDurability 사용)
-	CurrentDurability = MaxDurability;
+	if (HasAuthority())
+	{
+		CurrentDurability = MaxDurability;
+	}
 
 	// 근접 콜라이더 오버랩 콜백 바인딩
 	if (MeleeCollider)

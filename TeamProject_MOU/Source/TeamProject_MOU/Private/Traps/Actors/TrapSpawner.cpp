@@ -260,6 +260,21 @@ void ATrapSpawner::SpawnTraps()
 		ATrapBase* NewTrap = World->SpawnActor<ATrapBase>(SelectedClass, SpawnTransform, SpawnParams);
 		if (IsValid(NewTrap))
 		{
+			if (NewTrap->GetRootComponent() && NewTrap->GetRootComponent()->Mobility != EComponentMobility::Movable)
+			{
+				NewTrap->GetRootComponent()->SetMobility(EComponentMobility::Movable);
+			}
+
+			TArray<UPrimitiveComponent*> PrimitiveComponents;
+			NewTrap->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+			for (UPrimitiveComponent* Prim : PrimitiveComponents)
+			{
+				if (IsValid(Prim) && Prim->IsSimulatingPhysics())
+				{
+					Prim->SetSimulatePhysics(false);
+				}
+			}
+
 			SpawnedTraps.Add(NewTrap);
 			SpawnedTrapLocations.Add(SpawnTransform.GetLocation());
 		}

@@ -148,6 +148,8 @@ public:
 	bool bIsBroken = false;
 
 protected:
+	virtual void OnRep_CurrentDurability(float OldDurability) override;
+
 	UFUNCTION()
 	void OnRep_bIsBroken();
 

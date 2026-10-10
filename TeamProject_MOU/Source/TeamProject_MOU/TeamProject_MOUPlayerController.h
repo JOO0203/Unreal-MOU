@@ -179,6 +179,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|Status")
 	void RegisterStatusHUDWidget(UMOU_CharacterStatusHUD* InStatusHUD);
 
+	UFUNCTION(BlueprintPure, Category = "UI|Status")
+	UMOU_CharacterStatusHUD* GetStatusHUDWidget() const { return StatusHUDWidget; }
+
 	// [PCUI-002] HUD 내부의 상태·마이크·무전기 위젯을 찾아 컨트롤러 참조에 연결한다.
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void RegisterPlayerHUDWidget(UUserWidget* InPlayerHUD);

@@ -85,33 +85,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Trap|Trigger")
 	void UpdateTriggerBoxCollision();
 
-	virtual void OnConstruction(const FTransform& Transform) override;
-
-	UFUNCTION(BlueprintCallable, Category = "Trap|Placement")
-	bool SnapToGround();
-
 protected:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement")
-	bool bSnapToGroundOnBeginPlay = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement")
-	bool bSnapToGroundInEditor = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement")
-	bool bAlignToGroundNormal = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement", meta = (Units = "cm"))
-	float GroundTraceUpOffset = 150.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement", meta = (Units = "cm"))
-	float GroundTraceDownOffset = 500.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement", meta = (Units = "cm"))
-	float FloorClearanceOffset = 3.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap|Placement", meta = (Units = "cm"))
-	FVector GroundPlacementOffset = FVector::ZeroVector;
-
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 

@@ -22,6 +22,14 @@ public:
 	void OnItemInfoUpdated(AItemBase* Item);
 
 protected:
+	virtual void NativeDestruct() override;
+
+	UPROPERTY(BlueprintReadOnly, Category = "ItemUI")
+	TWeakObjectPtr<AItemBase> TrackedItem;
+
+	UFUNCTION()
+	void HandleTrackedItemDurabilityChanged(float NewDurability, float NewMaxDurability);
+
 	// 블루프린트에서 바인딩될 텍스트 위젯들 (선택 사항으로 변경하여 없어도 크래시 방지)
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Text_Name;

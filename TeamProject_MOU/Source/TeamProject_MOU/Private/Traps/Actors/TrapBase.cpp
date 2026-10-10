@@ -7,9 +7,6 @@
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
-#include "Engine/World.h"
-#include "CollisionQueryParams.h"
-#include "GameFramework/Volume.h"
 
 ATrapBase::ATrapBase()
 {
@@ -17,7 +14,6 @@ ATrapBase::ATrapBase()
 	bReplicates = true;
 
 	RootScene = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
-	RootScene->SetMobility(EComponentMobility::Movable);
 	SetRootComponent(RootScene);
 
 	BaseTriggerBox = CreateDefaultSubobject<UBoxComponent>(TEXT("BaseTriggerBox"));
@@ -37,146 +33,9 @@ void ATrapBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(ATrapBase, CurrentState);
 }
 
-void ATrapBase::OnConstruction(const FTransform& Transform)
-{
-	Super::OnConstruction(Transform);
-
-	UWorld* World = GetWorld();
-	if (World && !World->IsGameWorld() && bSnapToGroundInEditor)
-	{
-		if (GetOwner() == nullptr)
-		{
-			SnapToGround();
-		}
-	}
-}
-
-bool ATrapBase::SnapToGround()
-{
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return false;
-	}
-
-	const FVector CurrentLocation = GetActorLocation();
-	const FVector TraceStart = CurrentLocation + FVector(0.0f, 0.0f, GroundTraceUpOffset);
-	const FVector TraceEnd = CurrentLocation - FVector(0.0f, 0.0f, GroundTraceDownOffset);
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(TrapSnapToGround), false, this);
-	QueryParams.bTraceComplex = true;
-
-	FCollisionObjectQueryParams ObjectQueryParams;
-	ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
-	ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
-
-	TArray<FHitResult> HitResults;
-	bool bHit = World->LineTraceMultiByObjectType(
-		HitResults,
-		TraceStart,
-		TraceEnd,
-		ObjectQueryParams,
-		QueryParams
-	);
-
-	if (!bHit)
-	{
-		bHit = World->LineTraceMultiByChannel(
-			HitResults,
-			TraceStart,
-			TraceEnd,
-			ECC_Visibility,
-			QueryParams
-		);
-	}
-
-	if (!bHit)
-	{
-		return false;
-	}
-
-	FHitResult ValidFloorHit;
-	bool bFoundValidFloor = false;
-
-	for (const FHitResult& Hit : HitResults)
-	{
-		if (!Hit.bBlockingHit)
-		{
-			continue;
-		}
-
-		AActor* HitActor = Hit.GetActor();
-		if (!HitActor || HitActor == this || HitActor->IsA<ATrapBase>() || HitActor->IsA<AVolume>())
-		{
-			continue;
-		}
-
-		if (Hit.ImpactNormal.Z < 0.65f)
-		{
-			continue;
-		}
-
-		if (UPrimitiveComponent* HitComp = Hit.GetComponent())
-		{
-			if (HitComp->CanCharacterStepUpOn == ECB_No)
-			{
-				continue;
-			}
-		}
-
-		ValidFloorHit = Hit;
-		bFoundValidFloor = true;
-		break;
-	}
-
-	if (!bFoundValidFloor)
-	{
-		return false;
-	}
-
-	if (RootComponent && RootComponent->Mobility != EComponentMobility::Movable)
-	{
-		RootComponent->SetMobility(EComponentMobility::Movable);
-	}
-
-	const FVector SurfaceNormal = ValidFloorHit.ImpactNormal;
-	const FVector TargetLocation = ValidFloorHit.ImpactPoint + (SurfaceNormal * FloorClearanceOffset) + GroundPlacementOffset;
-	SetActorLocation(TargetLocation);
-
-	if (bAlignToGroundNormal)
-	{
-		const FVector CurrentForward = GetActorForwardVector();
-		FVector AlignedForward = FVector::VectorPlaneProject(CurrentForward, SurfaceNormal).GetSafeNormal();
-		if (AlignedForward.IsNearlyZero())
-		{
-			AlignedForward = FVector::VectorPlaneProject(FVector::ForwardVector, SurfaceNormal).GetSafeNormal();
-		}
-		const FVector AlignedRight = FVector::CrossProduct(SurfaceNormal, AlignedForward).GetSafeNormal();
-		const FMatrix RotationMatrix(AlignedForward, AlignedRight, SurfaceNormal, FVector::ZeroVector);
-		SetActorRotation(RotationMatrix.Rotator());
-	}
-
-	return true;
-}
-
 void ATrapBase::BeginPlay()
 {
 	Super::BeginPlay();
-
-	TArray<UPrimitiveComponent*> PrimitiveComponents;
-	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
-	for (UPrimitiveComponent* Prim : PrimitiveComponents)
-	{
-		if (IsValid(Prim) && Prim->IsSimulatingPhysics())
-		{
-			Prim->SetSimulatePhysics(false);
-		}
-	}
-
-	if (HasAuthority() && bSnapToGroundOnBeginPlay)
-	{
-		SnapToGround();
-	}
 
 	if (TriggerComponent)
 	{
