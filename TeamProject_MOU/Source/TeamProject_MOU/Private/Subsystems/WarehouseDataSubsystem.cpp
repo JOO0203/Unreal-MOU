@@ -177,8 +177,6 @@ void UWarehouseDataSubsystem::InitializeWarehouseFromDataAsset()
 
 	GameInstance->SaveStoredItems(InitialItems);
 	GameInstance->SaveStoredItemInstances(InitialInstances);
-	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Initial data asset applied. Classes=%d Instances=%d"),
-		InitialItems.Num(), InitialInstances.Num());
 }
 
 void UWarehouseDataSubsystem::SaveStoredItems(const TArray<FStoredItemData>& InStoredItems)
@@ -282,8 +280,6 @@ bool UWarehouseDataSubsystem::SaveFromWarehouseComponent(const UWarehouseCompone
 
 	SaveStoredItems(WarehouseComponent->StoredItems);
 	SaveStoredItemInstances(MergedInstances);
-	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Saved component. SummaryClasses=%d LiveInstances=%d PreviousInstances=%d MergedInstances=%d"),
-		WarehouseComponent->StoredItems.Num(), LiveInstances.Num(), PreviousInstances.Num(), MergedInstances.Num());
 	return true;
 }
 
@@ -409,8 +405,6 @@ bool UWarehouseDataSubsystem::MergeFromWarehouseComponent(const UWarehouseCompon
 
 	SaveStoredItems(MergedItems);
 	SaveStoredItemInstances(MergedInstances);
-	UE_LOG(LogTemp, Log, TEXT("[Warehouse] Merged map warehouse. IncomingClasses=%d IncomingInstances=%d TotalInstances=%d"),
-		WarehouseComponent->StoredItems.Num(), IncomingInstances.Num(), MergedInstances.Num());
 	return true;
 }
 
@@ -460,8 +454,6 @@ int32 UWarehouseDataSubsystem::SaveAllPlayerInventories()
 	}
 
 	GameInstance->SavedPlayerInventories = MoveTemp(SavedInventories);
-	UE_LOG(LogTemp, Log, TEXT("[Inventory] Saved players=%d items=%d"),
-		GameInstance->SavedPlayerInventories.Num(), SavedItemCount);
 	return SavedItemCount;
 }
 
@@ -502,7 +494,6 @@ bool UWarehouseDataSubsystem::RestorePlayerInventory(UInventoryComponent* Invent
 
 	// 레벨 이동 복원 데이터는 한 번만 소비하여 같은 맵 재스폰 시 아이템이 복제되지 않게 합니다.
 	GameInstance->SavedPlayerInventories.RemoveAt(PlayerDataIndex);
-	UE_LOG(LogTemp, Log, TEXT("[Inventory] Restored player=%s slots=%d"), *PlayerKey, SlotCount);
 	return true;
 }
 

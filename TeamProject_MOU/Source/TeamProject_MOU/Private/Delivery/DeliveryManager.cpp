@@ -51,8 +51,6 @@ bool ADeliveryManager::RegisterDeliveryPackage(APackageBase* Package)
 	// 자동 탐색과 스포너의 직접 등록이 같은 프레임에 호출될 수 있으므로 중복 등록은 성공으로 취급합니다.
 	if (AssignedZones.Contains(Package))
 	{
-		UE_LOG(LogTemp, Log, TEXT("[Delivery] Package already assigned. Package=%s Zone=%s"),
-			*GetNameSafe(Package), *GetAssignedZoneID(Package).ToString());
 		return true;
 	}
 	if (PackagesWaitingForZone.Contains(Package))
@@ -106,8 +104,6 @@ bool ADeliveryManager::RegisterDeliveryZone(FName ZoneID)
 	if (RegisteredZoneIDs.Contains(ZoneID)) return true;
 
 	RegisteredZoneIDs.Add(ZoneID);
-	UE_LOG(LogTemp, Log, TEXT("[Delivery] Zone registered. Zone=%s TotalZones=%d WaitingPackages=%d"),
-		*ZoneID.ToString(), RegisteredZoneIDs.Num(), PackagesWaitingForZone.Num());
 	AssignWaitingPackages();
 	return true;
 }
@@ -121,8 +117,6 @@ void ADeliveryManager::DiscoverPlacedZones()
 		RegisterDeliveryZone(It->GetEffectiveZoneID());
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Delivery] Placed zone discovery finished. TotalZones=%d"),
-		RegisteredZoneIDs.Num());
 }
 
 FName ADeliveryManager::GetAssignedZoneID(const APackageBase* Package) const
@@ -151,8 +145,6 @@ bool ADeliveryManager::AssignRandomZone(APackageBase* Package)
 
 	const FName ZoneID = RegisteredZoneIDs[FMath::RandRange(0, RegisteredZoneIDs.Num() - 1)];
 	AssignedZones.Add(Package, ZoneID);
-	UE_LOG(LogTemp, Log, TEXT("[Delivery] Package assigned. Package=%s Zone=%s"),
-		*GetNameSafe(Package), *ZoneID.ToString());
 	return true;
 }
 
@@ -211,8 +203,6 @@ void ADeliveryManager::InitializeFromPendingDelivery()
 	}
 
 	BroadcastProgress();
-	UE_LOG(LogTemp, Log, TEXT("[Delivery] Pending initialized. Total=%d RequiredClasses=%d"),
-		Progress.TotalItemCount, RemainingRequiredCounts.Num());
 
 	if (!Data.IsEmpty())
 	{
@@ -244,11 +234,6 @@ bool ADeliveryManager::TryDeliverPackage(APackageBase* Package)
 	{
 		++Progress.DeliveredItemCount;
 		const int32 DeliveryValue = FMath::Max(0, Package->GetCurrentValue());
-		UE_LOG(LogTemp, Log,
-			TEXT("[Delivery] Reward calculated. Package=%s Value=%d Base=%d Durability=%.1f/%.1f Type=%d Spoil=%.1f Broken=%d"),
-			*GetNameSafe(Package), DeliveryValue, Package->BaseValue,
-			Package->CurrentDurability, Package->MaxDurability,
-			static_cast<int32>(Package->PackageType), Package->CurrentSpoilTime, Package->bIsBroken);
 		Progress.EarnedGold += DeliveryValue;
 		const int32 ExistingIndex = Progress.DeliveredItems.IndexOfByPredicate(
 			[Package](const FSettlementItemEntry& Entry)
@@ -349,8 +334,6 @@ void ADeliveryManager::ClearPackageFromPlayerHands(APackageBase* Package)
 
 		CarryingComponent->ClearCarriedItem();
 		Character->ChangeEmotion(0);
-		UE_LOG(LogTemp, Log, TEXT("[Delivery] Cleared delivered package from player hands. Player=%s Package=%s"),
-			*GetNameSafe(Character), *GetNameSafe(Package));
 	}
 }
 

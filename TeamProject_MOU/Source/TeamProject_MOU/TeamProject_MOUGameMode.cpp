@@ -209,7 +209,6 @@ void ATeamProject_MOUGameMode::CheckLevelReadyWait()
 	bWaitingForLevelReady = false;
 	bLevelTimerStarted = true;
 	GetWorldTimerManager().ClearTimer(LevelReadyWaitHandle);
-	UE_LOG(LogTemp, Log, TEXT("[LevelReady] All %d players ready; starting level timer."), PlayerCount);
 	TryStartLevelTimer();
 }
 

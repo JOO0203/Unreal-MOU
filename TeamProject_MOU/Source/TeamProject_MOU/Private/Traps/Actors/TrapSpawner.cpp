@@ -1,4 +1,4 @@
-#include "Traps/Actors/TrapSpawner.h"
+﻿#include "Traps/Actors/TrapSpawner.h"
 #include "Traps/Actors/TrapBearTrap.h"
 #include "Traps/Actors/TrapElectricPanel.h"
 #include "Components/BoxComponent.h"
@@ -10,6 +10,8 @@
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "GameFramework/Volume.h"
+#include "GameFramework/Pawn.h"
+#include "Components/MeshComponent.h"
 
 ATrapSpawner::ATrapSpawner()
 {
@@ -121,96 +123,20 @@ void ATrapSpawner::SpawnTraps()
 	{
 		bool bFoundLocation = false;
 		FTransform SpawnTransform;
+		FHitResult FoundFloorHit;
 
 		for (int32 Attempt = 0; Attempt < MaxSpawnAttemptsPerTrap; ++Attempt)
 		{
-			const float RandomX = FMath::RandRange(Bounds.Min.X, Bounds.Max.X);
-			const float RandomY = FMath::RandRange(Bounds.Min.Y, Bounds.Max.Y);
-			const float StartZ = Bounds.Max.Z;
-			const float EndZ = Bounds.Min.Z - GroundTraceDistance;
-
-			const FVector TraceStart(RandomX, RandomY, StartZ);
-			const FVector TraceEnd(RandomX, RandomY, EndZ);
-
-			FHitResult HitResult;
-			FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(TrapSpawnerGroundTrace), false, this);
-			QueryParams.bTraceComplex = true;
-
-			for (const TObjectPtr<ATrapBase>& ExistingTrap : SpawnedTraps)
-			{
-				if (IsValid(ExistingTrap))
-				{
-					QueryParams.AddIgnoredActor(ExistingTrap);
-				}
-			}
-
-			FCollisionObjectQueryParams ObjectQueryParams;
-			ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
-			ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
-
-			TArray<FHitResult> HitResults;
-			bool bHit = World->LineTraceMultiByObjectType(
-				HitResults,
-				TraceStart,
-				TraceEnd,
-				ObjectQueryParams,
-				QueryParams
-			);
-
-			if (!bHit)
-			{
-				bHit = World->LineTraceMultiByChannel(
-					HitResults,
-					TraceStart,
-					TraceEnd,
-					ECC_Visibility,
-					QueryParams
-				);
-			}
-
-			if (!bHit)
-			{
-				continue;
-			}
+			const FVector RandomPoint = GetRandomPointInSpawnBox();
+			const FVector TraceStart(RandomPoint.X, RandomPoint.Y, Bounds.Max.Z);
+			const FVector TraceEnd(RandomPoint.X, RandomPoint.Y, Bounds.Min.Z);
 
 			FHitResult ValidFloorHit;
-			bool bFoundValidFloor = false;
-
-			for (const FHitResult& Hit : HitResults)
-			{
-				if (!Hit.bBlockingHit)
-				{
-					continue;
-				}
-
-				AActor* HitActor = Hit.GetActor();
-				if (!HitActor || HitActor == this || HitActor->IsA<ATrapBase>() || HitActor->IsA<AVolume>())
-				{
-					continue;
-				}
-
-				if (Hit.ImpactNormal.Z < 0.65f)
-				{
-					continue;
-				}
-
-				if (UPrimitiveComponent* HitComp = Hit.GetComponent())
-				{
-					if (HitComp->CanCharacterStepUpOn == ECB_No)
-					{
-						continue;
-					}
-				}
-
-				ValidFloorHit = Hit;
-				bFoundValidFloor = true;
-				break;
-			}
-
-			if (!bFoundValidFloor)
+			if (!FindFloorHit(TraceStart, TraceEnd, ValidFloorHit))
 			{
 				continue;
 			}
+			FoundFloorHit = ValidFloorHit;
 
 			const FVector SurfaceNormal = ValidFloorHit.ImpactNormal;
 			const FVector CandidateLocation = ValidFloorHit.ImpactPoint + (SurfaceNormal * FloorClearanceOffset);
@@ -275,8 +201,9 @@ void ATrapSpawner::SpawnTraps()
 				}
 			}
 
+			SnapTrapToFloor(NewTrap, FoundFloorHit.ImpactPoint);
 			SpawnedTraps.Add(NewTrap);
-			SpawnedTrapLocations.Add(SpawnTransform.GetLocation());
+			SpawnedTrapLocations.Add(NewTrap->GetActorLocation());
 		}
 	}
 
@@ -435,4 +362,105 @@ void ATrapSpawner::RemoveInvalidSpawnedTraps()
 	{
 		return !IsValid(Trap);
 	});
+}
+
+FVector ATrapSpawner::GetRandomPointInSpawnBox() const
+{
+	const FVector Extent = SpawnAreaBox->GetUnscaledBoxExtent();
+	const FVector LocalPoint(FMath::RandRange(-Extent.X, Extent.X), FMath::RandRange(-Extent.Y, Extent.Y), 0.0f);
+	return SpawnAreaBox->GetComponentTransform().TransformPosition(LocalPoint);
+}
+
+bool ATrapSpawner::FindFloorHit(const FVector& TraceStart, const FVector& TraceEnd, FHitResult& OutHit) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(TrapSpawnerGroundTrace), true, this);
+	for (const TObjectPtr<ATrapBase>& ExistingTrap : SpawnedTraps)
+	{
+		if (IsValid(ExistingTrap))
+		{
+			QueryParams.AddIgnoredActor(ExistingTrap);
+		}
+	}
+
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+
+	TArray<FHitResult> HitResults;
+	World->LineTraceMultiByObjectType(HitResults, TraceStart, TraceEnd, ObjectQueryParams, QueryParams);
+
+	if (HitResults.IsEmpty())
+	{
+		World->LineTraceMultiByChannel(HitResults, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+	}
+
+	for (int32 HitIndex = HitResults.Num() - 1; HitIndex >= 0; --HitIndex)
+	{
+		const FHitResult& Hit = HitResults[HitIndex];
+		AActor* HitActor = Hit.GetActor();
+		if (!Hit.bBlockingHit || !HitActor || HitActor == this
+			|| HitActor->IsA<ATrapBase>() || HitActor->IsA<AVolume>() || HitActor->IsA<APawn>())
+		{
+			continue;
+		}
+
+		if (Hit.ImpactNormal.Z < MinFloorNormalZ)
+		{
+			continue;
+		}
+
+		const FVector LocalHitPoint = SpawnAreaBox->GetComponentTransform().InverseTransformPosition(Hit.ImpactPoint);
+		const FVector BoxExtent = SpawnAreaBox->GetUnscaledBoxExtent();
+		if (FMath::Abs(LocalHitPoint.X) > BoxExtent.X || FMath::Abs(LocalHitPoint.Y) > BoxExtent.Y || FMath::Abs(LocalHitPoint.Z) > BoxExtent.Z + FloorClearanceOffset)
+		{
+			continue;
+		}
+
+		const UPrimitiveComponent* HitComp = Hit.GetComponent();
+		if (HitComp && HitComp->CanCharacterStepUpOn == ECB_No)
+		{
+			continue;
+		}
+
+		OutHit = Hit;
+		return true;
+	}
+
+	return false;
+}
+
+void ATrapSpawner::SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint) const
+{
+	if (!IsValid(Trap))
+	{
+		return;
+	}
+
+	TArray<UMeshComponent*> MeshComponents;
+	Trap->GetComponents<UMeshComponent>(MeshComponents);
+
+	bool bHasMesh = false;
+	float LowestZ = TNumericLimits<float>::Max();
+	for (const UMeshComponent* MeshComp : MeshComponents)
+	{
+		if (IsValid(MeshComp) && MeshComp->IsVisible())
+		{
+			LowestZ = FMath::Min(LowestZ, static_cast<float>(MeshComp->Bounds.GetBox().Min.Z));
+			bHasMesh = true;
+		}
+	}
+
+	if (!bHasMesh)
+	{
+		return;
+	}
+
+	const float OffsetZ = (FloorPoint.Z + FloorClearanceOffset) - LowestZ;
+	Trap->AddActorWorldOffset(FVector(0.0f, 0.0f, OffsetZ), false, nullptr, ETeleportType::TeleportPhysics);
 }

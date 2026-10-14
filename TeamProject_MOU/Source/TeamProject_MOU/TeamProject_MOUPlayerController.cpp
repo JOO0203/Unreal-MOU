@@ -655,7 +655,6 @@ void ATeamProject_MOUPlayerController::PlayerTick(float DeltaTime)
 		const bool bIsSelf = (CurrentVT == MyPawn && MyPawn != nullptr);
 
 		OnViewTargetActorChanged.Broadcast(CurrentVT, bIsSelf);
-		UE_LOG(LogTemp, Log, TEXT("[Camera] ViewTarget Changed to: %s (bIsSelf: %d)"), *GetNameSafe(CurrentVT), bIsSelf ? 1 : 0);
 
 		if (!bIsSpectating)
 		{
