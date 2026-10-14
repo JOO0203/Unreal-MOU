@@ -33,28 +33,61 @@ ASluiceGate::ASluiceGate()
 	InterpSpeed = 4.0f;
 }
 
+// [SLUICE-001] 패키징에서 Static 루트의 부착이 거부된 경우 Movable로 전환하고 다시 부착
+bool ASluiceGate::ResolveTargetDoorComponent()
+{
+	TArray<UChildActorComponent*> ChildActorComponents;
+	GetComponents<UChildActorComponent>(ChildActorComponents);
+
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (!IsValid(ChildActorComponent))
+		{
+			continue;
+		}
+
+		const FString ComponentName = ChildActorComponent->GetName();
+		const bool bIsGateComponent =
+			ChildActorComponents.Num() == 1 ||
+			ComponentName.Contains(TEXT("Gate")) ||
+			ComponentName.Contains(TEXT("Door"));
+
+		if (!bIsGateComponent)
+		{
+			continue;
+		}
+
+		if (AActor* ChildActor = ChildActorComponent->GetChildActor())
+		{
+			if (USceneComponent* ChildRoot = ChildActor->GetRootComponent())
+			{
+				ChildRoot->SetMobility(EComponentMobility::Movable);
+
+				if (ChildRoot->GetAttachParent() != ChildActorComponent)
+				{
+					ChildRoot->AttachToComponent(
+						ChildActorComponent,
+						FAttachmentTransformRules::SnapToTargetIncludingScale);
+				}
+			}
+		}
+
+		TargetDoorComponent = ChildActorComponent;
+		return true;
+	}
+
+	TargetDoorComponent = nullptr;
+	return false;
+}
+
+// [SLUICE-000] 수문 부착을 먼저 복구한 후 정상 상대 위치를 기준으로 이동값을 초기화
 void ASluiceGate::BeginPlay()
 {
 	Super::BeginPlay();
 
 	InitialGateLocation = GetActorLocation();
 
-	// TargetDoorComponent가 지정되지 않은 경우, 자식 컴포넌트 중 'Gate' 또는 'Door' 이름 포함된 컴포넌트(BP_Gate 등)를 자동 탐색
-	if (!TargetDoorComponent && GetRootComponent())
-	{
-		TArray<USceneComponent*> ChildComponents;
-		GetRootComponent()->GetChildrenComponents(true, ChildComponents);
-		for (USceneComponent* Child : ChildComponents)
-		{
-			if (Child && (Child->GetName().Contains(TEXT("Gate")) || Child->GetName().Contains(TEXT("Door"))))
-			{
-				TargetDoorComponent = Child;
-				break;
-			}
-		}
-	}
-
-	if (TargetDoorComponent)
+	if (ResolveTargetDoorComponent())
 	{
 		InitialDoorRelativeLocation = TargetDoorComponent->GetRelativeLocation();
 		TargetDoorComponent->SetVisibility(true, true);
@@ -147,6 +180,7 @@ void ASluiceGate::OnRep_CurrentOpenRatio()
 	OnGateStateUpdated(CurrentOpenRatio);
 }
 
+// [SLUICE-002] 수문 컴포넌트가 없으면 이동을 중단하여 Door 액터가 원점으로 이동하지 않게 보호
 void ASluiceGate::UpdateGateMovement(float DeltaTime)
 {
 	VisualOpenRatio = (DeltaTime > 0.0f)
@@ -156,17 +190,11 @@ void ASluiceGate::UpdateGateMovement(float DeltaTime)
 	// 레벨에 배치된 위치가 완전 열림(VisualOpenRatio=1.0) 위치이며, 닫힐수록(1.0 -> 0.0) 아래로 내려옵니다
 	float DropAmount = (1.0f - VisualOpenRatio) * GateTravelDistance;
 
-	if (TargetDoorComponent)
+	if (IsValid(TargetDoorComponent))
 	{
 		FVector NewRelLoc = InitialDoorRelativeLocation;
 		NewRelLoc.Z = InitialDoorRelativeLocation.Z - DropAmount;
 		TargetDoorComponent->SetRelativeLocation(NewRelLoc);
-	}
-	else
-	{
-		FVector TargetLocation = InitialGateLocation;
-		TargetLocation.Z = InitialGateLocation.Z - DropAmount;
-		SetActorLocation(TargetLocation);
 	}
 }
 

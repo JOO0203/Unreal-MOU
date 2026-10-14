@@ -19,6 +19,7 @@ public:
 	ASluiceGate();
 
 protected:
+	// [SLUICE-000] 실행 시작 시 패키징에서 분리된 수문 Child Actor를 복구하고 초기 위치를 저장
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -121,6 +122,10 @@ protected:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UMOUWaterBodyRiverComponent> CachedRiverComp;
 
+	// [SLUICE-001] 수문 Child Actor의 Mobility와 부착 상태를 복구하고 이동 대상을 확정
+	bool ResolveTargetDoorComponent();
+
+	// [SLUICE-002] 확정된 수문 컴포넌트만 상대 이동하며 부모 액터의 배치 위치는 변경하지 않음
 	void UpdateGateMovement(float DeltaTime);
 	void UpdateWaterActors(float DeltaTime);
 };
