@@ -112,22 +112,22 @@ void AVehicleBase::BeginPlay()
 	}
 
 	// [임시 진단] 무브먼트/메시 물리 연결 상태 확인.
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	UChaosVehicleMovementComponent* Movement = GetVehicleMovementComponent();
-	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] BeginPlay: Mesh=%s, SimPhysics=%d, Movement=%s, UpdatedComp=%s"),
-		MeshComp ? *MeshComp->GetName() : TEXT("NULL"),
-		(MeshComp && MeshComp->IsSimulatingPhysics()) ? 1 : 0,
-		Movement ? *Movement->GetName() : TEXT("NULL"),
-		(Movement && Movement->UpdatedComponent) ? *Movement->UpdatedComponent->GetName() : TEXT("NULL"));
+	// USkeletalMeshComponent* MeshComp = GetMesh();
+	// UChaosVehicleMovementComponent* Movement = GetVehicleMovementComponent();
+	// UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] BeginPlay: Mesh=%s, SimPhysics=%d, Movement=%s, UpdatedComp=%s"),
+	// 	MeshComp ? *MeshComp->GetName() : TEXT("NULL"),
+	// 	(MeshComp && MeshComp->IsSimulatingPhysics()) ? 1 : 0,
+	// 	Movement ? *Movement->GetName() : TEXT("NULL"),
+	// 	(Movement && Movement->UpdatedComponent) ? *Movement->UpdatedComponent->GetName() : TEXT("NULL"));
 
 	// [임시 진단] 비동기 물리 설정이 실제로 켜졌는지 런타임에 직접 확인.
 	// bTickPhysicsAsync 가 0 이면 ini 가 반영 안 된 것(에디터 재시작 필요 or 다른 설정이 덮어씀).
-	if (const UPhysicsSettings* PS = UPhysicsSettings::Get())
-	{
-		UE_LOG(LogTemp, Error, TEXT("[VEHICLE] bTickPhysicsAsync=%d, AsyncFixedTimeStepSize=%.5f"),
-			PS->bTickPhysicsAsync ? 1 : 0,
-			PS->AsyncFixedTimeStepSize);
-	}
+	// if (const UPhysicsSettings* PS = UPhysicsSettings::Get())
+	// {
+	// 	UE_LOG(LogTemp, Error, TEXT("[VEHICLE] bTickPhysicsAsync=%d, AsyncFixedTimeStepSize=%.5f"),
+	// 		PS->bTickPhysicsAsync ? 1 : 0,
+	// 		PS->AsyncFixedTimeStepSize);
+	// }
 }
 
 // [VEHICLE-003] BP에 설정된 좌석을 보존하면서 4인 탑승에 부족한 좌석을 자동으로 보충한다.
@@ -546,11 +546,11 @@ void AVehicleBase::MulticastSwitchDriverInput_Implementation(AController* Driver
 	// 입력 서브시스템은 로컬 플레이어에만 있으므로, 이 머신에서 로컬로 조종하는
 	// 컨트롤러가 아니면 무시한다.
 	ATeamProject_MOUPlayerController* PC = Cast<ATeamProject_MOUPlayerController>(DriverController);
-	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] MulticastSwitchDriverInput: bEnter=%d, DriverController=%s, castOK=%d, IsLocal=%d"),
-		bEnterVehicle ? 1 : 0,
-		DriverController ? *DriverController->GetName() : TEXT("NULL"),
-		PC ? 1 : 0,
-		(PC && PC->IsLocalController()) ? 1 : 0);
+	// UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] MulticastSwitchDriverInput: bEnter=%d, DriverController=%s, castOK=%d, IsLocal=%d"),
+	// 	bEnterVehicle ? 1 : 0,
+	// 	DriverController ? *DriverController->GetName() : TEXT("NULL"),
+	// 	PC ? 1 : 0,
+	// 	(PC && PC->IsLocalController()) ? 1 : 0);
 
 	if (!PC || !PC->IsLocalController())
 	{
@@ -559,8 +559,8 @@ void AVehicleBase::MulticastSwitchDriverInput_Implementation(AController* Driver
 
 	if (bEnterVehicle)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] -> SwitchToVehicleInput 호출, DrivingMappingContext=%s"),
-			DrivingMappingContext ? *DrivingMappingContext->GetName() : TEXT("NULL"));
+		// UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] -> SwitchToVehicleInput 호출, DrivingMappingContext=%s"),
+		// 	DrivingMappingContext ? *DrivingMappingContext->GetName() : TEXT("NULL"));
 		PC->SwitchToVehicleInput(DrivingMappingContext);
 	}
 	else
@@ -575,7 +575,7 @@ void AVehicleBase::OnThrottleInput(const FInputActionValue& Value)
 	UChaosVehicleMovementComponent* Movement = GetVehicleMovementComponent();
 	if (!Movement)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[VEHICLE] OnThrottleInput: Movement NULL"));
+		// UE_LOG(LogTemp, Error, TEXT("[VEHICLE] OnThrottleInput: Movement NULL"));
 		return;
 	}
 
@@ -593,21 +593,21 @@ void AVehicleBase::OnThrottleInput(const FInputActionValue& Value)
 	// - HasAuthority / IsLocallyControlled: 이 머신이 물리 시뮬레이션 권한이 있는지
 	// - EngineRPM: 엔진이 실제로 도는지 (안 오르면 스로틀이 엔진에 전달 안 됨)
 	// - ForwardSpeed: 차가 실제로 나아가는지
-	float EngineRPM = -1.0f;
-	if (UChaosWheeledVehicleMovementComponent* Wheeled = Cast<UChaosWheeledVehicleMovementComponent>(Movement))
-	{
-		EngineRPM = Wheeled->GetEngineRotationSpeed();
-	}
+	// float EngineRPM = -1.0f;
+	// if (UChaosWheeledVehicleMovementComponent* Wheeled = Cast<UChaosWheeledVehicleMovementComponent>(Movement))
+	// {
+	// 	EngineRPM = Wheeled->GetEngineRotationSpeed();
+	// }
 	// 차량의 실제 Forward/Up 방향. Chaos 는 ActorForward(X축)를 앞으로 보고 미는데,
 	// 차가 물리적으로 누워있으면 UpZ 가 1 이 아니고, 그러면 접지/구동이 깨진다.
-	const FVector Fwd = GetActorForwardVector();
-	const FVector Up = GetActorUpVector();
-	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] Throttle=%.2f | EngineRPM=%.1f | ForwardSpeed=%.1f | Fwd=(%.2f,%.2f,%.2f) Up=(%.2f,%.2f,%.2f)"),
-		Axis,
-		EngineRPM,
-		Movement->GetForwardSpeed(),
-		Fwd.X, Fwd.Y, Fwd.Z,
-		Up.X, Up.Y, Up.Z);
+	// const FVector Fwd = GetActorForwardVector();
+	// const FVector Up = GetActorUpVector();
+	// UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] Throttle=%.2f | EngineRPM=%.1f | ForwardSpeed=%.1f | Fwd=(%.2f,%.2f,%.2f) Up=(%.2f,%.2f,%.2f)"),
+	// 	Axis,
+	// 	EngineRPM,
+	// 	Movement->GetForwardSpeed(),
+	// 	Fwd.X, Fwd.Y, Fwd.Z,
+	// 	Up.X, Up.Y, Up.Z);
 }
 
 // [VEHICLE-062] A/D : 조향. 누르는 동안 Triggered 로 값이 계속 들어온다.

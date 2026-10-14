@@ -364,8 +364,8 @@ void ASprayItem::SpraySurface()
 	if (!Holder || !Holder->GetController() || !DecalMaterial)
 	{
 		// [DEBUG-SPRAY] 사전 조건 실패 (소유자/컨트롤러/DecalMaterial 중 하나 없음)
-		UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] 사전조건 실패: Holder=%d Controller=%d DecalMaterial=%d"),
-			Holder != nullptr ? 1 : 0, (Holder && Holder->GetController()) ? 1 : 0, DecalMaterial != nullptr ? 1 : 0);
+		// UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] 사전조건 실패: Holder=%d Controller=%d DecalMaterial=%d"),
+		// 	Holder != nullptr ? 1 : 0, (Holder && Holder->GetController()) ? 1 : 0, DecalMaterial != nullptr ? 1 : 0);
 		return;
 	}
 	FVector Start;
@@ -419,8 +419,8 @@ void ASprayItem::MulticastStamp_Implementation(UPrimitiveComponent* Surface, FVe
 	if (GetNetMode() == NM_DedicatedServer || !IsValid(Surface) || !DecalMaterial)
 	{
 		// [DEBUG-SPRAY] Multicast 진입 실패 (전용서버/표면무효/머티리얼없음)
-		UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] Stamp 리턴: NetMode=%d SurfaceValid=%d DecalMaterial=%d"),
-			(int32)GetNetMode(), IsValid(Surface) ? 1 : 0, DecalMaterial != nullptr ? 1 : 0);
+		// UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] Stamp 리턴: NetMode=%d SurfaceValid=%d DecalMaterial=%d"),
+		// 	(int32)GetNetMode(), IsValid(Surface) ? 1 : 0, DecalMaterial != nullptr ? 1 : 0);
 		return;
 	}
 	Decals.RemoveAll([](const TWeakObjectPtr<UDecalComponent>& Decal) { return !Decal.IsValid(); });
@@ -446,9 +446,9 @@ void ASprayItem::MulticastStamp_Implementation(UPrimitiveComponent* Surface, FVe
 	// 파란 선 = 데칼이 실제 쏘는 방향(+X). 이게 벽 안(뒤)으로 향하면 투영이 안 됨.
 	if (Decal)
 	{
-		const FVector DecalForward = Decal->GetComponentQuat().GetForwardVector();
-		UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] WorldNormal=%s DecalForward(+X)=%s (Forward가 벽 바깥=Normal과 같은쪽이어야 정상)"),
-			*WorldNormal.ToString(), *DecalForward.ToString());
+		// const FVector DecalForward = Decal->GetComponentQuat().GetForwardVector();
+		// UE_LOG(LogTemp, Warning, TEXT("[DEBUG-SPRAY] WorldNormal=%s DecalForward(+X)=%s (Forward가 벽 바깥=Normal과 같은쪽이어야 정상)"),
+		// 	*WorldNormal.ToString(), *DecalForward.ToString());
 		/*DrawDebugLine(GetWorld(), DecalLoc, DecalLoc + DecalForward * 60.f, FColor::Blue, false, 3.0f, 0, 2.0f);
 		DrawDebugLine(GetWorld(), DecalLoc, DecalLoc + WorldNormal * 60.f, FColor::Cyan, false, 3.0f, 0, 2.0f);*/
 	}
