@@ -80,10 +80,13 @@ protected:
 	bool bAlignToFloorNormal = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Spawner|Config", meta = (Units = "cm"))
-	float FloorClearanceOffset = 3.0f;
+	float FloorClearanceOffset = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Spawner|Config", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float MinFloorNormalZ = 0.65f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Spawner|Config", meta = (ClampMin = "0.0", Units = "cm"))
+	float BottomTraceMargin = 250.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Spawner|Config")
 	bool bUse2DDistanceCheck = true;
@@ -109,7 +112,7 @@ private:
 	bool IsLocationFarEnoughFromExisting(const FVector& CandidateLocation) const;
 	bool FindFloorHit(const FVector& TraceStart, const FVector& TraceEnd, FHitResult& OutHit) const;
 	FVector GetRandomPointInSpawnBox() const;
-	void SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint) const;
+	void SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint, const FVector& SurfaceNormal) const;
 	TSubclassOf<ATrapBase> SelectRandomTrapClass() const;
 	void RemoveInvalidSpawnedTraps();
 };
