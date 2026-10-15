@@ -263,7 +263,7 @@ void AMapItem::RefreshHologramContent()
 	UUserWidget* MapWidget = HologramWidgetComponent->GetUserWidgetObject();
 	if (!MapWidget)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MapItem] 홀로그램 WBP_Map 인스턴스를 만들지 못했습니다."));
+		// UE_LOG(LogTemp, Warning, TEXT("[MapItem] 홀로그램 WBP_Map 인스턴스를 만들지 못했습니다."));
 		return;
 	}
 
@@ -283,7 +283,7 @@ void AMapItem::RefreshHologramContent()
 			UMaterialInterface* MapDisplayMaterial = Cast<UMaterialInterface>(MapImage->GetBrush().GetResourceObject());
 			if (!MapDisplayMaterial)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[MapItem] Img_Map 브러시에서 지도 표시 머티리얼을 찾지 못했습니다."));
+				// UE_LOG(LogTemp, Warning, TEXT("[MapItem] Img_Map 브러시에서 지도 표시 머티리얼을 찾지 못했습니다."));
 				return;
 			}
 
@@ -300,11 +300,11 @@ void AMapItem::RefreshHologramContent()
 		MapBrush.SetResourceObject(HologramMapMID);
 		MapImage->SetBrush(MapBrush);
 		MapImage->SetColorAndOpacity(FLinearColor::White);
-		UE_LOG(LogTemp, Log, TEXT("[MapItem] 홀로그램 지도 표시 MID에 CaptureRT를 연결했습니다."));
+		// UE_LOG(LogTemp, Log, TEXT("[MapItem] 홀로그램 지도 표시 MID에 CaptureRT를 연결했습니다."));
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MapItem] WBP_Map에서 Img_Map 이미지를 찾지 못했습니다."));
+		// UE_LOG(LogTemp, Warning, TEXT("[MapItem] WBP_Map에서 Img_Map 이미지를 찾지 못했습니다."));
 	}
 
 	HologramWidgetComponent->RequestRedraw();
