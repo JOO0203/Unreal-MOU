@@ -129,7 +129,7 @@ void ATrapSpawner::SpawnTraps()
 		{
 			const FVector RandomPoint = GetRandomPointInSpawnBox();
 			const FVector TraceStart(RandomPoint.X, RandomPoint.Y, Bounds.Max.Z);
-			const FVector TraceEnd(RandomPoint.X, RandomPoint.Y, Bounds.Min.Z);
+			const FVector TraceEnd(RandomPoint.X, RandomPoint.Y, Bounds.Min.Z - BottomTraceMargin);
 
 			FHitResult ValidFloorHit;
 			if (!FindFloorHit(TraceStart, TraceEnd, ValidFloorHit))
@@ -201,7 +201,7 @@ void ATrapSpawner::SpawnTraps()
 				}
 			}
 
-			SnapTrapToFloor(NewTrap, FoundFloorHit.ImpactPoint);
+			SnapTrapToFloor(NewTrap, FoundFloorHit.ImpactPoint, FoundFloorHit.ImpactNormal);
 			SpawnedTraps.Add(NewTrap);
 			SpawnedTrapLocations.Add(NewTrap->GetActorLocation());
 		}
@@ -415,19 +415,33 @@ bool ATrapSpawner::FindFloorHit(const FVector& TraceStart, const FVector& TraceE
 			continue;
 		}
 
+		const UPrimitiveComponent* HitComp = Hit.GetComponent();
+		if (!HitComp || HitComp->CanCharacterStepUpOn == ECB_No)
+		{
+			continue;
+		}
+
+		const FString CompName = HitComp->GetName();
+		const FString ActorName = HitActor->GetName();
+		if (CompName.Contains(TEXT("Grass"), ESearchCase::IgnoreCase) ||
+			CompName.Contains(TEXT("Foliage"), ESearchCase::IgnoreCase) ||
+			CompName.Contains(TEXT("Plant"), ESearchCase::IgnoreCase) ||
+			CompName.Contains(TEXT("Flower"), ESearchCase::IgnoreCase) ||
+			ActorName.Contains(TEXT("Grass"), ESearchCase::IgnoreCase) ||
+			ActorName.Contains(TEXT("Foliage"), ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+
 		const FVector LocalHitPoint = SpawnAreaBox->GetComponentTransform().InverseTransformPosition(Hit.ImpactPoint);
 		const FVector BoxExtent = SpawnAreaBox->GetUnscaledBoxExtent();
-		if (FMath::Abs(LocalHitPoint.X) > BoxExtent.X || FMath::Abs(LocalHitPoint.Y) > BoxExtent.Y || FMath::Abs(LocalHitPoint.Z) > BoxExtent.Z + FloorClearanceOffset)
+		if (FMath::Abs(LocalHitPoint.X) > BoxExtent.X ||
+			FMath::Abs(LocalHitPoint.Y) > BoxExtent.Y ||
+			LocalHitPoint.Z > BoxExtent.Z + FloorClearanceOffset ||
+			LocalHitPoint.Z < -(BoxExtent.Z + BottomTraceMargin))
 		{
 			continue;
 		}
-
-		const UPrimitiveComponent* HitComp = Hit.GetComponent();
-		if (HitComp && HitComp->CanCharacterStepUpOn == ECB_No)
-		{
-			continue;
-		}
-
 		OutHit = Hit;
 		return true;
 	}
@@ -435,7 +449,7 @@ bool ATrapSpawner::FindFloorHit(const FVector& TraceStart, const FVector& TraceE
 	return false;
 }
 
-void ATrapSpawner::SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint) const
+void ATrapSpawner::SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint, const FVector& SurfaceNormal) const
 {
 	if (!IsValid(Trap))
 	{
@@ -446,12 +460,15 @@ void ATrapSpawner::SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint) c
 	Trap->GetComponents<UMeshComponent>(MeshComponents);
 
 	bool bHasMesh = false;
-	float LowestZ = TNumericLimits<float>::Max();
+	float LocalLowestZ = 0.0f;
+
 	for (const UMeshComponent* MeshComp : MeshComponents)
 	{
 		if (IsValid(MeshComp) && MeshComp->IsVisible())
 		{
-			LowestZ = FMath::Min(LowestZ, static_cast<float>(MeshComp->Bounds.GetBox().Min.Z));
+			const FBoxSphereBounds LocalBounds = MeshComp->CalcBounds(FTransform::Identity);
+			const float BottomZ = LocalBounds.Origin.Z - LocalBounds.BoxExtent.Z;
+			LocalLowestZ = bHasMesh ? FMath::Min(LocalLowestZ, BottomZ) : BottomZ;
 			bHasMesh = true;
 		}
 	}
@@ -461,6 +478,7 @@ void ATrapSpawner::SnapTrapToFloor(ATrapBase* Trap, const FVector& FloorPoint) c
 		return;
 	}
 
-	const float OffsetZ = (FloorPoint.Z + FloorClearanceOffset) - LowestZ;
-	Trap->AddActorWorldOffset(FVector(0.0f, 0.0f, OffsetZ), false, nullptr, ETeleportType::TeleportPhysics);
+	const float DesiredNormalOffset = FloorClearanceOffset - LocalLowestZ;
+	const FVector TargetLocation = FloorPoint + (SurfaceNormal * DesiredNormalOffset);
+	Trap->SetActorLocation(TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
 }
