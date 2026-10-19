@@ -24,27 +24,27 @@ AHealingMeleeWeapon::AHealingMeleeWeapon()
 // [HEAL-001] 타이머에서 개발용 판정 범위 표시
 void AHealingMeleeWeapon::DrawSwingRange()
 {
-#if ENABLE_DRAW_DEBUG
-	if (bShowSwingRange && !IsHidden())
-	{
-		if (const AMainCharacter* Wielder = Cast<AMainCharacter>(GetOwningPawn()))
-		{
-			if (GetAttachParentActor() == Wielder)
-			{
-				const FVector Start = Wielder->GetActorLocation();
-				const FVector Forward = Wielder->GetBaseAimRotation().Vector();
-				const float Range = FMath::Max(1.0f, SwingRange);
-				const float Radius = FMath::Max(1.0f, SwingRadius);
-				DrawDebugCapsule(GetWorld(), Start + Forward * Range * 0.5f,
-					Range * 0.5f + Radius, Radius, FQuat::FindBetweenNormals(FVector::UpVector, Forward),
-					FColor::Yellow, false, 0.11f, 0, 1.5f);
-				DrawDebugSphere(GetWorld(), Start, Range, 32, FColor::Blue, false, 0.11f);
-				DrawDebugDirectionalArrow(GetWorld(), Start, Start + Forward * Range, 15.0f,
-					FColor::Yellow, false, 0.11f);
-			}
-		}
-	}
-#endif
+	// #if ENABLE_DRAW_DEBUG
+	// if (bShowSwingRange && !IsHidden())
+	// {
+	// 	if (const AMainCharacter* Wielder = Cast<AMainCharacter>(GetOwningPawn()))
+	// 	{
+	// 		if (GetAttachParentActor() == Wielder)
+	// 		{
+	// 			const FVector Start = Wielder->GetActorLocation();
+	// 			const FVector Forward = Wielder->GetBaseAimRotation().Vector();
+	// 			const float Range = FMath::Max(1.0f, SwingRange);
+	// 			const float Radius = FMath::Max(1.0f, SwingRadius);
+	// 			DrawDebugCapsule(GetWorld(), Start + Forward * Range * 0.5f,
+	// 				Range * 0.5f + Radius, Radius, FQuat::FindBetweenNormals(FVector::UpVector, Forward),
+	// 				FColor::Yellow, false, 0.11f, 0, 1.5f);
+	// 			DrawDebugSphere(GetWorld(), Start, Range, 32, FColor::Blue, false, 0.11f);
+	// 			DrawDebugDirectionalArrow(GetWorld(), Start, Start + Forward * Range, 15.0f,
+	// 				FColor::Yellow, false, 0.11f);
+	// 		}
+	// 	}
+	// }
+	// #endif
 }
 
 // [HEAL-005] 효과 적용 가능한 대상인지 검사
@@ -58,10 +58,8 @@ bool AHealingMeleeWeapon::IsValidTarget(AActor* HitActor) const
 void AHealingMeleeWeapon::BeginPlay()
 {
 	Super::BeginPlay();
-#if ENABLE_DRAW_DEBUG
-	if (bShowSwingRange)
-		GetWorldTimerManager().SetTimer(DebugRangeTimer, this, &AHealingMeleeWeapon::DrawSwingRange, 0.1f, true);
-#endif
+	// if (bShowSwingRange)
+	// 	GetWorldTimerManager().SetTimer(DebugRangeTimer, this, &AHealingMeleeWeapon::DrawSwingRange, 0.1f, true);
 }
 
 // [HEAL-013] 제거 시 실행 중인 어빌리티와 타이머 정리

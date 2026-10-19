@@ -57,7 +57,7 @@ public:
 	bool IsLobbyEntryLocallyReady() const;
 	bool bLobbyEntryInputLocked = false;
 	double NextLobbyEntryReadyReport = 0.0;
-    // [LATEJOIN-014] 호스트가 생존 관전 대상을 선택하여 먼 거리의 대상도 복제되게 합니다.
+    // [LATEJOIN-014] 사망·합류 관전 요청에서 전체 생존자를 선택하고 대상이 없으면 대기합니다.
     UFUNCTION(Server, Reliable)
     void ServerCycleLateJoinTarget(int32 Direction);
     // 서버에서 결정하며 맵의 정상적인 이동 동안 유지합니다.
@@ -144,17 +144,18 @@ public:
 	FOnViewTargetActorChanged OnViewTargetActorChanged;
 
 	UFUNCTION(BlueprintCallable, Category = "Spectator")
-	// [LATEJOIN-009] 다음 생존자를 관전하며 도중 합류자는 대상이 없어도 대기합니다.
+	// [LATEJOIN-009] 관전 중 서버의 전체 생존자 목록에서 다음 대상을 선택합니다.
 	void SpectateNextPlayer();
 
 	UFUNCTION(BlueprintCallable, Category = "Spectator")
-	// [LATEJOIN-010] 이전 생존자를 관전하며 도중 합류자는 대상이 없어도 대기합니다.
+	// [LATEJOIN-010] 관전 중 서버의 전체 생존자 목록에서 이전 대상을 선택합니다.
 	void SpectatePrevPlayer();
 
 	UFUNCTION(BlueprintCallable, Category = "Spectator")
 	void SetSpectateTarget(AMainCharacter* NewTarget, float BlendTime = 0.25f);
 
 	UFUNCTION(BlueprintPure, Category = "Spectator")
+	// [SPECTATE-000] 자신과 사망 또는 퇴장하거나 제거 중인 캐릭터를 제외한 생존자를 조회합니다.
 	TArray<AMainCharacter*> GetAliveTeammates() const;
 
 	UFUNCTION(BlueprintPure, Category = "Spectator")
@@ -164,7 +165,7 @@ public:
 	bool IsSpectating() const { return bIsSpectating; }
 
 	UFUNCTION(BlueprintCallable, Category = "Spectator")
-	// [LATEJOIN-008] 사망 또는 도중 합류 관전을 시작하고 대상 복제를 기다립니다.
+	// [LATEJOIN-008] 사망 또는 도중 합류 관전을 시작하고 서버의 대상 선택과 복제를 기다립니다.
 	void StartSpectating();
 
 	UFUNCTION(BlueprintCallable, Category = "Spectator")
@@ -330,7 +331,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void PreClientTravel(const FString& PendingURL, ETravelType TravelType, bool bIsSeamlessTravel) override;
 
-	// [LATEJOIN-011] 복제된 합류 제한에 따라 관전을 시작하고 기존 카메라를 갱신합니다.
+	// [LATEJOIN-011] 사망·합류 관전을 동기화하고 대상 사망·퇴장 시 생존자를 다시 찾습니다.
 	virtual void PlayerTick(float DeltaTime) override;
 
 	/** Input mapping context setup */

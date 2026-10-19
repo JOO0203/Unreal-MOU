@@ -32,11 +32,11 @@ namespace
 }
 
 // [POTION-DEBUG] 화면 + 로그 동시 출력용 임시 매크로 (원인 파악 후 제거)
-#define POTION_DEBUG(Color, Fmt, ...) \
-	do { \
-		UE_LOG(LogTeamProject_MOU, Warning, TEXT("[Potion] " Fmt), ##__VA_ARGS__); \
-		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 6.0f, Color, FString::Printf(TEXT("[Potion] " Fmt), ##__VA_ARGS__)); } \
-	} while (0)
+// #define POTION_DEBUG(Color, Fmt, ...) \
+// 	do { \
+// 		UE_LOG(LogTeamProject_MOU, Warning, TEXT("[Potion] " Fmt), ##__VA_ARGS__); \
+// 		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 6.0f, Color, FString::Printf(TEXT("[Potion] " Fmt), ##__VA_ARGS__)); } \
+// 	} while (0)
 
 // [POTION-000] 포션 공통 설정, 기본 사용 이펙트와 작은 메시의 바닥 관통 방지용 CCD를 초기화한다.
 APotionItem::APotionItem()
@@ -173,7 +173,7 @@ void APotionItem::OnUse_Implementation()
 			: nullptr;
 		if (!Carrying || Carrying->GetCarriedActor() != this)
 		{
-			POTION_DEBUG(FColor::Red, "사용 투척 실패: 소유자의 손에 든 포션을 찾지 못함");
+			// POTION_DEBUG(FColor::Red, "사용 투척 실패: 소유자의 손에 든 포션을 찾지 못함");
 			return;
 		}
 
@@ -259,7 +259,7 @@ void APotionItem::ExecutePendingImpactThrow()
 	if (!Carrying || Carrying->GetCarriedActor() != this)
 	{
 		bWaitingForThrowNotify = false;
-		POTION_DEBUG(FColor::Red, "Notify 투척 실패: 소유자의 손에 든 포션을 찾지 못함");
+		// POTION_DEBUG(FColor::Red, "Notify 투척 실패: 소유자의 손에 든 포션을 찾지 못함");
 		return;
 	}
 
@@ -478,8 +478,8 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 	}
 
 	// [POTION-DEBUG] 던지기 진입 시 충돌 발동 조건 상태 출력
-	POTION_DEBUG(FColor::Cyan, "Throw 호출됨: bThrowAsUse=%d, bApplyOnImpact=%d, HasAuthority=%d, MeshComponent=%d",
-		bThrowAsUse ? 1 : 0, bApplyOnImpact ? 1 : 0, HasAuthority() ? 1 : 0, MeshComponent ? 1 : 0);
+	// POTION_DEBUG(FColor::Cyan, "Throw 호출됨: bThrowAsUse=%d, bApplyOnImpact=%d, HasAuthority=%d, MeshComponent=%d",
+	// 	bThrowAsUse ? 1 : 0, bApplyOnImpact ? 1 : 0, HasAuthority() ? 1 : 0, MeshComponent ? 1 : 0);
 
 	// 좌클릭 "사용" 던지기(bThrowAsUse)일 때만 충돌 발동. Q(단순 투척)는 어떤 포션이든 절대 안 터진다.
 	if (bShouldApplyOnImpact)
@@ -487,12 +487,12 @@ void APotionItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 		bHasImpacted = false;
 		MeshComponent->SetNotifyRigidBodyCollision(true); // OnComponentHit 활성화
 		MeshComponent->OnComponentHit.AddUniqueDynamic(this, &APotionItem::OnImpact);
-		POTION_DEBUG(FColor::Green, "충돌 감지 바인딩 완료 (OnImpact 대기)");
+		// POTION_DEBUG(FColor::Green, "충돌 감지 바인딩 완료 (OnImpact 대기)");
 	}
 	else
 	{
 		// bThrowAsUse가 false(Q 투척)이거나 조건 미충족 → 던져도 절대 안 터짐
-		POTION_DEBUG(FColor::Red, "충돌 감지 미설정 (Q 투척이거나 조건 미충족)");
+		// POTION_DEBUG(FColor::Red, "충돌 감지 미설정 (Q 투척이거나 조건 미충족)");
 	}
 
 	// 부모의 충돌/물리 활성화보다 먼저 위 델리게이트가 등록되어 첫 충돌도 놓치지 않는다.
@@ -543,19 +543,19 @@ void APotionItem::OnImpact(UPrimitiveComponent* HitComp, AActor* OtherActor, UPr
 	FVector NormalImpulse, const FHitResult& Hit)
 {
 	// [POTION-DEBUG] 충돌 이벤트 자체는 도착했음
-	POTION_DEBUG(FColor::Yellow, "OnImpact 진입: Other=%s, HasAuthority=%d, bHasImpacted=%d",
-		*GetNameSafe(OtherActor), HasAuthority() ? 1 : 0, bHasImpacted ? 1 : 0);
+	// POTION_DEBUG(FColor::Yellow, "OnImpact 진입: Other=%s, HasAuthority=%d, bHasImpacted=%d",
+	// 	*GetNameSafe(OtherActor), HasAuthority() ? 1 : 0, bHasImpacted ? 1 : 0);
 
 	if (!HasAuthority() || bHasImpacted)
 	{
-		POTION_DEBUG(FColor::Red, "OnImpact 조기 반환 (권한 없음 or 이미 발동)");
+		// POTION_DEBUG(FColor::Red, "OnImpact 조기 반환 (권한 없음 or 이미 발동)");
 		return;
 	}
 
 	// 던진 본인과 손에서 나가자마자 충돌한 경우 자폭 방지
 	if (OtherActor && OtherActor == LastOwner)
 	{
-		POTION_DEBUG(FColor::Orange, "던진 본인과 충돌 → 무시 (아직 안 터짐, 다음 충돌 대기)");
+		// POTION_DEBUG(FColor::Orange, "던진 본인과 충돌 → 무시 (아직 안 터짐, 다음 충돌 대기)");
 		return;
 	}
 
@@ -575,13 +575,13 @@ void APotionItem::OnImpact(UPrimitiveComponent* HitComp, AActor* OtherActor, UPr
 		ACharacterBase::StaticClass(), IgnoreActors, Overlapped);
 
 	// [POTION-DEBUG] 반경 내 대상 수 (0이면 AMainCharacter가 반경 밖이거나 타입 불일치)
-	POTION_DEBUG(FColor::Yellow, "SphereOverlap 결과: %d명 (Radius=%.0f). 0이면 대상 없음",
-		Overlapped.Num(), ImpactRadius);
+	// POTION_DEBUG(FColor::Yellow, "SphereOverlap 결과: %d명 (Radius=%.0f). 0이면 대상 없음",
+	// 	Overlapped.Num(), ImpactRadius);
 
 	for (AActor* Actor : Overlapped)
 	{
-		POTION_DEBUG(FColor::Green, "효과 적용 대상: %s (EffectsToApply=%d개, TagsToApply=%d개)",
-			*GetNameSafe(Actor), EffectsToApply.Num(), TagsToApply.Num());
+		// POTION_DEBUG(FColor::Green, "효과 적용 대상: %s (EffectsToApply=%d개, TagsToApply=%d개)",
+		// 	*GetNameSafe(Actor), EffectsToApply.Num(), TagsToApply.Num());
 		ApplyPotionEffectToTarget(Actor);
 	}
 

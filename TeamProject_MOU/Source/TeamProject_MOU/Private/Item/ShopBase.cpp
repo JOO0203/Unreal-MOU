@@ -99,13 +99,13 @@ void AShopBase::SpawnShopItems()
 
 	if (!InternalSpawner)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ShopBase] InternalSpawner가 없음 (BeginPlay 전 호출?)"));
+		// UE_LOG(LogTemp, Warning, TEXT("[ShopBase] InternalSpawner가 없음 (BeginPlay 전 호출?)"));
 		return;
 	}
 
 	if (!ItemTable)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ShopBase] ItemTable이 지정되지 않음"));
+		// UE_LOG(LogTemp, Warning, TEXT("[ShopBase] ItemTable이 지정되지 않음"));
 		return;
 	}
 
@@ -120,7 +120,7 @@ void AShopBase::SpawnShopItems()
 
 	if (SlotTransforms.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ShopBase] 진열 슬롯이 없음 (ItemAnchorRoot 밑에 Scene Component를 추가하세요)"));
+		// UE_LOG(LogTemp, Warning, TEXT("[ShopBase] 진열 슬롯이 없음 (ItemAnchorRoot 밑에 Scene Component를 추가하세요)"));
 		return;
 	}
 
@@ -357,13 +357,13 @@ bool AShopBase::TryPurchaseItem(AItemBase* Item, AActor* Buyer)
 		AProjectGameStateBase* GS = World ? World->GetGameState<AProjectGameStateBase>() : nullptr;
 		if (!GS)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[ShopBase] GameState를 찾을 수 없어 결제 불가"));
+			// UE_LOG(LogTemp, Warning, TEXT("[ShopBase] GameState를 찾을 수 없어 결제 불가"));
 			return false;
 		}
 
 		if (!GS->SpendGold(Price))
 		{
-			UE_LOG(LogTemp, Log, TEXT("[ShopBase] 골드 부족으로 구매 실패 (가격 %d)"), Price);
+			// UE_LOG(LogTemp, Log, TEXT("[ShopBase] 골드 부족으로 구매 실패 (가격 %d)"), Price);
 			return false;
 		}
 	}

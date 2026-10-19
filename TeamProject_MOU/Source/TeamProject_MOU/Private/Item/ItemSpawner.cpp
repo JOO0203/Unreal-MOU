@@ -93,7 +93,7 @@ AItemBase* AItemSpawner::SpawnItemAt(FName RowName, FVector Location, FRotator R
 
 	if (!ItemTable)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] ItemTable이 지정되지 않음"));
+		// UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] ItemTable이 지정되지 않음"));
 		return nullptr;
 	}
 
@@ -102,13 +102,13 @@ AItemBase* AItemSpawner::SpawnItemAt(FName RowName, FVector Location, FRotator R
 	const FItemSpawnRow* Row = ItemTable->FindRow<FItemSpawnRow>(RowName, Context);
 	if (!Row)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 행 '%s'을(를) 찾을 수 없음"), *RowName.ToString());
+		// UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 행 '%s'을(를) 찾을 수 없음"), *RowName.ToString());
 		return nullptr;
 	}
 
 	if (!Row->ItemClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 행 '%s'의 ItemClass가 비어 있음"), *RowName.ToString());
+		// UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 행 '%s'의 ItemClass가 비어 있음"), *RowName.ToString());
 		return nullptr;
 	}
 
@@ -153,7 +153,7 @@ AItemBase* AItemSpawner::SpawnItemFromSaveData(const FStoredItemInstanceData& It
 
 	if (!ItemSaveData.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 저장 데이터의 ItemClass가 비어 있음"));
+		// UE_LOG(LogTemp, Warning, TEXT("[ItemSpawner] 저장 데이터의 ItemClass가 비어 있음"));
 		return nullptr;
 	}
 
