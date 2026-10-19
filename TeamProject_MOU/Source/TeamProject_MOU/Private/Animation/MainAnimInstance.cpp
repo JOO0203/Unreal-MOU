@@ -117,7 +117,7 @@ void UMainAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		bIsEmoting = EmoteTag.IsValid() && ASC->HasMatchingGameplayTag(EmoteTag);
 	}
 
-	bool bShouldBlockAO = (MainCharacter->bIsDead || MainCharacter->bIsGroggy || MainCharacter->IsStunned() || bIsStunned || bIsHeld || bIsEmoting || bIsPushing || bIsHoldingHealingMelee);
+	bool bShouldBlockAO = (MainCharacter->bIsDead || MainCharacter->bIsGroggy || MainCharacter->IsStunned() || bIsStunned || bIsHeld || bIsEmoting || bIsPushing || bIsHoldingHealingMelee || MainCharacter->IsInCustomizationMode());
 
 	if (bShouldBlockAO)
 	{

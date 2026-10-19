@@ -10,7 +10,7 @@
  * UMG 디자이너 팔레트에서 자식 위젯을 감싸면(Wrap With),
  * UMOU_HUDSwaySubsystem과 연동되어 자식 위젯들을 자동으로 흔들어주는 UMG 컨테이너 위젯
  */
-UCLASS()
+UCLASS(meta = (DisplayName = "HUD Sway Box"))
 class TEAMPROJECT_MOU_API UMOU_SwayBox : public UContentWidget
 {
 	GENERATED_BODY()
